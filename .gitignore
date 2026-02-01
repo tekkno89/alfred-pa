@@ -40,6 +40,29 @@ frontend/build/
 .env.*.local
 *.env
 
+# Secrets & Credentials
+credentials.json
+*-credentials.json
+*-service-account.json
+service-account*.json
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.yaml
+secrets.yml
+.secrets/
+
+# GCP / Google Cloud
+gcp-credentials.json
+google-credentials.json
+application_default_credentials.json
+
+# API Keys (in case someone creates a file)
+api-keys.txt
+api_keys.txt
+*.apikey
+
 # IDE
 .idea/
 .vscode/

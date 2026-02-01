@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     vertex_location: str = "us-central1"
     default_llm: str = "gemini-1.5-pro"
 
+    # OpenRouter (for multi-model access)
+    openrouter_api_key: str = ""
+
     # Slack
     slack_bot_token: str = ""
     slack_signing_secret: str = ""

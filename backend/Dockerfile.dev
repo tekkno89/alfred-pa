@@ -15,15 +15,24 @@ RUN apt-get update && apt-get install -y \
 # Add UV to PATH
 ENV PATH="/root/.local/bin:$PATH"
 
-# Copy dependency files first for layer caching
-COPY pyproject.toml uv.lock* ./
-
-# Install all dependencies including dev
-RUN uv sync --frozen --no-install-project || uv sync --no-install-project
+# Create virtual environment
+RUN uv venv /app/.venv
 
 # Set up UV environment
 ENV PATH="/app/.venv/bin:$PATH"
 ENV VIRTUAL_ENV="/app/.venv"
+
+# Copy dependency files first for layer caching
+COPY pyproject.toml ./
+COPY uv.lock* ./
+
+# Install all dependencies including dev
+# Use --frozen if lock exists, otherwise generate it
+RUN if [ -f uv.lock ]; then \
+        uv sync --frozen; \
+    else \
+        uv sync; \
+    fi
 
 # Expose port
 EXPOSE 8000

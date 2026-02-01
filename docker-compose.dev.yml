@@ -11,8 +11,16 @@ services:
       - DATABASE_URL=postgresql://alfred:alfred@postgres:5432/alfred
       - REDIS_URL=redis://redis:6379
       - DEBUG=true
+      # LLM Provider configuration
+      - DEFAULT_LLM=${DEFAULT_LLM:-gemini-1.5-pro}
+      # Vertex AI (default)
+      - VERTEX_PROJECT_ID=${VERTEX_PROJECT_ID:-}
+      - VERTEX_LOCATION=${VERTEX_LOCATION:-us-central1}
+      # OpenRouter (alternative - set DEFAULT_LLM=openrouter/anthropic/claude-3.5-sonnet)
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
     volumes:
       - ./backend:/app
+      - backend_venv:/app/.venv
       - /app/__pycache__
       - /app/.pytest_cache
     depends_on:
@@ -98,3 +106,4 @@ volumes:
   prometheus_data:
   loki_data:
   grafana_data:
+  backend_venv:
