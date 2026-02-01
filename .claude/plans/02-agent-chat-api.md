@@ -39,7 +39,8 @@ Implement the LangGraph Alfred agent and chat API endpoints so the backend can b
 - [x] Create LLM provider abstraction interface
 - [x] Implement Vertex AI Gemini provider
 - [x] Implement Vertex AI Claude provider
-- [x] Add provider selection via config
+- [x] Implement OpenRouter provider (multi-model access)
+- [x] Add provider selection via config/model name prefix
 
 ### LangGraph Agent
 - [x] Define AgentState TypedDict

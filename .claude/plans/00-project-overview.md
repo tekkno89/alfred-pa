@@ -40,10 +40,12 @@ Completed items:
 Completed items:
 - [x] LangGraph Alfred agent with conversation flow
 - [x] Chat API endpoints (sessions, messages)
-- [x] LLM provider abstraction (Gemini + Claude via Vertex AI)
+- [x] LLM provider abstraction (Gemini + Claude via Vertex AI, OpenRouter)
 - [x] Streaming response support via SSE
 - [x] Session and message repositories
 - [x] Integration and unit tests
+- [x] UV package manager integration
+- [x] Docker dev environment with hot reload
 
 ---
 
