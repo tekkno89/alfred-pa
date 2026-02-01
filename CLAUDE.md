@@ -10,6 +10,7 @@ Alfred is a personal AI assistant built with LangGraph, FastAPI, React, and Slac
 - **Frontend:** `frontend/` - React + Tailwind + shadcn/ui
 - **Database:** PostgreSQL 16 + pgvector, Redis 7
 - **LLM:** Vertex AI (Gemini + Claude, configurable)
+- **Package Manager:** UV (Python), npm (Frontend)
 
 ## Development Commands
 
@@ -18,18 +19,40 @@ Alfred is a personal AI assistant built with LangGraph, FastAPI, React, and Slac
 docker-compose -f docker-compose.dev.yml up
 ```
 
-### Backend
+### Backend (UV Package Manager)
 ```bash
 cd backend
-pip install -r requirements.txt -r requirements-dev.txt
-pytest                          # Run tests
-pytest --cov                    # Run tests with coverage
+
+# Install UV (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install dependencies
+uv sync                         # Install all deps (including dev)
+uv sync --no-dev                # Install production deps only
+
+# Add/remove dependencies
+uv add <package>                # Add a dependency
+uv add --dev <package>          # Add a dev dependency
+uv remove <package>             # Remove a dependency
+
+# Run commands in the virtual environment
+uv run pytest                   # Run tests
+uv run pytest --cov             # Run tests with coverage
+uv run ruff check .             # Run linter
+uv run mypy app                 # Run type checker
 
 # Database
-alembic upgrade head            # Run all migrations
-alembic revision --autogenerate -m "description"  # Create migration
-alembic downgrade -1            # Rollback one version
-python -m app.db.seed           # Seed dev database
+uv run alembic upgrade head            # Run all migrations
+uv run alembic revision --autogenerate -m "description"  # Create migration
+uv run alembic downgrade -1            # Rollback one version
+uv run python -m app.db.seed           # Seed dev database
+```
+
+### Backend (Docker - recommended for development)
+```bash
+# All backend commands run in Docker for consistency
+docker-compose -f docker-compose.dev.yml exec backend pytest
+docker-compose -f docker-compose.dev.yml exec backend alembic upgrade head
 ```
 
 ### Frontend

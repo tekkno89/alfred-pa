@@ -8,6 +8,7 @@ A personal AI assistant built with LangGraph, FastAPI, React, and Slack integrat
 - Docker and Docker Compose
 - Node.js 20+ (for frontend development)
 - Python 3.11+ (for backend development)
+- [UV](https://docs.astral.sh/uv/) (Python package manager)
 
 ### Development
 
