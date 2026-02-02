@@ -1,3 +1,9 @@
+from app.schemas.auth import (
+    TokenResponse,
+    UserLogin,
+    UserRegister,
+    UserResponse,
+)
 from app.schemas.session import (
     DeleteResponse,
     SessionCreate,
@@ -22,4 +28,8 @@ __all__ = [
     "SessionResponse",
     "SessionWithMessages",
     "StreamEvent",
+    "TokenResponse",
+    "UserLogin",
+    "UserRegister",
+    "UserResponse",
 ]

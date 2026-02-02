@@ -2,7 +2,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.factories import UserFactory, SessionFactory
+from tests.conftest import auth_headers
+from tests.factories import SessionFactory, UserFactory
 
 
 @pytest.fixture
@@ -27,7 +28,7 @@ class TestCreateSession:
         response = await client.post(
             "/api/sessions",
             json={"title": "Test Session"},
-            headers={"X-User-Id": test_user.id},
+            headers=auth_headers(test_user),
         )
 
         assert response.status_code == 201
@@ -46,7 +47,7 @@ class TestCreateSession:
         response = await client.post(
             "/api/sessions",
             json={},
-            headers={"X-User-Id": test_user.id},
+            headers=auth_headers(test_user),
         )
 
         assert response.status_code == 201
@@ -77,7 +78,7 @@ class TestListSessions:
         """Should return empty list when no sessions."""
         response = await client.get(
             "/api/sessions",
-            headers={"X-User-Id": test_user.id},
+            headers=auth_headers(test_user),
         )
 
         assert response.status_code == 200
@@ -102,7 +103,7 @@ class TestListSessions:
 
         response = await client.get(
             "/api/sessions",
-            headers={"X-User-Id": test_user.id},
+            headers=auth_headers(test_user),
         )
 
         assert response.status_code == 200
@@ -127,7 +128,7 @@ class TestListSessions:
 
         response = await client.get(
             "/api/sessions?page=1&size=2",
-            headers={"X-User-Id": test_user.id},
+            headers=auth_headers(test_user),
         )
 
         assert response.status_code == 200
@@ -155,7 +156,7 @@ class TestGetSession:
 
         response = await client.get(
             f"/api/sessions/{session.id}",
-            headers={"X-User-Id": test_user.id},
+            headers=auth_headers(test_user),
         )
 
         assert response.status_code == 200
@@ -172,7 +173,7 @@ class TestGetSession:
         """Should return 404 for non-existent session."""
         response = await client.get(
             "/api/sessions/00000000-0000-0000-0000-000000000000",
-            headers={"X-User-Id": test_user.id},
+            headers=auth_headers(test_user),
         )
 
         assert response.status_code == 404
@@ -195,7 +196,7 @@ class TestGetSession:
 
         response = await client.get(
             f"/api/sessions/{session.id}",
-            headers={"X-User-Id": test_user.id},
+            headers=auth_headers(test_user),
         )
 
         assert response.status_code == 403
@@ -218,7 +219,7 @@ class TestDeleteSession:
 
         response = await client.delete(
             f"/api/sessions/{session.id}",
-            headers={"X-User-Id": test_user.id},
+            headers=auth_headers(test_user),
         )
 
         assert response.status_code == 200
@@ -228,7 +229,7 @@ class TestDeleteSession:
         # Verify session is deleted
         get_response = await client.get(
             f"/api/sessions/{session.id}",
-            headers={"X-User-Id": test_user.id},
+            headers=auth_headers(test_user),
         )
         assert get_response.status_code == 404
 
@@ -240,7 +241,7 @@ class TestDeleteSession:
         """Should return 404 for non-existent session."""
         response = await client.delete(
             "/api/sessions/00000000-0000-0000-0000-000000000000",
-            headers={"X-User-Id": test_user.id},
+            headers=auth_headers(test_user),
         )
 
         assert response.status_code == 404
@@ -263,7 +264,7 @@ class TestDeleteSession:
 
         response = await client.delete(
             f"/api/sessions/{session.id}",
-            headers={"X-User-Id": test_user.id},
+            headers=auth_headers(test_user),
         )
 
         assert response.status_code == 403

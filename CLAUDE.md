@@ -71,15 +71,81 @@ Implementation tasks are tracked in `.claude/plans/`.
 ### Plan Files Structure
 - **00-project-overview.md** - Master overview with phase status and architecture
 - **01-infrastructure.md** - Phase 1: Monorepo, Docker, database setup (✅ Complete)
-- **02-agent-chat-api.md** - Phase 2: LangGraph agent, chat endpoints
+- **02-agent-chat-api.md** - Phase 2: LangGraph agent, chat endpoints (✅ Complete)
+- **03-authentication.md** - Phase 3: Email/password auth, JWT (✅ Complete)
 - Additional phase files created as needed
+
+### CRITICAL: Task File Creation (Session Crash Protection)
+
+**BEFORE starting any implementation work, you MUST:**
+
+1. **Create or update the task file** for the phase you're working on in `.claude/plans/`
+2. The task file should include:
+   - Goal/objective of the phase
+   - Scope (in/out of scope)
+   - Detailed task checklist with `[ ]` markers
+   - API specifications (if applicable)
+   - Files to create/modify
+   - Verification steps
+3. **Update the task file incrementally** as you complete work:
+   - Mark tasks `[x]` immediately when completed (don't wait until end)
+   - Add notes about implementation decisions
+   - Document any issues encountered and how they were resolved
+   - Add test results when tests pass
+4. This ensures work can be resumed if the session crashes
 
 ### Workflow
 1. Start each session by reading `00-project-overview.md` to understand current status
-2. Read the relevant phase file for detailed tasks
-3. Mark tasks `[x]` when complete
-4. Update phase status in overview when phase completes
-5. Add new tasks as they emerge
+2. **Create/update the task file BEFORE writing any code**
+3. Read the relevant phase file for detailed tasks
+4. Mark tasks `[x]` immediately when complete (not at the end)
+5. Update phase status in overview when phase completes
+6. Add new tasks as they emerge
+
+## Documentation & Diagrams
+
+### Diagram Generation
+
+Store architecture and flow diagrams in `.claude/diagrams/` using Mermaid format.
+
+**When to create diagrams:**
+- New API flows or endpoints
+- Authentication/authorization flows
+- Database schema changes (ERD updates)
+- Agent/LLM interaction flows
+- System architecture changes
+- Complex business logic flows
+
+**Diagram file format:**
+````markdown
+# Title
+
+## Description
+
+```mermaid
+graph TD
+    A[Component] --> B[Component]
+```
+
+## Components
+- Component descriptions
+````
+
+### Existing Diagrams
+- `architecture.md` - System overview
+- `agent-flow.md` - LangGraph agent flow
+- `auth-flow.md` - JWT authentication flow
+- `chat-api-flow.md` - Chat API sequence
+- `database-erd.md` - Database schema
+- `llm-providers.md` - LLM provider abstraction
+- `memory-flow.md` - Memory system flow
+- `streaming-flow.md` - SSE streaming flow
+
+### When to Update Documentation
+- After completing a phase, ensure diagrams reflect the implementation
+- When adding new APIs, create sequence diagrams
+- When modifying architecture, update the architecture diagram
+- Include diagrams in the phase task file if helpful
 
 ## Coding Standards
 

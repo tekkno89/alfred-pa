@@ -2,7 +2,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.factories import UserFactory, SessionFactory, MessageFactory
+from tests.conftest import auth_headers
+from tests.factories import MessageFactory, SessionFactory, UserFactory
 
 
 @pytest.fixture
@@ -37,7 +38,7 @@ class TestGetMessages:
         """Should return empty list when no messages."""
         response = await client.get(
             f"/api/sessions/{test_session.id}/messages",
-            headers={"X-User-Id": test_user.id},
+            headers=auth_headers(test_user),
         )
 
         assert response.status_code == 200
@@ -68,7 +69,7 @@ class TestGetMessages:
 
         response = await client.get(
             f"/api/sessions/{test_session.id}/messages",
-            headers={"X-User-Id": test_user.id},
+            headers=auth_headers(test_user),
         )
 
         assert response.status_code == 200
@@ -84,7 +85,7 @@ class TestGetMessages:
         """Should return 404 for non-existent session."""
         response = await client.get(
             "/api/sessions/00000000-0000-0000-0000-000000000000/messages",
-            headers={"X-User-Id": test_user.id},
+            headers=auth_headers(test_user),
         )
 
         assert response.status_code == 404
@@ -107,7 +108,7 @@ class TestGetMessages:
 
         response = await client.get(
             f"/api/sessions/{other_session.id}/messages",
-            headers={"X-User-Id": test_user.id},
+            headers=auth_headers(test_user),
         )
 
         assert response.status_code == 403
@@ -125,7 +126,7 @@ class TestSendMessage:
         response = await client.post(
             "/api/sessions/00000000-0000-0000-0000-000000000000/messages",
             json={"content": "Hello"},
-            headers={"X-User-Id": test_user.id},
+            headers=auth_headers(test_user),
         )
 
         assert response.status_code == 404
@@ -149,7 +150,7 @@ class TestSendMessage:
         response = await client.post(
             f"/api/sessions/{other_session.id}/messages",
             json={"content": "Hello"},
-            headers={"X-User-Id": test_user.id},
+            headers=auth_headers(test_user),
         )
 
         assert response.status_code == 403

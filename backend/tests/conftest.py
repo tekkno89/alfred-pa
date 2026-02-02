@@ -6,15 +6,16 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
-    create_async_engine,
     async_sessionmaker,
+    create_async_engine,
 )
 from sqlalchemy.pool import NullPool
 
-from app.main import app
-from app.db.base import Base
 from app.api.deps import get_db
-
+from app.core.security import create_access_token
+from app.db.base import Base
+from app.db.models import User
+from app.main import app
 
 # Test database URL (use a separate test database)
 TEST_DATABASE_URL = "postgresql+asyncpg://alfred:alfred@localhost:5432/alfred_test"
@@ -87,3 +88,9 @@ async def client(setup_database) -> AsyncGenerator[AsyncClient, None]:
         yield ac
 
     app.dependency_overrides.clear()
+
+
+def auth_headers(user: User) -> dict[str, str]:
+    """Generate Authorization headers for a user."""
+    token = create_access_token(user.id)
+    return {"Authorization": f"Bearer {token}"}

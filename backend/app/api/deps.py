@@ -1,12 +1,14 @@
 from collections.abc import AsyncGenerator
 from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.session import async_session_maker
+from app.core.security import decode_access_token
 from app.db.models import User
+from app.db.session import async_session_maker
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -23,21 +25,35 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 # Type alias for database session dependency
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
+# HTTP Bearer token security scheme
+bearer_scheme = HTTPBearer(auto_error=False)
+
 
 async def get_current_user_optional(
     db: DbSession,
-    x_user_id: str | None = Header(None, alias="X-User-Id"),
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(bearer_scheme)
+    ] = None,
 ) -> User | None:
     """
-    Get current user from X-User-Id header.
+    Get current user from JWT Bearer token.
 
-    This is a simplified auth for testing. In production, this will be
-    replaced with proper JWT authentication.
+    Returns None if no token is provided or token is invalid.
     """
-    if not x_user_id:
+    if not credentials:
         return None
 
-    result = await db.execute(select(User).where(User.id == x_user_id))
+    # Decode the JWT token
+    payload = decode_access_token(credentials.credentials)
+    if not payload:
+        return None
+
+    user_id = payload.get("sub")
+    if not user_id:
+        return None
+
+    # Fetch user from database
+    result = await db.execute(select(User).where(User.id == user_id))
     return result.scalar_one_or_none()
 
 
@@ -47,12 +63,13 @@ async def get_current_user(
     """
     Get current user, raising 401 if not authenticated.
 
-    For testing, a valid X-User-Id header must be provided.
+    Requires a valid JWT Bearer token in the Authorization header.
     """
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
         )
     return user
 

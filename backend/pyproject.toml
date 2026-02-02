@@ -35,6 +35,7 @@ dependencies = [
     "structlog>=24.1.0",
     # Slack
     "slack-sdk>=3.26.0",
+    "email-validator>=2.3.0",
 ]
 
 [project.optional-dependencies]

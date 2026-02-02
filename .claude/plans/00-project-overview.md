@@ -6,7 +6,7 @@
 |-------|--------|-------------|
 | Phase 1: Infrastructure | ✅ Complete | Monorepo, Docker, databases, base configs |
 | Phase 2: Agent & Chat API | ✅ Complete | LangGraph agent, chat endpoints, LLM integration |
-| Phase 3: Authentication | 🔲 Not Started | Email/password, Google OAuth, JWT |
+| Phase 3: Authentication | ✅ Complete | Email/password, JWT (OAuth deferred) |
 | Phase 4: Memory System | 🔲 Not Started | Long-term memory, embeddings, retrieval |
 | Phase 5: Frontend Core | 🔲 Not Started | Auth pages, session list, chat interface |
 | Phase 6: Slack Integration | 🔲 Not Started | Slack app, webhooks, cross-channel sync |
@@ -49,16 +49,24 @@ Completed items:
 
 ---
 
-## Phase 3: Authentication 🔲
+## Phase 3: Authentication ✅
 
-**Status:** Not Started
+**Status:** Complete
 **Plan File:** [03-authentication.md](./03-authentication.md)
 
-Key deliverables:
-- Email/password registration and login
+Completed items:
+- [x] Email/password registration and login
+- [x] JWT token generation and validation
+- [x] Password hashing with bcrypt
+- [x] Protected route middleware (Bearer token auth)
+- [x] User profile endpoint (/auth/me)
+- [x] Comprehensive auth tests (15 tests)
+- [x] Updated all existing tests to use JWT auth
+
+Deferred to future:
 - Google OAuth integration
-- JWT token management
-- Protected route middleware
+- Password reset / email verification
+- Token expiration + refresh tokens
 
 ---
 
