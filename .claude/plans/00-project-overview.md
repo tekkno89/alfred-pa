@@ -200,3 +200,26 @@ docker-compose exec frontend npm test
 │  └──────────────────┘  └──────────┘  └──────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Future Enhancements (Backlog)
+
+Features to implement after core phases are complete:
+
+### Agent & Personalization
+- [ ] **Configurable agent prompt** - Allow users to customize Alfred's personality/system prompt via settings or API
+- [ ] Per-user agent preferences (formality level, verbosity, etc.)
+
+### Authentication
+- [ ] Google OAuth integration
+- [ ] Password reset / forgot password flow
+- [ ] Email verification
+- [ ] Token expiration + refresh tokens
+- [ ] KMS integration for JWT signing
+
+### Advanced Features
+- [ ] Desktop app (Electron or Tauri)
+- [ ] Voice input/output
+- [ ] File attachments in chat
+- [ ] Multi-model conversations (switch models mid-chat)
