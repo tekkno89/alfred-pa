@@ -293,27 +293,45 @@ async def generate_response_stream(
         yield token
 
 
-async def save_messages(
+async def save_user_message(
     state: AgentState,
     message_repo: MessageRepository,
 ) -> dict[str, Any]:
     """
-    Save user and assistant messages to the database.
+    Save the user message to the database.
+
+    This should be called BEFORE retrieving context so the user message
+    gets an earlier timestamp than the assistant response.
     """
     if state.get("error"):
         return {}
 
     session_id = state["session_id"]
 
-    # Save user message
     await message_repo.create_message(
         session_id=session_id,
         role="user",
         content=state["user_message"],
     )
 
-    # Save assistant response
+    return {}
+
+
+async def save_assistant_message(
+    state: AgentState,
+    message_repo: MessageRepository,
+) -> dict[str, Any]:
+    """
+    Save the assistant message to the database.
+
+    This should be called AFTER generating the response.
+    """
+    if state.get("error"):
+        return {}
+
+    session_id = state["session_id"]
     response = state.get("response", "")
+
     if response:
         await message_repo.create_message(
             session_id=session_id,

@@ -10,6 +10,12 @@ class SessionCreate(BaseModel):
     title: str | None = None
 
 
+class SessionUpdate(BaseModel):
+    """Schema for updating a session."""
+
+    title: str | None = None
+
+
 class SessionResponse(BaseModel):
     """Schema for session response."""
 

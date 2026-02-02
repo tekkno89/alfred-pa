@@ -10,7 +10,8 @@ from app.agents.nodes import (
     handle_remember_command,
     process_message,
     retrieve_context,
-    save_messages,
+    save_assistant_message,
+    save_user_message,
 )
 from app.agents.state import AgentState
 from app.core.llm import LLMProvider, get_llm_provider
@@ -82,7 +83,8 @@ class AlfredAgent:
                 await handle_remember_command(state, self.memory_repo)
             )
             # Save messages and return early
-            await save_messages(state, self.message_repo)
+            await save_user_message(state, self.message_repo)
+            await save_assistant_message(state, self.message_repo)
             return state["response"]
 
         # Step 2: Retrieve context (includes memory retrieval)
@@ -90,16 +92,20 @@ class AlfredAgent:
             await retrieve_context(state, self.message_repo, self.memory_repo)
         )
 
-        # Step 3: Generate response
+        # Step 3: Save user message (after context retrieval, before response generation)
+        # This ensures user message has earlier timestamp than assistant response
+        await save_user_message(state, self.message_repo)
+
+        # Step 4: Generate response
         state.update(await generate_response(state, self.llm_provider))
         if state.get("error"):
             raise ValueError(state["error"])
 
-        # Step 4: Extract memories (handled by scheduled task)
+        # Step 5: Extract memories (handled by scheduled task)
         state.update(await extract_memories(state))
 
-        # Step 5: Save messages
-        state.update(await save_messages(state, self.message_repo))
+        # Step 6: Save assistant message
+        await save_assistant_message(state, self.message_repo)
 
         return state["response"]
 
@@ -147,7 +153,8 @@ class AlfredAgent:
             )
             # Yield the response and save messages
             yield state["response"]
-            await save_messages(state, self.message_repo)
+            await save_user_message(state, self.message_repo)
+            await save_assistant_message(state, self.message_repo)
             return
 
         # Step 2: Retrieve context (includes memory retrieval)
@@ -155,7 +162,11 @@ class AlfredAgent:
             await retrieve_context(state, self.message_repo, self.memory_repo)
         )
 
-        # Step 3: Generate streaming response
+        # Step 3: Save user message (after context retrieval, before response generation)
+        # This ensures user message has earlier timestamp than assistant response
+        await save_user_message(state, self.message_repo)
+
+        # Step 4: Generate streaming response
         full_response: list[str] = []
         async for token in generate_response_stream(state, self.llm_provider):
             full_response.append(token)
@@ -164,8 +175,8 @@ class AlfredAgent:
         # Collect full response for saving
         state["response"] = "".join(full_response)
 
-        # Step 4: Extract memories (handled by scheduled task)
+        # Step 5: Extract memories (handled by scheduled task)
         await extract_memories(state)
 
-        # Step 5: Save messages
-        await save_messages(state, self.message_repo)
+        # Step 6: Save assistant message
+        await save_assistant_message(state, self.message_repo)

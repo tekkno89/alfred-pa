@@ -8,7 +8,7 @@
 | Phase 2: Agent & Chat API | ✅ Complete | LangGraph agent, chat endpoints, LLM integration |
 | Phase 3: Authentication | ✅ Complete | Email/password, JWT (OAuth deferred) |
 | Phase 4: Memory System | ✅ Complete | Long-term memory, embeddings, retrieval |
-| Phase 5: Frontend Core | 🔲 Not Started | Auth pages, session list, chat interface |
+| Phase 5: Frontend Core | ✅ Complete | Auth pages, session list, chat interface, memories |
 | Phase 6: Slack Integration | 🔲 Not Started | Slack app, webhooks, cross-channel sync |
 | Phase 7: Observability | 🔲 Not Started | Prometheus metrics, Loki logging, dashboards |
 | Phase 8: CI/CD | 🔲 Not Started | GitHub Actions, Cloud Run deployment |
@@ -87,16 +87,23 @@ Completed items:
 
 ---
 
-## Phase 5: Frontend Core 🔲
+## Phase 5: Frontend Core ✅
 
-**Status:** Not Started
+**Status:** Complete
 **Plan File:** [05-frontend-core.md](./05-frontend-core.md)
 
-Key deliverables:
-- Authentication pages (login, register)
-- Sessions list with Slack badges
-- Chat interface with streaming
-- Memory manager UI
+Completed items:
+- [x] Authentication pages (login, register) with JWT
+- [x] Protected routes with AuthGuard
+- [x] App layout with collapsible sidebar
+- [x] Sessions list with Slack badges, create/delete
+- [x] Session renaming with inline edit
+- [x] Chat interface with SSE streaming
+- [x] Memory manager UI (list, create, edit, delete, filter by type)
+- [x] shadcn/ui component library (button, input, card, etc.)
+- [x] Zustand auth store with persistence
+- [x] React Query hooks for API calls
+- [x] Fixed message ordering bug (user/assistant timestamps)
 
 ---
 
@@ -159,7 +166,7 @@ docker-compose exec frontend npm test
 ```
 
 ### Access Points
-- Frontend: http://localhost:3000
+- Frontend: http://localhost:5173
 - Backend API: http://localhost:8000
 - Swagger UI: http://localhost:8000/docs
 - Prometheus: http://localhost:9090

@@ -20,7 +20,7 @@ graph TD
 
 ## Components
 
-- **React Webapp**: Main UI on port 3000
+- **React Webapp**: Main UI on port 5173
 - **Slack Bot**: Thread-based conversations
 - **FastAPI Backend**: API layer on port 8000
 - **AlfredAgent**: LangGraph conversation handler

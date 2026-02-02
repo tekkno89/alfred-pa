@@ -1,23 +1,33 @@
 import { Routes, Route } from 'react-router-dom'
+import { LoginPage } from '@/pages/LoginPage'
+import { RegisterPage } from '@/pages/RegisterPage'
+import { HomePage } from '@/pages/HomePage'
+import { ChatPage } from '@/pages/ChatPage'
+import { MemoriesPage } from '@/pages/MemoriesPage'
+import { AppLayout } from '@/components/layout/AppLayout'
+import { AuthGuard } from '@/components/auth/AuthGuard'
 
 function App() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Routes>
-        <Route path="/" element={<Home />} />
-        {/* TODO: Add routes for login, sessions, chat, memory */}
-      </Routes>
-    </div>
-  )
-}
+        {/* Public routes */}
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
 
-function Home() {
-  return (
-    <div className="flex min-h-screen items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">Alfred</h1>
-        <p className="text-muted-foreground">Your Personal AI Assistant</p>
-      </div>
+        {/* Protected routes */}
+        <Route
+          element={
+            <AuthGuard>
+              <AppLayout />
+            </AuthGuard>
+          }
+        >
+          <Route path="/" element={<HomePage />} />
+          <Route path="/chat/:sessionId" element={<ChatPage />} />
+          <Route path="/memories" element={<MemoriesPage />} />
+        </Route>
+      </Routes>
     </div>
   )
 }

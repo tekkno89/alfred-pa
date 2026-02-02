@@ -16,6 +16,7 @@ from app.schemas import (
     SessionCreate,
     SessionList,
     SessionResponse,
+    SessionUpdate,
     SessionWithMessages,
     StreamEvent,
 )
@@ -89,6 +90,40 @@ async def get_session(
         )
 
     return SessionWithMessages.model_validate(session)
+
+
+@router.patch("/{session_id}", response_model=SessionResponse)
+async def update_session(
+    session_id: str,
+    session_data: SessionUpdate,
+    db: DbSession,
+    user: CurrentUser,
+) -> SessionResponse:
+    """Update a session (e.g., rename it)."""
+    repo = SessionRepository(db)
+    session = await repo.get(session_id)
+
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found",
+        )
+
+    if session.user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this session",
+        )
+
+    # Build update dict from provided fields
+    updates = {}
+    if session_data.title is not None:
+        updates["title"] = session_data.title
+
+    if updates:
+        session = await repo.update(session, **updates)
+
+    return SessionResponse.model_validate(session)
 
 
 @router.delete("/{session_id}", response_model=DeleteResponse)

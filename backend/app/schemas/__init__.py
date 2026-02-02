@@ -21,6 +21,7 @@ from app.schemas.session import (
     SessionCreate,
     SessionList,
     SessionResponse,
+    SessionUpdate,
     SessionWithMessages,
 )
 
@@ -36,6 +37,7 @@ __all__ = [
     "SessionCreate",
     "SessionList",
     "SessionResponse",
+    "SessionUpdate",
     "SessionWithMessages",
     "StreamEvent",
     "TokenResponse",
