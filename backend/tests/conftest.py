@@ -18,7 +18,10 @@ from app.db.models import User
 from app.main import app
 
 # Test database URL (use a separate test database)
-TEST_DATABASE_URL = "postgresql+asyncpg://alfred:alfred@localhost:5432/alfred_test"
+# Use 'postgres' hostname when running in Docker, 'localhost' otherwise
+import os
+_db_host = os.getenv("TEST_DB_HOST", "postgres")  # Default to postgres for Docker
+TEST_DATABASE_URL = f"postgresql+asyncpg://alfred:alfred@{_db_host}:5432/alfred_test"
 
 # Create engine with NullPool to avoid connection reuse issues
 test_engine = create_async_engine(

@@ -25,7 +25,7 @@ class Memory(Base, UUIDMixin, TimestampMixin):
     )  # 'preference' | 'knowledge' | 'summary'
     content: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[list[float] | None] = mapped_column(
-        Vector(1536), nullable=True  # OpenAI embedding dimension
+        Vector(768), nullable=True  # bge-base-en-v1.5 embedding dimension
     )
     source_session_id: Mapped[str | None] = mapped_column(
         UUID(as_uuid=False), ForeignKey("sessions.id"), nullable=True

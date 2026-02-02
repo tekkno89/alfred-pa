@@ -4,12 +4,11 @@ from app.schemas.auth import (
     UserRegister,
     UserResponse,
 )
-from app.schemas.session import (
-    DeleteResponse,
-    SessionCreate,
-    SessionList,
-    SessionResponse,
-    SessionWithMessages,
+from app.schemas.memory import (
+    MemoryCreate,
+    MemoryList,
+    MemoryResponse,
+    MemoryUpdate,
 )
 from app.schemas.message import (
     MessageCreate,
@@ -17,9 +16,20 @@ from app.schemas.message import (
     MessageResponse,
     StreamEvent,
 )
+from app.schemas.session import (
+    DeleteResponse,
+    SessionCreate,
+    SessionList,
+    SessionResponse,
+    SessionWithMessages,
+)
 
 __all__ = [
     "DeleteResponse",
+    "MemoryCreate",
+    "MemoryList",
+    "MemoryResponse",
+    "MemoryUpdate",
     "MessageCreate",
     "MessageList",
     "MessageResponse",

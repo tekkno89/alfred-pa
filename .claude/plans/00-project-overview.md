@@ -7,7 +7,7 @@
 | Phase 1: Infrastructure | ✅ Complete | Monorepo, Docker, databases, base configs |
 | Phase 2: Agent & Chat API | ✅ Complete | LangGraph agent, chat endpoints, LLM integration |
 | Phase 3: Authentication | ✅ Complete | Email/password, JWT (OAuth deferred) |
-| Phase 4: Memory System | 🔲 Not Started | Long-term memory, embeddings, retrieval |
+| Phase 4: Memory System | ✅ Complete | Long-term memory, embeddings, retrieval |
 | Phase 5: Frontend Core | 🔲 Not Started | Auth pages, session list, chat interface |
 | Phase 6: Slack Integration | 🔲 Not Started | Slack app, webhooks, cross-channel sync |
 | Phase 7: Observability | 🔲 Not Started | Prometheus metrics, Loki logging, dashboards |
@@ -70,16 +70,20 @@ Deferred to future:
 
 ---
 
-## Phase 4: Memory System 🔲
+## Phase 4: Memory System ✅
 
-**Status:** Not Started
+**Status:** Complete
 **Plan File:** [04-memory-system.md](./04-memory-system.md)
 
-Key deliverables:
-- Memory extraction from conversations
-- pgvector embeddings integration
-- Semantic memory retrieval
-- Memory CRUD API endpoints
+Completed items:
+- [x] Local embedding provider (bge-base-en-v1.5, 768 dimensions)
+- [x] Memory repository with pgvector semantic search
+- [x] Memory CRUD API endpoints (/memories)
+- [x] Memory retrieval in agent (context injection)
+- [x] /remember command + natural language detection
+- [x] Scheduled memory extraction task
+- [x] Memory schemas (create, update, list, response)
+- [x] Unit and integration tests (91 total tests)
 
 ---
 
@@ -217,6 +221,11 @@ Features to implement after core phases are complete:
 - [ ] Email verification
 - [ ] Token expiration + refresh tokens
 - [ ] KMS integration for JWT signing
+
+### Memory & Search
+- [ ] **Session summaries for search** - Auto-generate summaries of conversations so users can ask "when did we last talk about X?" or search past sessions by topic
+- [ ] Memory categories/tags for faceted search
+- [ ] Memory importance scoring and decay
 
 ### Advanced Features
 - [ ] Desktop app (Electron or Tauri)

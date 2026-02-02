@@ -3,18 +3,18 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.state import AgentState
 from app.agents.nodes import (
-    build_prompt_messages,
     extract_memories,
     generate_response,
     generate_response_stream,
+    handle_remember_command,
     process_message,
     retrieve_context,
     save_messages,
 )
+from app.agents.state import AgentState
 from app.core.llm import LLMProvider, get_llm_provider
-from app.db.repositories import MessageRepository
+from app.db.repositories import MemoryRepository, MessageRepository
 
 
 class AlfredAgent:
@@ -37,6 +37,7 @@ class AlfredAgent:
         self.db = db
         self.llm_provider = llm_provider or get_llm_provider()
         self.message_repo = MessageRepository(db)
+        self.memory_repo = MemoryRepository(db)
 
     async def run(
         self,
@@ -59,6 +60,8 @@ class AlfredAgent:
             "session_id": session_id,
             "user_id": user_id,
             "user_message": message,
+            "is_remember_command": False,
+            "remember_content": None,
             "context_messages": [],
             "memories": [],
             "response": "",
@@ -68,20 +71,31 @@ class AlfredAgent:
             "error": None,
         }
 
-        # Step 1: Process message
+        # Step 1: Process message (detects /remember commands)
         state.update(await process_message(state))
         if state.get("error"):
             raise ValueError(state["error"])
 
-        # Step 2: Retrieve context
-        state.update(await retrieve_context(state, self.message_repo))
+        # Step 1b: Handle /remember command if detected
+        if state.get("is_remember_command"):
+            state.update(
+                await handle_remember_command(state, self.memory_repo)
+            )
+            # Save messages and return early
+            await save_messages(state, self.message_repo)
+            return state["response"]
+
+        # Step 2: Retrieve context (includes memory retrieval)
+        state.update(
+            await retrieve_context(state, self.message_repo, self.memory_repo)
+        )
 
         # Step 3: Generate response
         state.update(await generate_response(state, self.llm_provider))
         if state.get("error"):
             raise ValueError(state["error"])
 
-        # Step 4: Extract memories (placeholder)
+        # Step 4: Extract memories (handled by scheduled task)
         state.update(await extract_memories(state))
 
         # Step 5: Save messages
@@ -110,6 +124,8 @@ class AlfredAgent:
             "session_id": session_id,
             "user_id": user_id,
             "user_message": message,
+            "is_remember_command": False,
+            "remember_content": None,
             "context_messages": [],
             "memories": [],
             "response": "",
@@ -119,13 +135,25 @@ class AlfredAgent:
             "error": None,
         }
 
-        # Step 1: Process message
+        # Step 1: Process message (detects /remember commands)
         state.update(await process_message(state))
         if state.get("error"):
             raise ValueError(state["error"])
 
-        # Step 2: Retrieve context
-        state.update(await retrieve_context(state, self.message_repo))
+        # Step 1b: Handle /remember command if detected
+        if state.get("is_remember_command"):
+            state.update(
+                await handle_remember_command(state, self.memory_repo)
+            )
+            # Yield the response and save messages
+            yield state["response"]
+            await save_messages(state, self.message_repo)
+            return
+
+        # Step 2: Retrieve context (includes memory retrieval)
+        state.update(
+            await retrieve_context(state, self.message_repo, self.memory_repo)
+        )
 
         # Step 3: Generate streaming response
         full_response: list[str] = []
@@ -136,7 +164,7 @@ class AlfredAgent:
         # Collect full response for saving
         state["response"] = "".join(full_response)
 
-        # Step 4: Extract memories (placeholder)
+        # Step 4: Extract memories (handled by scheduled task)
         await extract_memories(state)
 
         # Step 5: Save messages

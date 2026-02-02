@@ -47,6 +47,8 @@ class TestProcessMessage:
             "session_id": "test-session",
             "user_id": "test-user",
             "user_message": "Hello!",
+            "is_remember_command": False,
+            "remember_content": None,
             "context_messages": [],
             "memories": [],
             "response": "",
@@ -62,6 +64,7 @@ class TestProcessMessage:
         assert result["user_message"] == "Hello!"
         assert result["user_message_id"] != ""
         assert result["assistant_message_id"] != ""
+        assert result["is_remember_command"] is False
 
     async def test_process_message_empty(self):
         """Should return error for empty message."""
@@ -69,6 +72,8 @@ class TestProcessMessage:
             "session_id": "test-session",
             "user_id": "test-user",
             "user_message": "   ",
+            "is_remember_command": False,
+            "remember_content": None,
             "context_messages": [],
             "memories": [],
             "response": "",
@@ -92,6 +97,8 @@ class TestBuildPromptMessages:
             "session_id": "test",
             "user_id": "test",
             "user_message": "Hello!",
+            "is_remember_command": False,
+            "remember_content": None,
             "context_messages": [],
             "memories": [],
             "response": "",
@@ -114,6 +121,8 @@ class TestBuildPromptMessages:
             "session_id": "test",
             "user_id": "test",
             "user_message": "Thanks!",
+            "is_remember_command": False,
+            "remember_content": None,
             "context_messages": [
                 {"role": "user", "content": "Hi"},
                 {"role": "assistant", "content": "Hello!"},
@@ -143,6 +152,8 @@ class TestBuildPromptMessages:
             "session_id": "test",
             "user_id": "test",
             "user_message": "Hello!",
+            "is_remember_command": False,
+            "remember_content": None,
             "context_messages": [],
             "memories": ["User prefers Python", "User is a developer"],
             "response": "",
@@ -174,12 +185,17 @@ class TestAlfredAgent:
 
     async def test_agent_run(self, mock_db, mock_provider):
         """Should run agent and return response."""
-        # Mock the message repository
-        with patch("app.agents.alfred.MessageRepository") as MockRepo:
-            mock_repo = AsyncMock()
-            mock_repo.get_recent_messages.return_value = []
-            mock_repo.create_message.return_value = MagicMock(id="msg-id")
-            MockRepo.return_value = mock_repo
+        # Mock the message and memory repositories
+        with patch("app.agents.alfred.MessageRepository") as MockMsgRepo, \
+             patch("app.agents.alfred.MemoryRepository") as MockMemRepo:
+            mock_msg_repo = AsyncMock()
+            mock_msg_repo.get_recent_messages.return_value = []
+            mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
+            MockMsgRepo.return_value = mock_msg_repo
+
+            mock_mem_repo = AsyncMock()
+            mock_mem_repo.search_similar.return_value = []
+            MockMemRepo.return_value = mock_mem_repo
 
             agent = AlfredAgent(db=mock_db, llm_provider=mock_provider)
             response = await agent.run(
@@ -189,15 +205,20 @@ class TestAlfredAgent:
             )
 
             assert response == "Hello! How can I help you?"
-            assert mock_repo.create_message.call_count == 2
+            assert mock_msg_repo.create_message.call_count == 2
 
     async def test_agent_stream(self, mock_db, mock_provider):
         """Should stream response tokens."""
-        with patch("app.agents.alfred.MessageRepository") as MockRepo:
-            mock_repo = AsyncMock()
-            mock_repo.get_recent_messages.return_value = []
-            mock_repo.create_message.return_value = MagicMock(id="msg-id")
-            MockRepo.return_value = mock_repo
+        with patch("app.agents.alfred.MessageRepository") as MockMsgRepo, \
+             patch("app.agents.alfred.MemoryRepository") as MockMemRepo:
+            mock_msg_repo = AsyncMock()
+            mock_msg_repo.get_recent_messages.return_value = []
+            mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
+            MockMsgRepo.return_value = mock_msg_repo
+
+            mock_mem_repo = AsyncMock()
+            mock_mem_repo.search_similar.return_value = []
+            MockMemRepo.return_value = mock_mem_repo
 
             agent = AlfredAgent(db=mock_db, llm_provider=mock_provider)
 
@@ -215,7 +236,8 @@ class TestAlfredAgent:
 
     async def test_agent_empty_message(self, mock_db, mock_provider):
         """Should raise error for empty message."""
-        with patch("app.agents.alfred.MessageRepository"):
+        with patch("app.agents.alfred.MessageRepository"), \
+             patch("app.agents.alfred.MemoryRepository"):
             agent = AlfredAgent(db=mock_db, llm_provider=mock_provider)
 
             with pytest.raises(ValueError, match="Empty message"):

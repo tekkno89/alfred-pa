@@ -14,6 +14,10 @@ class AgentState(TypedDict):
     # User input
     user_message: str
 
+    # Remember command detection
+    is_remember_command: bool
+    remember_content: str | None
+
     # Context from history and memories
     context_messages: list[dict[str, str]]
     memories: list[str]

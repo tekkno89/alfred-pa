@@ -36,6 +36,8 @@ dependencies = [
     # Slack
     "slack-sdk>=3.26.0",
     "email-validator>=2.3.0",
+    # Embeddings
+    "sentence-transformers>=2.2.0",
 ]
 
 [project.optional-dependencies]

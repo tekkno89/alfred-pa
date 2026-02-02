@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     slack_signing_secret: str = ""
     slack_app_token: str = ""
 
+    # Embeddings
+    embedding_model: str = "BAAI/bge-base-en-v1.5"
+
+    # Memory
+    memory_retrieval_limit: int = 5
+    memory_similarity_threshold: float = 0.7  # for deduplication
+
     class Config:
         env_file = ".env"
         case_sensitive = False
