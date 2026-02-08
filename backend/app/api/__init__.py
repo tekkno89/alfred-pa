@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.auth import router as auth_router
 from app.api.memories import router as memories_router
 from app.api.sessions import router as sessions_router
+from app.api.slack import router as slack_router
 
 router = APIRouter()
 
@@ -17,7 +18,4 @@ async def api_root() -> dict[str, str]:
 router.include_router(auth_router, prefix="/auth", tags=["auth"])
 router.include_router(memories_router, prefix="/memories", tags=["memories"])
 router.include_router(sessions_router, prefix="/sessions", tags=["sessions"])
-
-# TODO: Include sub-router for slack
-# from app.api.slack import router as slack_router
-# router.include_router(slack_router, prefix="/slack", tags=["slack"])
+router.include_router(slack_router, prefix="/slack", tags=["slack"])

@@ -9,8 +9,27 @@ interface AlertDialogContextValue {
 
 const AlertDialogContext = React.createContext<AlertDialogContextValue | null>(null)
 
-function AlertDialog({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = React.useState(false)
+interface AlertDialogProps {
+  children: React.ReactNode
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+}
+
+function AlertDialog({ children, open: controlledOpen, onOpenChange }: AlertDialogProps) {
+  const [internalOpen, setInternalOpen] = React.useState(false)
+
+  // Use controlled state if provided, otherwise use internal state
+  const isControlled = controlledOpen !== undefined
+  const open = isControlled ? controlledOpen : internalOpen
+
+  const setOpen = React.useCallback((newOpen: boolean) => {
+    if (onOpenChange) {
+      onOpenChange(newOpen)
+    }
+    if (!isControlled) {
+      setInternalOpen(newOpen)
+    }
+  }, [isControlled, onOpenChange])
 
   return (
     <AlertDialogContext.Provider value={{ open, setOpen }}>

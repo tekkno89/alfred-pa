@@ -35,6 +35,7 @@ dependencies = [
     "structlog>=24.1.0",
     # Slack
     "slack-sdk>=3.26.0",
+    "aiohttp>=3.9.0",
     "email-validator>=2.3.0",
     # Embeddings
     "sentence-transformers>=2.2.0",

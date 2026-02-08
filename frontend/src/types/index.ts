@@ -19,7 +19,18 @@ export interface TokenResponse {
 export interface User {
   id: string
   email: string
+  slack_user_id?: string | null
   created_at: string
+}
+
+// Slack Linking
+export interface SlackLinkRequest {
+  code: string
+}
+
+export interface SlackStatusResponse {
+  linked: boolean
+  slack_user_id?: string | null
 }
 
 // Sessions

@@ -57,3 +57,26 @@ class SessionRepository(BaseRepository[Session]):
             slack_thread_ts=slack_thread_ts,
         )
         return await self.create(session)
+
+    async def get_by_slack_thread(
+        self,
+        channel_id: str,
+        thread_ts: str,
+    ) -> Session | None:
+        """
+        Get a session by Slack channel and thread timestamp.
+
+        Args:
+            channel_id: Slack channel ID
+            thread_ts: Slack thread timestamp
+
+        Returns:
+            Session if found, None otherwise
+        """
+        result = await self.db.execute(
+            select(Session).where(
+                Session.slack_channel_id == channel_id,
+                Session.slack_thread_ts == thread_ts,
+            )
+        )
+        return result.scalar_one_or_none()

@@ -33,4 +33,18 @@ class UserResponse(BaseModel):
 
     id: str
     email: str
+    slack_user_id: str | None = None
     created_at: datetime
+
+
+class SlackLinkRequest(BaseModel):
+    """Schema for Slack linking request."""
+
+    code: str = Field(..., min_length=6, max_length=6)
+
+
+class SlackStatusResponse(BaseModel):
+    """Schema for Slack status response."""
+
+    linked: bool
+    slack_user_id: str | None = None

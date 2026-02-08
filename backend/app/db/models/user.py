@@ -19,6 +19,7 @@ class User(Base, UUIDMixin, TimestampMixin):
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     oauth_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
     oauth_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    slack_user_id: Mapped[str | None] = mapped_column(String(50), unique=True, nullable=True)
 
     # Relationships
     sessions: Mapped[list["Session"]] = relationship(

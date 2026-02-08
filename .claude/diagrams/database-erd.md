@@ -18,6 +18,7 @@ graph TD
 - `password_hash` nullable
 - `oauth_provider` nullable
 - `oauth_id` nullable
+- `slack_user_id` unique nullable (for Slack account linking)
 
 ### Session
 - `id` UUID PK
@@ -40,4 +41,4 @@ graph TD
 - `source_session_id` FK → Session nullable
 - `type` preference, knowledge, or summary
 - `content` text
-- `embedding` vector(1536) nullable
+- `embedding` vector(768) nullable

@@ -4,6 +4,7 @@ import { RegisterPage } from '@/pages/RegisterPage'
 import { HomePage } from '@/pages/HomePage'
 import { ChatPage } from '@/pages/ChatPage'
 import { MemoriesPage } from '@/pages/MemoriesPage'
+import { SettingsPage } from '@/pages/SettingsPage'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { AuthGuard } from '@/components/auth/AuthGuard'
 
@@ -26,6 +27,7 @@ function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/chat/:sessionId" element={<ChatPage />} />
           <Route path="/memories" element={<MemoriesPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Route>
       </Routes>
     </div>

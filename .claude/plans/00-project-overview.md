@@ -9,7 +9,7 @@
 | Phase 3: Authentication | ✅ Complete | Email/password, JWT (OAuth deferred) |
 | Phase 4: Memory System | ✅ Complete | Long-term memory, embeddings, retrieval |
 | Phase 5: Frontend Core | ✅ Complete | Auth pages, session list, chat interface, memories |
-| Phase 6: Slack Integration | 🔲 Not Started | Slack app, webhooks, cross-channel sync |
+| Phase 6: Slack Integration | ✅ Complete | Slack app, webhooks, cross-channel sync |
 | Phase 7: Observability | 🔲 Not Started | Prometheus metrics, Loki logging, dashboards |
 | Phase 8: CI/CD | 🔲 Not Started | GitHub Actions, Cloud Run deployment |
 
@@ -107,16 +107,21 @@ Completed items:
 
 ---
 
-## Phase 6: Slack Integration 🔲
+## Phase 6: Slack Integration ✅
 
-**Status:** Not Started
+**Status:** Complete
 **Plan File:** [06-slack-integration.md](./06-slack-integration.md)
 
-Key deliverables:
-- Slack app configuration
-- Event webhook handlers
-- Thread-based session management
-- Cross-channel response sync
+Completed items:
+- [x] Slack Events API webhook handler with signature verification
+- [x] Slash command handler (`/alfred-link`)
+- [x] User account linking via Redis-stored codes
+- [x] Thread-based session management
+- [x] Bi-directional cross-sync (webapp ↔ Slack)
+- [x] Event deduplication to prevent duplicate responses
+- [x] Background processing for fast Slack response times
+- [x] Settings page with Slack linking UI
+- [x] User message attribution in cross-sync
 
 ---
 

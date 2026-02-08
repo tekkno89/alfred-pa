@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -20,6 +21,9 @@ from app.schemas import (
     SessionWithMessages,
     StreamEvent,
 )
+from app.services.slack import get_slack_service
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter()
@@ -198,6 +202,9 @@ async def send_message(
     - data: {"type": "token", "content": "..."}
     - data: {"type": "done", "message_id": "..."}
     - data: {"type": "error", "content": "..."}
+
+    If the session originated from Slack, the response will also be
+    posted back to the Slack thread (cross-sync).
     """
     session_repo = SessionRepository(db)
     session = await session_repo.get(session_id)
@@ -214,8 +221,20 @@ async def send_message(
             detail="Not authorized to access this session",
         )
 
+    # Capture Slack metadata for cross-sync
+    slack_channel_id = session.slack_channel_id
+    slack_thread_ts = session.slack_thread_ts
+    user_email = user.email
+
+    # Sync user message to Slack before processing (if Slack session)
+    if slack_channel_id and slack_thread_ts:
+        await _sync_user_message_to_slack(
+            slack_channel_id, slack_thread_ts, message_data.content, user_email
+        )
+
     async def event_stream():
         agent = AlfredAgent(db=db)
+        full_response: list[str] = []
 
         try:
             async for token in agent.stream(
@@ -223,12 +242,18 @@ async def send_message(
                 user_id=user.id,
                 message=message_data.content,
             ):
+                full_response.append(token)
                 event = StreamEvent(type="token", content=token)
                 yield f"data: {event.model_dump_json()}\n\n"
 
             # Send done event
             done_event = StreamEvent(type="done")
             yield f"data: {done_event.model_dump_json()}\n\n"
+
+            # Cross-sync AI response to Slack if session has Slack metadata
+            if slack_channel_id and slack_thread_ts:
+                response_text = "".join(full_response)
+                await _sync_to_slack(slack_channel_id, slack_thread_ts, response_text)
 
         except Exception as e:
             error_event = StreamEvent(type="error", content=str(e))
@@ -243,3 +268,45 @@ async def send_message(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+async def _sync_user_message_to_slack(
+    channel_id: str, thread_ts: str, message: str, user_email: str
+) -> None:
+    """
+    Post user's message to Slack thread with attribution.
+
+    Shows the message as coming from the webapp with the user's identity.
+    Uses blockquote formatting for visual distinction.
+    """
+    try:
+        slack_service = get_slack_service()
+        # Format with blockquote for visual distinction
+        username = user_email.split("@")[0]  # Use part before @ as display name
+        # Indent message lines with > for blockquote effect
+        quoted_message = "\n".join(f"> {line}" for line in message.split("\n"))
+        formatted_message = f":speech_balloon: *{username}* _(via webapp)_:\n{quoted_message}"
+        await slack_service.send_message(
+            channel=channel_id,
+            text=formatted_message,
+            thread_ts=thread_ts,
+        )
+    except Exception as e:
+        logger.error(f"Failed to sync user message to Slack: {e}")
+
+
+async def _sync_to_slack(channel_id: str, thread_ts: str, message: str) -> None:
+    """
+    Post a message to Slack thread (cross-sync).
+
+    Errors are logged but not raised to avoid failing the main request.
+    """
+    try:
+        slack_service = get_slack_service()
+        await slack_service.send_message(
+            channel=channel_id,
+            text=message,
+            thread_ts=thread_ts,
+        )
+    except Exception as e:
+        logger.error(f"Failed to sync message to Slack: {e}")
