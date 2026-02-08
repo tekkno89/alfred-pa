@@ -33,6 +33,9 @@ yarn-error.log*
 # Build outputs
 frontend/dist/
 frontend/build/
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
 
 # Environment
 .env
