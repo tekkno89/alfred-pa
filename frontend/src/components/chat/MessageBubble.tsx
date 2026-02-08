@@ -2,6 +2,8 @@ import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Brain, User } from 'lucide-react'
 import type { Message } from '@/types'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 interface MessageBubbleProps {
   message: Message
@@ -31,12 +33,17 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           'rounded-lg px-4 py-2 max-w-[80%]',
           isUser
             ? 'bg-primary text-primary-foreground'
-            : 'bg-muted'
+            : 'bg-muted',
+          'prose prose-sm dark:prose-invert max-w-none',
+          'prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1',
+          'prose-pre:bg-background/50 prose-pre:border prose-pre:border-border',
+          'prose-code:bg-background/50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs',
+          isUser && 'prose-invert prose-code:bg-primary-foreground/20 prose-pre:bg-primary-foreground/20 prose-pre:border-primary-foreground/30'
         )}
       >
-        <p className="whitespace-pre-wrap break-words text-sm">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
           {message.content}
-        </p>
+        </ReactMarkdown>
       </div>
     </div>
   )
@@ -54,11 +61,19 @@ export function StreamingBubble({ content }: StreamingBubbleProps) {
           <Brain className="h-4 w-4" />
         </AvatarFallback>
       </Avatar>
-      <div className="rounded-lg px-4 py-2 max-w-[80%] bg-muted">
-        <p className="whitespace-pre-wrap break-words text-sm">
+      <div
+        className={cn(
+          'rounded-lg px-4 py-2 max-w-[80%] bg-muted',
+          'prose prose-sm dark:prose-invert max-w-none',
+          'prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1',
+          'prose-pre:bg-background/50 prose-pre:border prose-pre:border-border',
+          'prose-code:bg-background/50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs'
+        )}
+      >
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
           {content}
-          <span className="inline-block w-2 h-4 ml-1 bg-foreground/50 animate-pulse" />
-        </p>
+        </ReactMarkdown>
+        <span className="inline-block w-2 h-4 ml-1 bg-foreground/50 animate-pulse" />
       </div>
     </div>
   )
