@@ -48,3 +48,17 @@ class SlackStatusResponse(BaseModel):
 
     linked: bool
     slack_user_id: str | None = None
+
+
+class SlackOAuthStatusResponse(BaseModel):
+    """Schema for Slack OAuth connection status."""
+
+    connected: bool
+    scope: str | None = None
+
+
+class SlackOAuthCallbackRequest(BaseModel):
+    """Schema for Slack OAuth callback."""
+
+    code: str
+    state: str | None = None

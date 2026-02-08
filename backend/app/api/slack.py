@@ -1,18 +1,25 @@
 """Slack integration endpoints."""
 
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
+import time
 from typing import Any
+from urllib.parse import parse_qs
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 from pydantic import BaseModel
 
 from app.agents import AlfredAgent
 from app.api.deps import DbSession, get_db
+from app.core.config import get_settings
 from app.core.redis import get_redis
 from app.db.repositories import SessionRepository, UserRepository
+from app.services.focus import FocusModeService
 from app.services.linking import get_linking_service
+from app.services.notifications import NotificationService
 from app.services.slack import get_slack_service
 
 # Event deduplication TTL (5 minutes)
@@ -152,12 +159,13 @@ async def handle_message_event(event: dict[str, Any], db) -> None:
     if event.get("bot_id") or event.get("subtype") == "bot_message":
         return
 
-    slack_user_id = event.get("user")
+    sender_slack_id = event.get("user")
     channel_id = event.get("channel")
     text = event.get("text", "").strip()
     thread_ts = event.get("thread_ts") or event.get("ts")
+    message_ts = event.get("ts")
 
-    if not slack_user_id or not channel_id or not text:
+    if not sender_slack_id or not channel_id or not text:
         return
 
     # Remove bot mention from text if present
@@ -170,11 +178,14 @@ async def handle_message_event(event: dict[str, Any], db) -> None:
     user_repo = UserRepository(db)
     session_repo = SessionRepository(db)
 
-    # Look up user by Slack ID
-    user = await user_repo.get_by_slack_id(slack_user_id)
+    # Look up user by Slack ID (the recipient/Alfred user)
+    # For DMs, this would be the user whose DM channel it is
+    # For mentions, we need to find who is being addressed
+    user = await user_repo.get_by_slack_id(sender_slack_id)
 
     if not user:
-        # User not linked - send linking instructions
+        # Sender is not linked - check if this is a DM to a linked user
+        # For now, send linking instructions
         await slack_service.send_message(
             channel=channel_id,
             text=(
@@ -187,6 +198,24 @@ async def handle_message_event(event: dict[str, Any], db) -> None:
             thread_ts=thread_ts,
         )
         return
+
+    # Check if user is in focus mode
+    focus_service = FocusModeService(db)
+    if await focus_service.is_in_focus_mode(user.id):
+        # Check if sender is VIP (bypass focus mode)
+        if not await focus_service.is_vip(user.id, sender_slack_id):
+            # User is in focus mode and sender is not VIP
+            # Send auto-reply with bypass button
+            custom_message = await focus_service.get_custom_message(user.id)
+            await send_focus_mode_reply(
+                slack_service,
+                channel_id,
+                thread_ts or message_ts,
+                user.id,
+                sender_slack_id,
+                custom_message,
+            )
+            return
 
     # Find or create session for this thread
     session = await session_repo.get_by_slack_thread(channel_id, thread_ts)
@@ -225,6 +254,58 @@ async def handle_message_event(event: dict[str, Any], db) -> None:
         )
 
 
+async def send_focus_mode_reply(
+    slack_service,
+    channel_id: str,
+    thread_ts: str,
+    user_id: str,
+    sender_slack_id: str,
+    custom_message: str | None,
+) -> None:
+    """Send focus mode auto-reply with bypass button."""
+    # Create signed payload for bypass button
+    settings = get_settings()
+    timestamp = str(int(time.time()))
+    payload_str = f"{user_id}:{sender_slack_id}:{timestamp}"
+    signature = hmac.new(
+        settings.jwt_secret.encode(),
+        payload_str.encode(),
+        hashlib.sha256,
+    ).hexdigest()[:16]
+    signed_payload = f"{payload_str}:{signature}"
+
+    display_message = custom_message or "I'm currently in focus mode and not available."
+
+    blocks = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f":no_bell: *Focus Mode Active*\n\n_{display_message}_",
+            },
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Urgent - Notify User"},
+                    "style": "danger",
+                    "action_id": "focus_bypass",
+                    "value": signed_payload,
+                },
+            ],
+        },
+    ]
+
+    await slack_service.client.chat_postMessage(
+        channel=channel_id,
+        text=f"Focus Mode Active: {display_message}",
+        blocks=blocks,
+        thread_ts=thread_ts,
+    )
+
+
 def _strip_bot_mention(text: str) -> str:
     """Remove bot mention from message text."""
     import re
@@ -234,12 +315,16 @@ def _strip_bot_mention(text: str) -> str:
 
 
 @router.post("/commands")
-async def handle_slack_commands(request: Request) -> dict[str, Any]:
+async def handle_slack_commands(
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> dict[str, Any]:
     """
     Handle Slack slash commands.
 
     Supported commands:
     - /alfred-link: Generate a linking code
+    - /alfred-focus: Toggle focus mode
     """
     # Parse form data (Slack sends commands as form-encoded)
     body = await request.body()
@@ -259,14 +344,162 @@ async def handle_slack_commands(request: Request) -> dict[str, Any]:
     form_data = await request.form()
     command = form_data.get("command", "")
     slack_user_id = form_data.get("user_id", "")
+    text = form_data.get("text", "").strip()
 
     if command == "/alfred-link":
         return await handle_link_command(slack_user_id)
+
+    if command == "/alfred-focus":
+        # Process focus command in background for faster response
+        background_tasks.add_task(
+            process_focus_command_background, slack_user_id, text
+        )
+        return {
+            "response_type": "ephemeral",
+            "text": "Processing focus mode command...",
+        }
 
     return {
         "response_type": "ephemeral",
         "text": f"Unknown command: {command}",
     }
+
+
+async def process_focus_command_background(slack_user_id: str, text: str) -> None:
+    """Process /alfred-focus command in background."""
+    async for db in get_db():
+        try:
+            await handle_focus_command(slack_user_id, text, db)
+        except Exception as e:
+            logger.error(f"Error processing focus command: {e}")
+
+
+async def handle_focus_command(
+    slack_user_id: str, text: str, db
+) -> dict[str, Any]:
+    """
+    Handle /alfred-focus command.
+
+    Subcommands:
+    - (empty): Toggle focus mode
+    - on [duration]: Enable with optional duration (e.g., "2h", "30m")
+    - off: Disable
+    - status: Show current status
+    - pomodoro: Start pomodoro mode
+    """
+    user_repo = UserRepository(db)
+    user = await user_repo.get_by_slack_id(slack_user_id)
+
+    slack_service = get_slack_service()
+
+    if not user:
+        # Can't respond directly, but log it
+        logger.warning(f"Focus command from unlinked Slack user: {slack_user_id}")
+        return {"response_type": "ephemeral", "text": "Please link your Slack account first."}
+
+    focus_service = FocusModeService(db)
+    notification_service = NotificationService(db)
+
+    parts = text.lower().split()
+    subcommand = parts[0] if parts else ""
+
+    if subcommand == "off":
+        await focus_service.disable(user.id)
+        await notification_service.publish(user.id, "focus_ended", {})
+        await slack_service.send_message(
+            channel=slack_user_id,
+            text=":bell: Focus mode disabled. You're now available.",
+        )
+
+    elif subcommand == "status":
+        status = await focus_service.get_status(user.id)
+        if status.is_active:
+            remaining = ""
+            if status.time_remaining_seconds:
+                mins = status.time_remaining_seconds // 60
+                remaining = f" ({mins} minutes remaining)"
+            mode_text = "Pomodoro" if status.mode == "pomodoro" else "Focus"
+            phase = f" - {status.pomodoro_phase} phase" if status.pomodoro_phase else ""
+            await slack_service.send_message(
+                channel=slack_user_id,
+                text=f":no_bell: {mode_text} mode is *active*{phase}{remaining}",
+            )
+        else:
+            await slack_service.send_message(
+                channel=slack_user_id,
+                text=":bell: Focus mode is *off*. You're available.",
+            )
+
+    elif subcommand == "pomodoro":
+        await focus_service.start_pomodoro(user.id)
+        await notification_service.publish(
+            user.id,
+            "pomodoro_work_started",
+            {"session_count": 1},
+        )
+        await slack_service.send_message(
+            channel=slack_user_id,
+            text=":tomato: Pomodoro mode started! Focus time begins now.",
+        )
+
+    elif subcommand == "on" or subcommand == "":
+        # Parse optional duration
+        duration_minutes = None
+        if len(parts) > 1:
+            duration_str = parts[1]
+            duration_minutes = _parse_duration(duration_str)
+
+        if subcommand == "" and await focus_service.is_in_focus_mode(user.id):
+            # Toggle off
+            await focus_service.disable(user.id)
+            await notification_service.publish(user.id, "focus_ended", {})
+            await slack_service.send_message(
+                channel=slack_user_id,
+                text=":bell: Focus mode disabled. You're now available.",
+            )
+        else:
+            # Enable focus mode
+            await focus_service.enable(user.id, duration_minutes=duration_minutes)
+            await notification_service.publish(
+                user.id,
+                "focus_started",
+                {"duration_minutes": duration_minutes},
+            )
+            duration_text = f" for {duration_minutes} minutes" if duration_minutes else ""
+            await slack_service.send_message(
+                channel=slack_user_id,
+                text=f":no_bell: Focus mode enabled{duration_text}. Messages will be auto-replied.",
+            )
+
+    else:
+        await slack_service.send_message(
+            channel=slack_user_id,
+            text=(
+                "Usage: `/alfred-focus [command]`\n"
+                "Commands:\n"
+                "• (empty) - Toggle focus mode\n"
+                "• `on [duration]` - Enable (e.g., `on 2h`, `on 30m`)\n"
+                "• `off` - Disable\n"
+                "• `status` - Show current status\n"
+                "• `pomodoro` - Start pomodoro mode"
+            ),
+        )
+
+    return {"ok": True}
+
+
+def _parse_duration(duration_str: str) -> int | None:
+    """Parse duration string like '2h', '30m', '90' into minutes."""
+    duration_str = duration_str.lower().strip()
+    try:
+        if duration_str.endswith("h"):
+            return int(duration_str[:-1]) * 60
+        elif duration_str.endswith("m"):
+            return int(duration_str[:-1])
+        else:
+            return int(duration_str)
+    except ValueError:
+        return None
 
 
 async def handle_link_command(slack_user_id: str) -> dict[str, Any]:
@@ -296,3 +529,136 @@ async def handle_link_command(slack_user_id: str) -> dict[str, Any]:
             "4. Enter the code above"
         ),
     }
+
+
+@router.post("/interactive")
+async def handle_slack_interactive(
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> dict[str, Any]:
+    """
+    Handle Slack interactive component callbacks.
+
+    Handles button clicks, menu selections, etc.
+    """
+    body = await request.body()
+
+    # Verify signature
+    timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
+    signature = request.headers.get("X-Slack-Signature", "")
+
+    slack_service = get_slack_service()
+    if not await slack_service.verify_signature(body, timestamp, signature):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Slack signature",
+        )
+
+    # Parse the payload (URL encoded with 'payload' key containing JSON)
+    form_data = await request.form()
+    payload_str = form_data.get("payload", "")
+
+    try:
+        payload = json.loads(payload_str)
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid payload",
+        )
+
+    # Handle different action types
+    actions = payload.get("actions", [])
+    for action in actions:
+        action_id = action.get("action_id")
+
+        if action_id == "focus_bypass":
+            # Process bypass in background
+            background_tasks.add_task(
+                process_bypass_background,
+                action.get("value", ""),
+                payload.get("user", {}).get("id", ""),
+                payload.get("channel", {}).get("id", ""),
+            )
+            return {
+                "response_action": "update",
+                "text": ":rotating_light: Urgent notification sent!",
+            }
+
+    return {"ok": True}
+
+
+async def process_bypass_background(
+    signed_payload: str,
+    sender_slack_id: str,
+    channel_id: str,
+) -> None:
+    """Process focus bypass button click in background."""
+    async for db in get_db():
+        try:
+            await handle_focus_bypass(signed_payload, sender_slack_id, channel_id, db)
+        except Exception as e:
+            logger.error(f"Error processing focus bypass: {e}")
+
+
+async def handle_focus_bypass(
+    signed_payload: str,
+    sender_slack_id: str,
+    channel_id: str,
+    db,
+) -> None:
+    """Handle focus mode bypass button click."""
+    settings = get_settings()
+    slack_service = get_slack_service()
+
+    # Validate signed payload
+    try:
+        parts = signed_payload.split(":")
+        if len(parts) != 4:
+            logger.warning("Invalid bypass payload format")
+            return
+
+        user_id, original_sender, timestamp_str, signature = parts
+
+        # Verify signature
+        payload_str = f"{user_id}:{original_sender}:{timestamp_str}"
+        expected_sig = hmac.new(
+            settings.jwt_secret.encode(),
+            payload_str.encode(),
+            hashlib.sha256,
+        ).hexdigest()[:16]
+
+        if not hmac.compare_digest(signature, expected_sig):
+            logger.warning("Invalid bypass signature")
+            return
+
+        # Check timestamp (1 hour expiry)
+        timestamp = int(timestamp_str)
+        if abs(time.time() - timestamp) > 3600:
+            logger.warning("Expired bypass payload")
+            return
+
+    except (ValueError, IndexError) as e:
+        logger.warning(f"Error parsing bypass payload: {e}")
+        return
+
+    # Get sender info for notification
+    try:
+        sender_info = await slack_service.get_user_info(sender_slack_id)
+        sender_name = sender_info.get("real_name") or sender_info.get("name", "Someone")
+    except Exception:
+        sender_name = "Someone"
+
+    # Publish bypass notification
+    notification_service = NotificationService(db)
+    await notification_service.publish(
+        user_id,
+        "focus_bypass",
+        {
+            "sender_slack_id": sender_slack_id,
+            "sender_name": sender_name,
+            "channel_id": channel_id,
+            "message": f"{sender_name} is trying to reach you urgently!",
+        },
+    )
+
+    logger.info(f"Focus bypass notification sent for user {user_id} from {sender_name}")

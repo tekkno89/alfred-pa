@@ -124,3 +124,109 @@ export interface DeleteResponse {
 export interface ApiError {
   detail: string
 }
+
+// Focus Mode
+export interface FocusEnableRequest {
+  duration_minutes?: number | null
+  custom_message?: string | null
+}
+
+export interface FocusStatusResponse {
+  is_active: boolean
+  mode: 'simple' | 'pomodoro'
+  started_at?: string | null
+  ends_at?: string | null
+  custom_message?: string | null
+  pomodoro_phase?: 'work' | 'break' | null
+  pomodoro_session_count: number
+  pomodoro_total_sessions?: number | null
+  pomodoro_work_minutes?: number | null
+  pomodoro_break_minutes?: number | null
+  time_remaining_seconds?: number | null
+}
+
+export interface PomodoroStartRequest {
+  custom_message?: string | null
+  work_minutes?: number | null
+  break_minutes?: number | null
+  total_sessions?: number | null
+}
+
+export interface FocusSettingsResponse {
+  default_message?: string | null
+  pomodoro_work_minutes: number
+  pomodoro_break_minutes: number
+}
+
+export interface FocusSettingsUpdate {
+  default_message?: string | null
+  pomodoro_work_minutes?: number | null
+  pomodoro_break_minutes?: number | null
+}
+
+export interface VIPResponse {
+  id: string
+  slack_user_id: string
+  display_name?: string | null
+  created_at: string
+}
+
+export interface VIPListResponse {
+  vips: VIPResponse[]
+}
+
+export interface VIPAddRequest {
+  slack_user_id: string
+  display_name?: string | null
+}
+
+// Webhooks
+export type WebhookEventType =
+  | 'focus_started'
+  | 'focus_ended'
+  | 'focus_bypass'
+  | 'pomodoro_work_started'
+  | 'pomodoro_break_started'
+
+export interface WebhookCreateRequest {
+  name: string
+  url: string
+  event_types: WebhookEventType[]
+}
+
+export interface WebhookUpdateRequest {
+  name?: string | null
+  url?: string | null
+  enabled?: boolean | null
+  event_types?: WebhookEventType[] | null
+}
+
+export interface WebhookResponse {
+  id: string
+  name: string
+  url: string
+  enabled: boolean
+  event_types: WebhookEventType[]
+  created_at: string
+  updated_at: string
+}
+
+export interface WebhookListResponse {
+  webhooks: WebhookResponse[]
+}
+
+// Slack OAuth
+export interface SlackOAuthStatusResponse {
+  connected: boolean
+  scope?: string | null
+}
+
+// Notification Events
+export interface NotificationEvent {
+  type: string
+  timestamp: string
+  sender_slack_id?: string
+  sender_name?: string
+  message?: string
+  [key: string]: unknown
+}

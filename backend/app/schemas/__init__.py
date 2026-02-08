@@ -24,6 +24,24 @@ from app.schemas.session import (
     SessionUpdate,
     SessionWithMessages,
 )
+from app.schemas.focus import (
+    FocusEnableRequest,
+    FocusPomodoroStartRequest,
+    FocusStatusResponse,
+    FocusSettingsUpdate,
+    FocusSettingsResponse,
+    VIPAddRequest,
+    VIPResponse,
+    VIPListResponse,
+)
+from app.schemas.webhook import (
+    WebhookCreateRequest,
+    WebhookUpdateRequest,
+    WebhookResponse,
+    WebhookListResponse,
+    WebhookTestRequest,
+    WebhookTestResponse,
+)
 
 __all__ = [
     "DeleteResponse",
@@ -44,4 +62,18 @@ __all__ = [
     "UserLogin",
     "UserRegister",
     "UserResponse",
+    "FocusEnableRequest",
+    "FocusPomodoroStartRequest",
+    "FocusStatusResponse",
+    "FocusSettingsUpdate",
+    "FocusSettingsResponse",
+    "VIPAddRequest",
+    "VIPResponse",
+    "VIPListResponse",
+    "WebhookCreateRequest",
+    "WebhookUpdateRequest",
+    "WebhookResponse",
+    "WebhookListResponse",
+    "WebhookTestRequest",
+    "WebhookTestResponse",
 ]

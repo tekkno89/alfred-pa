@@ -5,8 +5,13 @@ import { HomePage } from '@/pages/HomePage'
 import { ChatPage } from '@/pages/ChatPage'
 import { MemoriesPage } from '@/pages/MemoriesPage'
 import { SettingsPage } from '@/pages/SettingsPage'
+import { FocusPage } from '@/pages/FocusPage'
+import { FocusSettingsPage } from '@/pages/FocusSettingsPage'
+import { WebhooksPage } from '@/pages/WebhooksPage'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { AuthGuard } from '@/components/auth/AuthGuard'
+import { NotificationProvider } from '@/components/notifications/NotificationProvider'
+import { NotificationBanner } from '@/components/notifications/NotificationBanner'
 
 function App() {
   return (
@@ -20,7 +25,10 @@ function App() {
         <Route
           element={
             <AuthGuard>
-              <AppLayout />
+              <NotificationProvider>
+                <NotificationBanner />
+                <AppLayout />
+              </NotificationProvider>
             </AuthGuard>
           }
         >
@@ -28,6 +36,9 @@ function App() {
           <Route path="/chat/:sessionId" element={<ChatPage />} />
           <Route path="/memories" element={<MemoriesPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/focus" element={<FocusPage />} />
+          <Route path="/settings/focus" element={<FocusSettingsPage />} />
+          <Route path="/settings/webhooks" element={<WebhooksPage />} />
         </Route>
       </Routes>
     </div>

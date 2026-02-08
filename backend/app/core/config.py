@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     slack_bot_token: str = ""
     slack_signing_secret: str = ""
     slack_app_token: str = ""
+    slack_client_id: str = ""
+    slack_client_secret: str = ""
+    slack_oauth_redirect_uri: str = ""
+
+    # Frontend URL (for OAuth callback redirects)
+    frontend_url: str = "http://localhost:3000"
 
     # Embeddings
     embedding_model: str = "BAAI/bge-base-en-v1.5"

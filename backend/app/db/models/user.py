@@ -8,6 +8,9 @@ from app.db.base import Base, TimestampMixin, UUIDMixin
 if TYPE_CHECKING:
     from app.db.models.session import Session
     from app.db.models.memory import Memory
+    from app.db.models.focus import FocusModeState, FocusSettings, FocusVIPList
+    from app.db.models.webhook import WebhookSubscription
+    from app.db.models.oauth_token import UserOAuthToken
 
 
 class User(Base, UUIDMixin, TimestampMixin):
@@ -27,6 +30,21 @@ class User(Base, UUIDMixin, TimestampMixin):
     )
     memories: Mapped[list["Memory"]] = relationship(
         "Memory", back_populates="user", cascade="all, delete-orphan"
+    )
+    focus_state: Mapped["FocusModeState | None"] = relationship(
+        "FocusModeState", back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )
+    focus_settings: Mapped["FocusSettings | None"] = relationship(
+        "FocusSettings", back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )
+    focus_vip_list: Mapped[list["FocusVIPList"]] = relationship(
+        "FocusVIPList", back_populates="user", cascade="all, delete-orphan"
+    )
+    webhook_subscriptions: Mapped[list["WebhookSubscription"]] = relationship(
+        "WebhookSubscription", back_populates="user", cascade="all, delete-orphan"
+    )
+    oauth_tokens: Mapped[list["UserOAuthToken"]] = relationship(
+        "UserOAuthToken", back_populates="user", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

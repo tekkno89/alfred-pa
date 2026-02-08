@@ -3,6 +3,13 @@ from app.db.repositories.memory import MemoryRepository
 from app.db.repositories.message import MessageRepository
 from app.db.repositories.session import SessionRepository
 from app.db.repositories.user import UserRepository
+from app.db.repositories.focus import (
+    FocusModeStateRepository,
+    FocusSettingsRepository,
+    FocusVIPListRepository,
+)
+from app.db.repositories.webhook import WebhookRepository
+from app.db.repositories.oauth_token import OAuthTokenRepository
 
 __all__ = [
     "BaseRepository",
@@ -10,4 +17,9 @@ __all__ = [
     "MessageRepository",
     "SessionRepository",
     "UserRepository",
+    "FocusModeStateRepository",
+    "FocusSettingsRepository",
+    "FocusVIPListRepository",
+    "WebhookRepository",
+    "OAuthTokenRepository",
 ]

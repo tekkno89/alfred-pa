@@ -39,6 +39,8 @@ dependencies = [
     "email-validator>=2.3.0",
     # Embeddings
     "sentence-transformers>=2.2.0",
+    # Background Tasks
+    "arq>=0.26.0",
 ]
 
 [project.optional-dependencies]
