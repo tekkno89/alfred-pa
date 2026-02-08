@@ -8,9 +8,10 @@ interface ChatInputProps {
   onCancel: () => void
   isStreaming: boolean
   disabled?: boolean
+  autoFocus?: boolean
 }
 
-export function ChatInput({ onSend, onCancel, isStreaming, disabled }: ChatInputProps) {
+export function ChatInput({ onSend, onCancel, isStreaming, disabled, autoFocus }: ChatInputProps) {
   const [input, setInput] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -20,6 +21,12 @@ export function ChatInput({ onSend, onCancel, isStreaming, disabled }: ChatInput
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`
     }
   }, [input])
+
+  useEffect(() => {
+    if (autoFocus && textareaRef.current) {
+      textareaRef.current.focus()
+    }
+  }, [autoFocus])
 
   const handleSubmit = () => {
     if (!input.trim() || disabled) return
