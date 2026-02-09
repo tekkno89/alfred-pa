@@ -1,9 +1,23 @@
 """Focus mode schemas for request/response validation."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
+from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PlainSerializer
+
+
+# Custom serializer to ensure datetimes are serialized as UTC with Z suffix
+def serialize_utc_datetime(dt: datetime | None) -> str | None:
+    if dt is None:
+        return None
+    # If naive datetime, assume UTC
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat().replace("+00:00", "Z")
+
+
+UTCDatetime = Annotated[datetime | None, PlainSerializer(serialize_utc_datetime)]
 
 
 class FocusModeEnum(str, Enum):
@@ -44,8 +58,8 @@ class FocusStatusResponse(BaseModel):
 
     is_active: bool
     mode: str = "simple"
-    started_at: datetime | None = None
-    ends_at: datetime | None = None
+    started_at: UTCDatetime = None
+    ends_at: UTCDatetime = None
     custom_message: str | None = None
     pomodoro_phase: str | None = None
     pomodoro_session_count: int = 0

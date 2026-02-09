@@ -57,6 +57,8 @@ export function useStartPomodoro() {
     onSuccess: (data) => {
       // Update cache immediately with the response
       queryClient.setQueryData(['focus-status'], data)
+      // Also trigger a refetch to ensure consistency
+      queryClient.invalidateQueries({ queryKey: ['focus-status'] })
     },
   })
 }

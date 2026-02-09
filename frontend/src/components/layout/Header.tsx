@@ -51,7 +51,7 @@ export function Header() {
   // Determine button styling for pomodoro break (yellow)
   const getFocusButtonClass = () => {
     const base = 'flex items-center gap-2'
-    if (isPomodoroBreak) {
+    if (isInFocusMode && isPomodoroBreak) {
       return `${base} bg-yellow-500 hover:bg-yellow-600 text-white border-yellow-500`
     }
     return base

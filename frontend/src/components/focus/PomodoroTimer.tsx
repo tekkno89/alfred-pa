@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Play, Pause, SkipForward, Coffee } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -9,36 +10,98 @@ import {
   useSkipPomodoroPhase,
   useDisableFocus,
 } from '@/hooks/useFocusMode'
+import { useNotifications } from '@/hooks/useNotifications'
+import type { NotificationEvent } from '@/types'
 
 export function PomodoroTimer() {
+  const queryClient = useQueryClient()
   const { data: status, isLoading } = useFocusStatus()
   const startMutation = useStartPomodoro()
   const skipMutation = useSkipPomodoroPhase()
   const disableMutation = useDisableFocus()
-  const [timeRemaining, setTimeRemaining] = useState<number>(0)
   const [showStartModal, setShowStartModal] = useState(false)
+
+  // Local display time - calculated from ends_at, updated every second
+  const [displayTime, setDisplayTime] = useState<number>(0)
+
+  // Track if timer has been running (to distinguish initial 0 from countdown-to-0)
+  const hasTimerStarted = useRef(false)
+
+  // Listen for pomodoro phase change notifications and refresh status
+  const handleNotification = useCallback(
+    (event: NotificationEvent) => {
+      if (
+        event.type === 'pomodoro_work_started' ||
+        event.type === 'pomodoro_break_started' ||
+        event.type === 'pomodoro_complete' ||
+        event.type === 'focus_ended'
+      ) {
+        queryClient.invalidateQueries({ queryKey: ['focus-status'] })
+      }
+    },
+    [queryClient]
+  )
+  useNotifications(handleNotification)
 
   const isActive = status?.is_active && status?.mode === 'pomodoro'
   const phase = status?.pomodoro_phase
   const sessionCount = status?.pomodoro_session_count ?? 0
   const totalSessions = status?.pomodoro_total_sessions
 
-  // Update countdown timer
+  // Calculate and update display time from ends_at
+  // This is purely for display - ARQ jobs handle actual transitions
+  const endsAt = status?.ends_at
+
   useEffect(() => {
-    if (status?.time_remaining_seconds) {
-      setTimeRemaining(status.time_remaining_seconds)
+    if (!isActive || !endsAt) {
+      setDisplayTime(0)
+      hasTimerStarted.current = false
+      return
     }
-  }, [status?.time_remaining_seconds])
 
-  useEffect(() => {
-    if (!isActive || timeRemaining <= 0) return
+    const calculateRemaining = () => {
+      try {
+        const endsAtMs = new Date(endsAt).getTime()
+        const now = Date.now()
+        return Math.max(0, Math.floor((endsAtMs - now) / 1000))
+      } catch {
+        return 0
+      }
+    }
 
+    // Set initial value
+    const initialTime = calculateRemaining()
+    setDisplayTime(initialTime)
+
+    // Mark timer as started if we have time remaining
+    if (initialTime > 0) {
+      hasTimerStarted.current = true
+    }
+
+    // Update every second
     const interval = setInterval(() => {
-      setTimeRemaining((prev) => Math.max(0, prev - 1))
+      setDisplayTime(calculateRemaining())
     }, 1000)
 
     return () => clearInterval(interval)
-  }, [isActive, timeRemaining])
+  }, [isActive, endsAt])
+
+  // Poll for phase transition when timer hits zero
+  // Only poll if timer was running and reached zero (not on initial load)
+  useEffect(() => {
+    // Don't poll if not active, or if timer has time left, or if timer never started
+    if (!isActive || displayTime !== 0 || !hasTimerStarted.current) return
+
+    // Timer counted down to zero - poll every second until phase changes
+    const pollInterval = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: ['focus-status'] })
+    }, 1000)
+
+    // Also fetch immediately
+    queryClient.invalidateQueries({ queryKey: ['focus-status'] })
+
+    return () => clearInterval(pollInterval)
+  }, [isActive, displayTime, queryClient])
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -105,7 +168,7 @@ export function PomodoroTimer() {
               {/* Timer display */}
               <div className="text-center">
                 <div className="text-6xl font-mono font-bold">
-                  {formatTime(timeRemaining)}
+                  {formatTime(displayTime)}
                 </div>
                 <div className="text-sm text-muted-foreground mt-2">
                   Session {sessionCount}{totalSessions ? ` of ${totalSessions}` : ''}

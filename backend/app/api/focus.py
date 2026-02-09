@@ -231,17 +231,48 @@ async def skip_pomodoro_phase(
     current_user: CurrentUser,
     db: DbSession,
 ) -> FocusStatusResponse:
-    """Skip to the next pomodoro phase (work/break)."""
+    """Skip to the next pomodoro phase (work/break), or end if all sessions complete."""
     focus_service = FocusModeService(db)
     slack_user_service = SlackUserService(db)
     notification_service = NotificationService(db)
+
+    # Get previous status to restore Slack if needed
+    previous_status = await focus_service.get_previous_slack_status(current_user.id)
 
     # Cancel current transition job
     await cancel_pomodoro_transition(current_user.id)
 
     result = await focus_service.skip_pomodoro_phase(current_user.id)
 
-    # Update Slack status based on phase
+    # Check if pomodoro ended (all sessions complete)
+    if not result.is_active:
+        # Restore previous Slack status
+        if previous_status:
+            await slack_user_service.set_status(
+                current_user.id,
+                text=previous_status.get("text", ""),
+                emoji=previous_status.get("emoji", ""),
+            )
+        else:
+            await slack_user_service.set_status(
+                current_user.id,
+                text="",
+                emoji="",
+            )
+
+        # Disable Slack DND
+        await slack_user_service.disable_dnd(current_user.id)
+
+        # Notify completion
+        await notification_service.publish(
+            current_user.id,
+            "pomodoro_complete",
+            {},
+        )
+
+        return result
+
+    # Update Slack status based on new phase
     if result.pomodoro_phase == "work":
         await slack_user_service.set_status(
             current_user.id,

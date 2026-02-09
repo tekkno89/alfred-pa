@@ -29,6 +29,11 @@ Implemented a Focus Mode feature that integrates with Slack to help users minimi
 - [x] Webhook subscriptions for external services
 - [x] Browser notifications for bypass alerts
 
+### Background Jobs (ARQ)
+- [x] Scheduled phase transitions for pomodoro timer
+- [x] Proper job cancellation when stopping/skipping
+- [x] Frontend polling fallback (SSE doesn't work across containers)
+
 ### Frontend
 - [x] Focus page with toggle and quick actions
 - [x] Pomodoro timer component
@@ -54,8 +59,11 @@ Implemented a Focus Mode feature that integrates with Slack to help users minimi
 - `app/api/focus.py` - Focus mode endpoints
 - `app/api/webhooks.py` - Webhook endpoints
 - `app/api/notifications.py` - SSE notifications endpoint
-- `app/schemas/focus.py` - Focus mode schemas
+- `app/schemas/focus.py` - Focus mode schemas (with UTC datetime serialization)
 - `app/schemas/webhook.py` - Webhook schemas
+- `app/worker/scheduler.py` - ARQ job scheduling with proper cancellation
+- `app/worker/tasks.py` - Pomodoro transition task
+- `app/worker/main.py` - Worker configuration
 
 ### Frontend
 - `src/pages/FocusPage.tsx` - Main focus mode page
@@ -145,6 +153,15 @@ For full focus mode functionality, the Slack app needs:
 - `message.im` - Subscribe to events on behalf of users to detect incoming DMs
 
 Users must complete the Slack OAuth flow (Settings → Connect Slack) to grant these permissions.
+
+## Known Limitations
+
+### SSE Cross-Container Issue
+SSE notifications from the ARQ worker to the frontend don't work because the worker and backend run in separate containers with separate memory spaces. The `NotificationService._sse_clients` dict is in-memory and not shared.
+
+**Current workaround**: Frontend polls every second when the pomodoro timer reaches 0:00, until the phase changes.
+
+**Future fix**: Implement Redis pub/sub - worker publishes to Redis, backend subscribes and pushes to SSE clients.
 
 ## Verification Steps
 

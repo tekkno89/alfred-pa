@@ -44,6 +44,11 @@ async def expire_focus_session(ctx: dict, user_id: str | None = None) -> dict:
                 logger.info(f"User {user_id} focus session already inactive")
                 return {"status": "already_inactive", "user_id": user_id}
 
+            # Skip pomodoro sessions - they should be handled by transition jobs
+            if state.mode == "pomodoro":
+                logger.info(f"Skipping pomodoro session expiration for user {user_id}")
+                return {"status": "skipped_pomodoro", "user_id": user_id}
+
             if state.ends_at and state.ends_at <= datetime.utcnow():
                 await _expire_session(db, user_id, state)
                 await db.commit()
@@ -59,6 +64,10 @@ async def expire_focus_session(ctx: dict, user_id: str | None = None) -> dict:
 
             expired_count = 0
             for state in expired_states:
+                # Skip pomodoro sessions - they should be handled by transition jobs
+                if state.mode == "pomodoro":
+                    logger.info(f"Skipping pomodoro session for user {state.user_id}")
+                    continue
                 try:
                     await _expire_session(db, state.user_id, state)
                     expired_count += 1

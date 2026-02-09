@@ -1,6 +1,7 @@
 """Helper functions for scheduling ARQ jobs."""
 
 import logging
+import uuid
 from datetime import datetime
 
 from arq import create_pool
@@ -39,6 +40,8 @@ async def schedule_focus_expiration(user_id: str, expires_at: datetime) -> str |
     """
     try:
         pool = await get_redis_pool()
+        # Use unique job ID to avoid conflicts with previous job results
+        job_id = f"focus_expire_{user_id}_{uuid.uuid4().hex[:8]}"
 
         # Calculate delay from now
         now = datetime.utcnow()
@@ -52,8 +55,12 @@ async def schedule_focus_expiration(user_id: str, expires_at: datetime) -> str |
             "expire_focus_session",
             user_id,
             _defer_by=delay_seconds,
-            _job_id=f"focus_expire_{user_id}",
+            _job_id=job_id,
         )
+
+        if job is None:
+            logger.warning(f"Could not schedule focus expiration for user {user_id}")
+            return None
 
         logger.info(
             f"Scheduled focus expiration for user {user_id} "
@@ -70,30 +77,22 @@ async def cancel_focus_expiration(user_id: str) -> bool:
     """
     Cancel a scheduled focus expiration job.
 
+    Note: With unique job IDs, we can't cancel specific jobs.
+    The jobs will check if the session is still active and do nothing if not.
+
     Args:
         user_id: The user's ID
 
     Returns:
-        True if cancelled, False otherwise
+        True (jobs will self-cancel when they run)
     """
-    try:
-        pool = await get_redis_pool()
-        job_id = f"focus_expire_{user_id}"
+    logger.info(f"Focus expiration for user {user_id} will be ignored when it runs")
+    return True
 
-        # ARQ doesn't have a direct cancel method, but we can abort the job
-        # by checking if it exists and removing it from the queue
-        job = await pool.job(job_id)
-        if job:
-            await job.abort()
-            logger.info(f"Cancelled focus expiration job for user {user_id}")
-            return True
-        else:
-            logger.info(f"No focus expiration job found for user {user_id}")
-            return False
 
-    except Exception as e:
-        logger.error(f"Failed to cancel focus expiration: {e}")
-        return False
+def _pomodoro_job_key(user_id: str) -> str:
+    """Redis key for storing the current pomodoro job ID."""
+    return f"pomodoro_job:{user_id}"
 
 
 async def schedule_pomodoro_transition(user_id: str, transition_at: datetime) -> str | None:
@@ -110,6 +109,12 @@ async def schedule_pomodoro_transition(user_id: str, transition_at: datetime) ->
     try:
         pool = await get_redis_pool()
 
+        # Cancel any existing job first
+        await cancel_pomodoro_transition(user_id)
+
+        # Use unique job ID to avoid conflicts with previous job results
+        job_id = f"pomodoro_transition_{user_id}_{uuid.uuid4().hex[:8]}"
+
         # Calculate delay from now
         now = datetime.utcnow()
         if transition_at <= now:
@@ -121,8 +126,15 @@ async def schedule_pomodoro_transition(user_id: str, transition_at: datetime) ->
             "transition_pomodoro",
             user_id,
             _defer_by=delay_seconds,
-            _job_id=f"pomodoro_transition_{user_id}",
+            _job_id=job_id,
         )
+
+        if job is None:
+            logger.warning(f"Could not schedule pomodoro transition for user {user_id}")
+            return None
+
+        # Store the job ID so we can cancel it later
+        await pool.set(_pomodoro_job_key(user_id), job_id, ex=86400)  # 24h TTL
 
         logger.info(
             f"Scheduled pomodoro transition for user {user_id} "
@@ -137,26 +149,42 @@ async def schedule_pomodoro_transition(user_id: str, transition_at: datetime) ->
 
 async def cancel_pomodoro_transition(user_id: str) -> bool:
     """
-    Cancel a scheduled pomodoro transition job.
+    Cancel a scheduled pomodoro transition job by removing it from the queue.
 
     Args:
         user_id: The user's ID
 
     Returns:
-        True if cancelled, False otherwise
+        True if cancelled successfully, False otherwise
     """
     try:
         pool = await get_redis_pool()
-        job_id = f"pomodoro_transition_{user_id}"
 
-        job = await pool.job(job_id)
-        if job:
-            await job.abort()
-            logger.info(f"Cancelled pomodoro transition job for user {user_id}")
+        # Get the stored job ID
+        job_id = await pool.get(_pomodoro_job_key(user_id))
+        if not job_id:
+            logger.info(f"No pomodoro job to cancel for user {user_id}")
             return True
+
+        if isinstance(job_id, bytes):
+            job_id = job_id.decode()
+
+        # Remove from the queue (sorted set)
+        queue_name = pool.default_queue_name
+        removed = await pool.zrem(queue_name, job_id)
+
+        # Clean up the job data
+        await pool.delete(f"arq:job:{job_id}")
+
+        # Remove our tracking key
+        await pool.delete(_pomodoro_job_key(user_id))
+
+        if removed:
+            logger.info(f"Cancelled pomodoro transition job {job_id} for user {user_id}")
         else:
-            logger.info(f"No pomodoro transition job found for user {user_id}")
-            return False
+            logger.info(f"Pomodoro job {job_id} for user {user_id} was not in queue (may have already run)")
+
+        return True
 
     except Exception as e:
         logger.error(f"Failed to cancel pomodoro transition: {e}")

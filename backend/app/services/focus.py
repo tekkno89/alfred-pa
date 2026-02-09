@@ -108,13 +108,20 @@ class FocusModeService:
         if state.is_active and state.ends_at:
             now = datetime.utcnow()
             if state.ends_at <= now:
-                # Session has expired - disable it
-                await self.state_repo.update(
-                    state,
-                    is_active=False,
-                    ended_at=now,
-                )
-                return FocusStatusResponse(is_active=False)
+                # For pomodoro mode, don't auto-disable - let the worker handle
+                # phase transitions. The ends_at is just the phase end time.
+                if state.mode == "pomodoro":
+                    # Phase has expired, but session continues
+                    # Return current state with time_remaining = 0
+                    pass
+                else:
+                    # Simple focus mode - disable it
+                    await self.state_repo.update(
+                        state,
+                        is_active=False,
+                        ended_at=now,
+                    )
+                    return FocusStatusResponse(is_active=False)
 
         # Calculate time remaining
         time_remaining = None
@@ -212,7 +219,7 @@ class FocusModeService:
             user_id: The user's ID
 
         Returns:
-            Current focus status
+            Current focus status (is_active=False if all sessions complete)
         """
         state = await self.state_repo.get_by_user_id(user_id)
         if not state or not state.is_active or state.mode != "pomodoro":
@@ -221,10 +228,21 @@ class FocusModeService:
         # Use per-session config, fall back to defaults
         work_minutes = state.pomodoro_work_minutes or 25
         break_minutes = state.pomodoro_break_minutes or 5
+        total = state.pomodoro_total_sessions
         now = datetime.utcnow()
 
         if state.pomodoro_phase == "work":
-            # Switch to break
+            # Check if this was the last session (no break after final work)
+            if total and state.pomodoro_session_count >= total:
+                # All sessions complete, end pomodoro
+                await self.state_repo.update(
+                    state,
+                    is_active=False,
+                    ended_at=now,
+                )
+                return await self.get_status(user_id)
+
+            # Not the last session, switch to break
             break_duration = timedelta(minutes=break_minutes)
             await self.state_repo.update(
                 state,
@@ -232,6 +250,16 @@ class FocusModeService:
                 ends_at=now + break_duration,
             )
         else:
+            # Check if starting another work session would exceed limit
+            if total and state.pomodoro_session_count >= total:
+                # Already at max sessions, end pomodoro
+                await self.state_repo.update(
+                    state,
+                    is_active=False,
+                    ended_at=now,
+                )
+                return await self.get_status(user_id)
+
             # Switch to work
             work_duration = timedelta(minutes=work_minutes)
             await self.state_repo.update(
@@ -264,16 +292,7 @@ class FocusModeService:
         now = datetime.utcnow()
 
         if state.pomodoro_phase == "work":
-            # Switch to break
-            break_duration = timedelta(minutes=break_minutes)
-            await self.state_repo.update(
-                state,
-                pomodoro_phase="break",
-                ends_at=now + break_duration,
-            )
-            return "break"
-        else:
-            # Check if we've completed all sessions
+            # Check if this was the last session (no break after final work)
             total = state.pomodoro_total_sessions
             if total and state.pomodoro_session_count >= total:
                 # All sessions complete, end pomodoro
@@ -284,7 +303,16 @@ class FocusModeService:
                 )
                 return None
 
-            # Switch to work
+            # Not the last session, switch to break
+            break_duration = timedelta(minutes=break_minutes)
+            await self.state_repo.update(
+                state,
+                pomodoro_phase="break",
+                ends_at=now + break_duration,
+            )
+            return "break"
+        else:
+            # Switch from break to next work session
             work_duration = timedelta(minutes=work_minutes)
             await self.state_repo.update(
                 state,
