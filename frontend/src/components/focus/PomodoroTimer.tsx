@@ -13,7 +13,11 @@ import {
 import { useNotifications } from '@/hooks/useNotifications'
 import type { NotificationEvent } from '@/types'
 
-export function PomodoroTimer() {
+interface PomodoroTimerProps {
+  onPresetSaved?: () => void
+}
+
+export function PomodoroTimer({ onPresetSaved }: PomodoroTimerProps) {
   const queryClient = useQueryClient()
   const { data: status, isLoading } = useFocusStatus()
   const startMutation = useStartPomodoro()
@@ -194,7 +198,7 @@ export function PomodoroTimer() {
               </p>
               <Button onClick={() => setShowStartModal(true)}>
                 <Play className="h-4 w-4 mr-2" />
-                Start Pomodoro
+                Custom Session
               </Button>
             </div>
           )}
@@ -205,6 +209,7 @@ export function PomodoroTimer() {
         open={showStartModal}
         onOpenChange={setShowStartModal}
         onStart={handleStart}
+        onPresetSaved={onPresetSaved}
         isLoading={startMutation.isPending}
       />
     </>

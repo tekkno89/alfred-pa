@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bell, BellOff, Clock, Plus, Trash2, Save } from 'lucide-react'
+import { Bell, BellOff, Clock, Play, Plus, Trash2, Save } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -15,7 +15,14 @@ import {
   useFocusStatus,
   useEnableFocus,
   useDisableFocus,
+  useStartPomodoro,
 } from '@/hooks/useFocusMode'
+import {
+  type PomodoroPreset,
+  DEFAULT_POMODORO_PRESETS,
+  loadPomodoroPresets,
+  savePomodoroCustomPresets,
+} from '@/components/focus/PomodoroStartModal'
 
 interface FocusPreset {
   id: string
@@ -61,6 +68,7 @@ export function FocusPage() {
   const { data: status, isLoading } = useFocusStatus()
   const enableMutation = useEnableFocus()
   const disableMutation = useDisableFocus()
+  const startPomodoroMutation = useStartPomodoro()
 
   const [selectedDuration, setSelectedDuration] = useState<string>('60')
   const [customMinutes, setCustomMinutes] = useState<number>(45)
@@ -69,12 +77,16 @@ export function FocusPage() {
   const [showSavePreset, setShowSavePreset] = useState(false)
   const [newPresetName, setNewPresetName] = useState('')
 
+  const [pomodoroPresets, setPomodoroPresets] = useState<PomodoroPreset[]>(loadPomodoroPresets)
+
   // Reload presets on mount
   useEffect(() => {
     setPresets(loadPresets())
+    setPomodoroPresets(loadPomodoroPresets())
   }, [])
 
   const isActive = status?.is_active ?? false
+  const isPomodoroActive = isActive && status?.mode === 'pomodoro'
   const isPending = enableMutation.isPending || disableMutation.isPending
 
   const handleDurationChange = (value: string) => {
@@ -126,6 +138,24 @@ export function FocusPage() {
     saveCustomPresets(updated)
   }
 
+  const handleStartPomodoroPreset = (preset: PomodoroPreset) => {
+    startPomodoroMutation.mutate({
+      work_minutes: preset.workMinutes,
+      break_minutes: preset.breakMinutes,
+      total_sessions: preset.sessions,
+    })
+  }
+
+  const handleDeletePomodoroPreset = (id: string) => {
+    const updated = pomodoroPresets.filter(p => p.id !== id)
+    setPomodoroPresets(updated)
+    savePomodoroCustomPresets(updated)
+  }
+
+  const reloadPomodoroPresets = () => {
+    setPomodoroPresets(loadPomodoroPresets())
+  }
+
   const formatTimeRemaining = (seconds: number) => {
     const hours = Math.floor(seconds / 3600)
     const mins = Math.floor((seconds % 3600) / 60)
@@ -140,8 +170,8 @@ export function FocusPage() {
       <h1 className="text-3xl font-bold mb-6">Focus Mode</h1>
 
       <div className="grid gap-6 md:grid-cols-2">
-        {/* Main Focus Toggle Card */}
-        <Card className="md:col-span-2">
+        {/* Focus Mode Card */}
+        <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               {isActive ? (
@@ -269,10 +299,7 @@ export function FocusPage() {
           </CardContent>
         </Card>
 
-        {/* Pomodoro Timer */}
-        <PomodoroTimer />
-
-        {/* Quick Actions */}
+        {/* Focus Quick Actions */}
         <Card>
           <CardHeader>
             <CardTitle>Quick Actions</CardTitle>
@@ -297,6 +324,43 @@ export function FocusPage() {
                     variant="ghost"
                     size="sm"
                     onClick={() => handleDeletePreset(preset.id)}
+                  >
+                    <Trash2 className="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                )}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        {/* Pomodoro Timer */}
+        <PomodoroTimer onPresetSaved={reloadPomodoroPresets} />
+
+        {/* Pomodoro Quick Actions */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Pomodoro Quick Actions</CardTitle>
+            <CardDescription>
+              One-click presets for pomodoro sessions
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {pomodoroPresets.map((preset) => (
+              <div key={preset.id} className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1 justify-start"
+                  onClick={() => handleStartPomodoroPreset(preset)}
+                  disabled={isPomodoroActive || startPomodoroMutation.isPending}
+                >
+                  <Play className="h-4 w-4 mr-2" />
+                  {preset.name} ({preset.workMinutes}m / {preset.breakMinutes}m x {preset.sessions})
+                </Button>
+                {!DEFAULT_POMODORO_PRESETS.some(d => d.id === preset.id) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDeletePomodoroPreset(preset.id)}
                   >
                     <Trash2 className="h-4 w-4 text-muted-foreground" />
                   </Button>
