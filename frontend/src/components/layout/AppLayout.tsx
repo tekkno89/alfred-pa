@@ -14,7 +14,7 @@ export function AppLayout() {
           collapsed={sidebarCollapsed}
           onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
         />
-        <main className="flex-1 overflow-hidden">
+        <main className="flex-1 overflow-hidden pl-6">
           <Outlet />
         </main>
       </div>
