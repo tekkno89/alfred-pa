@@ -118,6 +118,54 @@ class SlackUserService:
             logger.error(f"Error setting Slack presence: {e.response['error']}")
             return False
 
+    async def enable_dnd(self, user_id: str, duration_minutes: int = 60) -> bool:
+        """
+        Enable Do Not Disturb mode for a user.
+
+        Args:
+            user_id: The user's ID
+            duration_minutes: How long to snooze notifications (default: 60 min)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        client = await self._get_user_client(user_id)
+        if not client:
+            logger.warning(f"No Slack OAuth token for user {user_id}")
+            return False
+
+        try:
+            await client.dnd_setSnooze(num_minutes=duration_minutes)
+            return True
+        except SlackApiError as e:
+            logger.error(f"Error enabling Slack DND: {e.response['error']}")
+            return False
+
+    async def disable_dnd(self, user_id: str) -> bool:
+        """
+        Disable Do Not Disturb mode for a user.
+
+        Args:
+            user_id: The user's ID
+
+        Returns:
+            True if successful, False otherwise
+        """
+        client = await self._get_user_client(user_id)
+        if not client:
+            logger.warning(f"No Slack OAuth token for user {user_id}")
+            return False
+
+        try:
+            await client.dnd_endSnooze()
+            return True
+        except SlackApiError as e:
+            # "snooze_not_active" is not really an error
+            if e.response.get("error") == "snooze_not_active":
+                return True
+            logger.error(f"Error disabling Slack DND: {e.response['error']}")
+            return False
+
     async def store_token(
         self,
         user_id: str,

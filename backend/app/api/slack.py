@@ -115,6 +115,13 @@ async def handle_slack_events(
     if payload.get("type") == "event_callback":
         event_id = payload.get("event_id")
         event = payload.get("event", {})
+        authorizations = payload.get("authorizations", [])
+
+        # Log the incoming event for debugging
+        logger.info(f"Slack event received: type={event.get('type')}, "
+                    f"channel={event.get('channel')}, "
+                    f"user={event.get('user')}, "
+                    f"authorizations={authorizations}")
 
         # Check for duplicate event (Slack may retry)
         if event_id:
@@ -127,27 +134,38 @@ async def handle_slack_events(
                 logger.info(f"Skipping duplicate Slack event: {event_id}")
                 return {"ok": True}
 
+        # Get authorizations (for user-context events)
+        authorizations = payload.get("authorizations", [])
+
         # Process in background to respond quickly to Slack
-        background_tasks.add_task(process_message_event_background, event)
+        background_tasks.add_task(process_message_event_background, event, authorizations)
 
     return {"ok": True}
 
 
-async def process_message_event_background(event: dict[str, Any]) -> None:
+async def process_message_event_background(
+    event: dict[str, Any],
+    authorizations: list[dict[str, Any]] | None = None,
+) -> None:
     """Process Slack message event in background with its own DB session."""
     # Get a fresh database session for background processing
     async for db in get_db():
         try:
-            await handle_message_event(event, db)
+            await handle_message_event(event, db, authorizations)
         except Exception as e:
             logger.error(f"Error in background Slack event processing: {e}")
 
 
-async def handle_message_event(event: dict[str, Any], db) -> None:
+async def handle_message_event(
+    event: dict[str, Any],
+    db,
+    authorizations: list[dict[str, Any]] | None = None,
+) -> None:
     """
     Handle Slack message events.
 
     Process incoming messages from DMs or mentions.
+    Handles both bot events and user-context events (on behalf of users).
     """
     event_type = event.get("type")
 
@@ -161,46 +179,132 @@ async def handle_message_event(event: dict[str, Any], db) -> None:
 
     sender_slack_id = event.get("user")
     channel_id = event.get("channel")
-    text = event.get("text", "").strip()
+    original_text = event.get("text", "").strip()
     thread_ts = event.get("thread_ts") or event.get("ts")
     message_ts = event.get("ts")
 
-    if not sender_slack_id or not channel_id or not text:
-        return
-
-    # Remove bot mention from text if present
-    text = _strip_bot_mention(text)
-
-    if not text:
+    if not sender_slack_id or not channel_id or not original_text:
         return
 
     slack_service = get_slack_service()
     user_repo = UserRepository(db)
     session_repo = SessionRepository(db)
+    focus_service = FocusModeService(db)
 
-    # Look up user by Slack ID (the recipient/Alfred user)
-    # For DMs, this would be the user whose DM channel it is
-    # For mentions, we need to find who is being addressed
+    # Check if this is a user-context event (event on behalf of a user)
+    # For message.im events, this means someone DMed the authorized user
+    if authorizations and len(authorizations) > 0:
+        authorized_user_slack_id = authorizations[0].get("user_id")
+
+        # Only process if authorized user is different from sender
+        # (someone else is DMing the authorized user)
+        if authorized_user_slack_id and authorized_user_slack_id != sender_slack_id:
+            logger.info(
+                f"User-context event: {sender_slack_id} -> {authorized_user_slack_id}"
+            )
+
+            # Look up the authorized user (recipient of the DM)
+            recipient_user = await user_repo.get_by_slack_id(authorized_user_slack_id)
+
+            if recipient_user:
+                # Check if recipient is in focus mode
+                if await focus_service.is_in_focus_mode(recipient_user.id):
+                    # Check if sender is VIP for this user
+                    if not await focus_service.is_vip(recipient_user.id, sender_slack_id):
+                        # Send auto-reply for the recipient
+                        # Use sender_slack_id as channel - this opens a DM between
+                        # the bot and sender (bot can't post to user-to-user DMs)
+                        custom_message = await focus_service.get_custom_message(
+                            recipient_user.id
+                        )
+                        await send_focus_mode_reply(
+                            slack_service,
+                            sender_slack_id,  # DM the sender directly
+                            None,  # No thread for new DM
+                            recipient_user.id,
+                            sender_slack_id,
+                            custom_message,
+                            recipient_slack_id=authorized_user_slack_id,
+                        )
+                        logger.info(
+                            f"Sent focus mode auto-reply for user {recipient_user.id}"
+                        )
+                        # Don't process further - this was just a focus mode check
+                        return
+
+            # For user-context events where recipient isn't in focus mode,
+            # we don't need to do anything else (it's their normal DM)
+            return
+
+    # Check if any mentioned users are linked and in focus mode
+    # This handles the case where someone mentions a user who is focusing
+    mentioned_user_ids = _extract_mentioned_user_ids(original_text)
+    logger.info(f"Message from {sender_slack_id}, mentions: {mentioned_user_ids}")
+    for mentioned_slack_id in mentioned_user_ids:
+        # Skip if the sender mentioned themselves
+        if mentioned_slack_id == sender_slack_id:
+            continue
+
+        mentioned_user = await user_repo.get_by_slack_id(mentioned_slack_id)
+        if not mentioned_user:
+            continue
+
+        # Check if the mentioned user is in focus mode
+        if await focus_service.is_in_focus_mode(mentioned_user.id):
+            # Check if sender is VIP for this user
+            if not await focus_service.is_vip(mentioned_user.id, sender_slack_id):
+                # Send auto-reply for the mentioned user
+                # DM the sender directly (bot may not be in the channel)
+                custom_message = await focus_service.get_custom_message(mentioned_user.id)
+                await send_focus_mode_reply(
+                    slack_service,
+                    sender_slack_id,  # DM the sender
+                    None,  # No thread for DM
+                    mentioned_user.id,
+                    sender_slack_id,
+                    custom_message,
+                    recipient_slack_id=mentioned_slack_id,
+                )
+                # Continue checking other mentions (don't return)
+
+    # Only continue processing if this is a DM or bot mention
+    # For channel messages where only a user was mentioned, we're done
+    is_dm_channel = channel_id.startswith("D")
+    if not is_dm_channel and event_type != "app_mention":
+        # Just a channel message - we've handled any focus mode replies above
+        return
+
+    # Remove bot mention from text if present
+    text = _strip_bot_mention(original_text)
+
+    if not text:
+        return
+
+    # Look up user by Slack ID (the sender)
+    # This is for DM conversations with the bot
     user = await user_repo.get_by_slack_id(sender_slack_id)
 
     if not user:
-        # Sender is not linked - check if this is a DM to a linked user
-        # For now, send linking instructions
-        await slack_service.send_message(
-            channel=channel_id,
-            text=(
-                "I don't recognize your Slack account. "
-                "Please link it first:\n\n"
-                "1. Type `/alfred-link` to get a linking code\n"
-                "2. Go to Alfred webapp Settings\n"
-                "3. Enter the code to link your accounts"
-            ),
-            thread_ts=thread_ts,
-        )
+        # Sender is not linked
+        # Only send linking instructions for DM channels (start with 'D')
+        # or when the bot was explicitly mentioned (app_mention)
+        is_dm_channel = channel_id.startswith("D")
+        if is_dm_channel or event_type == "app_mention":
+            await slack_service.send_message(
+                channel=channel_id,
+                text=(
+                    "I don't recognize your Slack account. "
+                    "Please link it first:\n\n"
+                    "1. Type `/alfred-link` to get a linking code\n"
+                    "2. Go to Alfred webapp Settings\n"
+                    "3. Enter the code to link your accounts"
+                ),
+                thread_ts=thread_ts,
+            )
         return
 
-    # Check if user is in focus mode
-    focus_service = FocusModeService(db)
+    # Check if user (sender) is in focus mode for DM conversations with the bot
+    # Note: This handles the case where a linked user DMs the bot while in focus mode
     if await focus_service.is_in_focus_mode(user.id):
         # Check if sender is VIP (bypass focus mode)
         if not await focus_service.is_vip(user.id, sender_slack_id):
@@ -214,6 +318,7 @@ async def handle_message_event(event: dict[str, Any], db) -> None:
                 user.id,
                 sender_slack_id,
                 custom_message,
+                recipient_slack_id=sender_slack_id,
             )
             return
 
@@ -257,10 +362,11 @@ async def handle_message_event(event: dict[str, Any], db) -> None:
 async def send_focus_mode_reply(
     slack_service,
     channel_id: str,
-    thread_ts: str,
+    thread_ts: str | None,
     user_id: str,
     sender_slack_id: str,
     custom_message: str | None,
+    recipient_slack_id: str | None = None,
 ) -> None:
     """Send focus mode auto-reply with bypass button."""
     # Create signed payload for bypass button
@@ -274,14 +380,35 @@ async def send_focus_mode_reply(
     ).hexdigest()[:16]
     signed_payload = f"{payload_str}:{signature}"
 
-    display_message = custom_message or "I'm currently in focus mode and not available."
+    # Get recipient's display name if we have their Slack ID
+    recipient_name = None
+    if recipient_slack_id:
+        try:
+            user_info = await slack_service.get_user_info(recipient_slack_id)
+            recipient_name = (
+                user_info.get("real_name")
+                or user_info.get("profile", {}).get("display_name")
+                or user_info.get("name")
+            )
+        except Exception as e:
+            logger.warning(f"Could not get recipient name: {e}")
+
+    # Build the message
+    if recipient_name:
+        header = f"Hello! I noticed you're trying to message *{recipient_name}*."
+        intro = f"They are currently in focus mode and have notifications disabled."
+    else:
+        header = "Hello!"
+        intro = "The person you're trying to reach is in focus mode and has notifications disabled."
+
+    user_message = custom_message or "I'm currently in focus mode and not available."
 
     blocks = [
         {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f":no_bell: *Focus Mode Active*\n\n_{display_message}_",
+                "text": f"{header}\n\n{intro}\n\nThey have left the following message:\n\n> _{user_message}_",
             },
         },
         {
@@ -289,7 +416,7 @@ async def send_focus_mode_reply(
             "elements": [
                 {
                     "type": "button",
-                    "text": {"type": "plain_text", "text": "Urgent - Notify User"},
+                    "text": {"type": "plain_text", "text": "Urgent - Notify Them"},
                     "style": "danger",
                     "action_id": "focus_bypass",
                     "value": signed_payload,
@@ -300,7 +427,7 @@ async def send_focus_mode_reply(
 
     await slack_service.client.chat_postMessage(
         channel=channel_id,
-        text=f"Focus Mode Active: {display_message}",
+        text=f"Focus Mode: {recipient_name or 'User'} is unavailable - {user_message}",
         blocks=blocks,
         thread_ts=thread_ts,
     )
@@ -312,6 +439,14 @@ def _strip_bot_mention(text: str) -> str:
 
     # Remove <@BOT_ID> mentions
     return re.sub(r"<@[A-Z0-9]+>\s*", "", text).strip()
+
+
+def _extract_mentioned_user_ids(text: str) -> list[str]:
+    """Extract all mentioned Slack user IDs from message text."""
+    import re
+
+    # Find all <@USERID> patterns
+    return re.findall(r"<@([A-Z0-9]+)>", text)
 
 
 @router.post("/commands")

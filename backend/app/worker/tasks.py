@@ -99,6 +99,12 @@ async def _expire_session(db, user_id: str, state) -> None:
     except Exception as e:
         logger.error(f"Error restoring Slack status for {user_id}: {e}")
 
+    # Disable Slack DND
+    try:
+        await slack_user_service.disable_dnd(user_id)
+    except Exception as e:
+        logger.error(f"Error disabling Slack DND for {user_id}: {e}")
+
     # Publish notification
     await notification_service.publish(
         user_id,
@@ -142,6 +148,12 @@ async def transition_pomodoro(ctx: dict, user_id: str) -> dict:
                     )
             except Exception as e:
                 logger.error(f"Error restoring Slack status for {user_id}: {e}")
+
+            # Disable Slack DND
+            try:
+                await slack_user_service.disable_dnd(user_id)
+            except Exception as e:
+                logger.error(f"Error disabling Slack DND for {user_id}: {e}")
 
             await notification_service.publish(
                 user_id,

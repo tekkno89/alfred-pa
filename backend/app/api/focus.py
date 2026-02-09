@@ -64,6 +64,11 @@ async def enable_focus_mode(
         emoji=":no_bell:",
     )
 
+    # Enable Slack DND to prevent notifications
+    # Use duration if set, otherwise default to 8 hours (480 min)
+    dnd_duration = data.duration_minutes or 480
+    await slack_user_service.enable_dnd(current_user.id, dnd_duration)
+
     # Publish focus started event
     await notification_service.publish(
         current_user.id,
@@ -116,6 +121,9 @@ async def disable_focus_mode(
             emoji="",
         )
 
+    # Disable Slack DND to restore notifications
+    await slack_user_service.disable_dnd(current_user.id)
+
     # Publish focus ended event
     await notification_service.publish(
         current_user.id,
@@ -157,6 +165,9 @@ async def get_focus_status(
                 emoji="",
             )
 
+        # Disable Slack DND
+        await slack_user_service.disable_dnd(current_user.id)
+
         # Publish focus ended event
         await notification_service.publish(
             current_user.id,
@@ -196,6 +207,10 @@ async def start_pomodoro(
         text="Pomodoro - Focus time",
         emoji=":tomato:",
     )
+
+    # Enable Slack DND during pomodoro work phase
+    work_mins = data.work_minutes or 25
+    await slack_user_service.enable_dnd(current_user.id, work_mins)
 
     # Publish event
     await notification_service.publish(

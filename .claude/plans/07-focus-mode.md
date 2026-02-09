@@ -16,9 +16,13 @@ Implemented a Focus Mode feature that integrates with Slack to help users minimi
 
 ### Slack Integration
 - [x] `/alfred-focus` slash command
-- [x] Auto-reply to messages when in focus mode
+- [x] Auto-reply to DMs when user is in focus mode (via user event subscriptions)
+- [x] Auto-reply to @mentions in channels when user is in focus mode
+- [x] Personalized auto-reply message showing who is unavailable
 - [x] Bypass button for urgent messages
 - [x] Slack OAuth for status control (set status to "Focus Mode")
+- [x] Slack DND (Do Not Disturb) - automatically enabled/disabled with focus mode
+- [x] DND prevents dock bounce and notifications during focus mode
 
 ### Notifications
 - [x] SSE endpoint for real-time webapp notifications
@@ -125,6 +129,22 @@ Implemented a Focus Mode feature that integrates with Slack to help users minimi
 - `focus_vip_list` - VIP whitelist per user
 - `webhook_subscriptions` - Webhook subscriptions per user
 - `user_oauth_tokens` - OAuth tokens per user
+
+## Slack App Requirements
+
+For full focus mode functionality, the Slack app needs:
+
+### User Token Scopes
+- `users.profile:read` - Read user profile
+- `users.profile:write` - Set focus mode status
+- `im:history` - Receive DM events for auto-reply
+- `im:read` - View DM info
+- `dnd:write` - Enable/disable Do Not Disturb
+
+### User Event Subscriptions
+- `message.im` - Subscribe to events on behalf of users to detect incoming DMs
+
+Users must complete the Slack OAuth flow (Settings → Connect Slack) to grant these permissions.
 
 ## Verification Steps
 

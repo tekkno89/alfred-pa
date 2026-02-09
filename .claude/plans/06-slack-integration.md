@@ -96,20 +96,33 @@ Slack bot integration for Alfred, allowing users to chat via Slack DMs or channe
 
 Configure your Slack app with:
 
-1. **Event Subscriptions:**
+1. **Event Subscriptions (Bot Events):**
    - Request URL: `https://<your-domain>/api/slack/events`
-   - Subscribe to: `message.channels`, `message.groups`, `message.im`, `app_mention`
+   - Subscribe to bot events: `message.channels`, `message.groups`, `message.im`, `app_mention`
 
-2. **Slash Commands:**
+2. **Event Subscriptions (User Events - for Focus Mode auto-reply):**
+   - Subscribe to events on behalf of users: `message.im`, `message.channels`, `message.groups`
+   - This allows Alfred to detect when someone DMs or @mentions a user who is in focus mode
+
+3. **Slash Commands:**
    - Command: `/alfred-link`
    - Request URL: `https://<your-domain>/api/slack/commands`
+   - Command: `/alfred-focus`
+   - Request URL: `https://<your-domain>/api/slack/commands`
 
-3. **OAuth & Permissions (Bot Token Scopes):**
+4. **OAuth & Permissions (Bot Token Scopes):**
    - `chat:write`
    - `users:read`
    - `im:history`
    - `channels:history`
    - `app_mentions:read`
+
+5. **OAuth & Permissions (User Token Scopes):**
+   - `users.profile:read` - Read user profile
+   - `users.profile:write` - Set status during focus mode
+   - `im:history` - Receive DM events for focus mode auto-reply
+   - `im:read` - View DM info
+   - `dnd:write` - Enable/disable Do Not Disturb during focus mode
 
 ## Verification Commands
 

@@ -203,7 +203,10 @@ async def get_slack_oauth_url(current_user: CurrentUser) -> SlackOAuthUrlRespons
 
     # Slack OAuth scopes for user token
     # user_scope is for user token permissions, scope is for bot token
-    user_scopes = "users.profile:read,users.profile:write"
+    # - users.profile:* for setting status during focus mode
+    # - im:history,im:read for receiving DM events (focus mode auto-reply)
+    # - dnd:write for enabling Do Not Disturb during focus mode
+    user_scopes = "users.profile:read,users.profile:write,im:history,im:read,dnd:write"
 
     params = {
         "client_id": settings.slack_client_id,
@@ -262,6 +265,7 @@ async def slack_oauth_callback(
     authed_user = data.get("authed_user", {})
     access_token = authed_user.get("access_token")
     scope = authed_user.get("scope")
+    slack_user_id = authed_user.get("id")  # Slack user ID
 
     if not access_token:
         raise HTTPException(
@@ -276,6 +280,18 @@ async def slack_oauth_callback(
         access_token=access_token,
         scope=scope,
     )
+
+    # Auto-link Slack account if not already linked
+    # This saves users from having to do the /alfred-link step separately
+    if slack_user_id:
+        user_repo = UserRepository(db)
+        user = await user_repo.get(user_id)
+        if user and not user.slack_user_id:
+            try:
+                await user_repo.link_slack(user_id, slack_user_id)
+            except ValueError:
+                # Slack ID already linked to another account - ignore
+                pass
 
     # Redirect back to frontend settings page
     redirect_url = f"{settings.frontend_url}/settings?oauth=success"
