@@ -10,8 +10,9 @@
 | Phase 4: Memory System | ✅ Complete | Long-term memory, embeddings, retrieval |
 | Phase 5: Frontend Core | ✅ Complete | Auth pages, session list, chat interface, memories |
 | Phase 6: Slack Integration | ✅ Complete | Slack app, webhooks, cross-channel sync |
-| Phase 7: Observability | 🔲 Not Started | Prometheus metrics, Loki logging, dashboards |
-| Phase 8: CI/CD | 🔲 Not Started | GitHub Actions, Cloud Run deployment |
+| Phase 7: Focus Mode | ✅ Complete | Focus mode, pomodoro, VIP bypass, notifications |
+| Phase 8: Observability | 🔲 Not Started | Prometheus metrics, Loki logging, dashboards |
+| Phase 9: CI/CD | 🔲 Not Started | GitHub Actions, Cloud Run deployment |
 
 ---
 
@@ -125,10 +126,30 @@ Completed items:
 
 ---
 
-## Phase 7: Observability 🔲
+## Phase 7: Focus Mode ✅
+
+**Status:** Complete
+**Plan File:** [07-focus-mode.md](./07-focus-mode.md)
+
+Completed items:
+- [x] Focus mode toggle with optional duration
+- [x] Pomodoro mode with work/break cycles
+- [x] Customizable auto-reply messages
+- [x] VIP whitelist for bypass
+- [x] `/alfred-focus` Slack slash command
+- [x] Auto-reply with bypass button in Slack
+- [x] SSE notifications for webapp
+- [x] Webhook subscriptions for external services
+- [x] Slack OAuth for status control
+- [x] Focus page, settings page, webhooks page
+- [x] Notification banner for bypass alerts
+
+---
+
+## Phase 8: Observability 🔲
 
 **Status:** Not Started
-**Plan File:** [07-observability.md](./07-observability.md)
+**Plan File:** [08-observability.md](./08-observability.md)
 
 Key deliverables:
 - Prometheus metrics endpoints
@@ -137,10 +158,10 @@ Key deliverables:
 
 ---
 
-## Phase 8: CI/CD 🔲
+## Phase 9: CI/CD 🔲
 
 **Status:** Not Started
-**Plan File:** [08-cicd.md](./08-cicd.md)
+**Plan File:** [09-cicd.md](./09-cicd.md)
 
 Key deliverables:
 - GitHub Actions workflow
