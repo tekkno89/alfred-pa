@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import Boolean, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -24,6 +24,7 @@ class Session(Base, UUIDMixin, TimestampMixin):
     source: Mapped[str] = mapped_column(String(50), nullable=False)  # 'webapp' | 'slack'
     slack_channel_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     slack_thread_ts: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    is_starred: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="sessions")

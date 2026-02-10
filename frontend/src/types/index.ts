@@ -40,6 +40,7 @@ export interface SessionCreate {
 
 export interface SessionUpdate {
   title?: string
+  is_starred?: boolean
 }
 
 export interface Session {
@@ -48,6 +49,7 @@ export interface Session {
   source: 'webapp' | 'slack'
   slack_channel_id: string | null
   slack_thread_ts: string | null
+  is_starred: boolean
   created_at: string
   updated_at: string
 }

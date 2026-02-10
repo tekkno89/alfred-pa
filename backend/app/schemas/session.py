@@ -14,6 +14,7 @@ class SessionUpdate(BaseModel):
     """Schema for updating a session."""
 
     title: str | None = None
+    is_starred: bool | None = None
 
 
 class SessionResponse(BaseModel):
@@ -26,6 +27,7 @@ class SessionResponse(BaseModel):
     source: str
     slack_channel_id: str | None
     slack_thread_ts: str | None
+    is_starred: bool
     created_at: datetime
     updated_at: datetime
 

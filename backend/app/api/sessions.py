@@ -51,6 +51,7 @@ async def list_sessions(
     user: CurrentUser,
     page: Annotated[int, Query(ge=1)] = 1,
     size: Annotated[int, Query(ge=1, le=100)] = 20,
+    starred: Annotated[bool | None, Query()] = None,
 ) -> SessionList:
     """List sessions for the current user."""
     repo = SessionRepository(db)
@@ -60,8 +61,9 @@ async def list_sessions(
         user_id=user.id,
         skip=skip,
         limit=size,
+        starred=starred,
     )
-    total = await repo.count_user_sessions(user_id=user.id)
+    total = await repo.count_user_sessions(user_id=user.id, starred=starred)
 
     return SessionList(
         items=[SessionResponse.model_validate(s) for s in sessions],
@@ -123,10 +125,38 @@ async def update_session(
     updates = {}
     if session_data.title is not None:
         updates["title"] = session_data.title
+    if session_data.is_starred is not None:
+        updates["is_starred"] = session_data.is_starred
 
     if updates:
         session = await repo.update(session, **updates)
 
+    return SessionResponse.model_validate(session)
+
+
+@router.patch("/{session_id}/star", response_model=SessionResponse)
+async def toggle_session_star(
+    session_id: str,
+    db: DbSession,
+    user: CurrentUser,
+) -> SessionResponse:
+    """Toggle the starred status of a session."""
+    repo = SessionRepository(db)
+    session = await repo.get(session_id)
+
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found",
+        )
+
+    if session.user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this session",
+        )
+
+    session = await repo.update(session, is_starred=not session.is_starred)
     return SessionResponse.model_validate(session)
 
 

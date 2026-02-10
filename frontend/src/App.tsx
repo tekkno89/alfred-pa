@@ -5,6 +5,7 @@ import { HomePage } from '@/pages/HomePage'
 import { ChatPage } from '@/pages/ChatPage'
 import { MemoriesPage } from '@/pages/MemoriesPage'
 import { SettingsPage } from '@/pages/SettingsPage'
+import { SessionsPage } from '@/pages/SessionsPage'
 import { FocusPage } from '@/pages/FocusPage'
 import { FocusSettingsPage } from '@/pages/FocusSettingsPage'
 import { WebhooksPage } from '@/pages/WebhooksPage'
@@ -34,6 +35,7 @@ function App() {
         >
           <Route path="/" element={<HomePage />} />
           <Route path="/chat/:sessionId" element={<ChatPage />} />
+          <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/memories" element={<MemoriesPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/focus" element={<FocusPage />} />

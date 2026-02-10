@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MessageSquare, Trash2, Hash, Pencil, Check, X } from 'lucide-react'
+import { MessageSquare, Trash2, Hash, Pencil, Check, X, Star } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -15,7 +15,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
-import { useDeleteSession, useUpdateSession } from '@/hooks/useSessions'
+import { useDeleteSession, useUpdateSession, useToggleSessionStar } from '@/hooks/useSessions'
 import type { Session } from '@/types'
 import { cn } from '@/lib/utils'
 
@@ -30,6 +30,7 @@ export function SessionItem({ session, isActive }: SessionItemProps) {
   const [editTitle, setEditTitle] = useState(session.title || '')
   const deleteSession = useDeleteSession()
   const updateSession = useUpdateSession()
+  const toggleStar = useToggleSessionStar()
 
   const handleClick = () => {
     if (!isEditing) {
@@ -76,20 +77,9 @@ export function SessionItem({ session, isActive }: SessionItemProps) {
     }
   }
 
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr)
-    const now = new Date()
-    const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24))
-
-    if (diffDays === 0) {
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    } else if (diffDays === 1) {
-      return 'Yesterday'
-    } else if (diffDays < 7) {
-      return date.toLocaleDateString([], { weekday: 'short' })
-    } else {
-      return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
-    }
+  const handleToggleStar = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    toggleStar.mutate(session.id)
   }
 
   const title = session.title || 'New Chat'
@@ -114,19 +104,14 @@ export function SessionItem({ session, isActive }: SessionItemProps) {
             autoFocus
           />
         ) : (
-          <>
-            <div className="flex items-center gap-2">
-              <span className="truncate text-sm">{title}</span>
-              {session.source === 'slack' && (
-                <Badge variant="secondary" className="shrink-0 text-xs py-0 px-1">
-                  <Hash className="h-3 w-3" />
-                </Badge>
-              )}
-            </div>
-            <span className="text-xs text-muted-foreground">
-              {formatDate(session.updated_at)}
-            </span>
-          </>
+          <div className="flex items-center gap-2">
+            <span className="truncate text-sm">{title}</span>
+            {session.source === 'slack' && (
+              <Badge variant="secondary" className="shrink-0 text-xs py-0 px-1">
+                <Hash className="h-3 w-3" />
+              </Badge>
+            )}
+          </div>
         )}
       </div>
       <div className="flex gap-1 shrink-0">
@@ -152,6 +137,18 @@ export function SessionItem({ session, isActive }: SessionItemProps) {
           </>
         ) : (
           <>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                'h-6 w-6',
+                session.is_starred ? 'opacity-100 text-yellow-500' : 'opacity-0 group-hover:opacity-100'
+              )}
+              onClick={handleToggleStar}
+              disabled={toggleStar.isPending}
+            >
+              <Star className={cn('h-3 w-3', session.is_starred && 'fill-current')} />
+            </Button>
             <Button
               variant="ghost"
               size="icon"

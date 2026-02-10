@@ -27,6 +27,7 @@ graph TD
 - `source` webapp or slack
 - `slack_channel_id` nullable
 - `slack_thread_ts` nullable
+- `is_starred` boolean default false
 
 ### Message
 - `id` UUID PK

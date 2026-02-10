@@ -2,10 +2,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiPost, apiPatch, apiDelete } from '@/lib/api'
 import type { Session, SessionList, SessionCreate, SessionUpdate, SessionWithMessages, DeleteResponse } from '@/types'
 
-export function useSessions(page = 1, size = 50) {
+export function useSessions(page = 1, size = 50, starred?: boolean) {
+  const params = new URLSearchParams({ page: String(page), size: String(size) })
+  if (starred !== undefined) {
+    params.set('starred', String(starred))
+  }
   return useQuery({
-    queryKey: ['sessions', page, size],
-    queryFn: () => apiGet<SessionList>(`/sessions?page=${page}&size=${size}`),
+    queryKey: ['sessions', page, size, starred],
+    queryFn: () => apiGet<SessionList>(`/sessions?${params.toString()}`),
   })
 }
 
@@ -37,6 +41,18 @@ export function useUpdateSession() {
     onSuccess: (updatedSession) => {
       queryClient.invalidateQueries({ queryKey: ['sessions'] })
       queryClient.invalidateQueries({ queryKey: ['session', updatedSession.id] })
+    },
+  })
+}
+
+export function useToggleSessionStar() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (sessionId: string) =>
+      apiPatch<Session>(`/sessions/${sessionId}/star`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sessions'] })
     },
   })
 }

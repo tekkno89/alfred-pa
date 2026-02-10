@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -27,18 +27,34 @@ class SessionRepository(BaseRepository[Session]):
         *,
         skip: int = 0,
         limit: int = 20,
+        starred: bool | None = None,
     ) -> list[Session]:
         """Get sessions for a specific user, ordered by most recent."""
-        return await self.get_multi(
-            user_id=user_id,
-            skip=skip,
-            limit=limit,
-            order_by=Session.updated_at.desc(),
+        query = (
+            select(Session)
+            .where(Session.user_id == user_id)
+            .order_by(Session.updated_at.desc())
+            .offset(skip)
+            .limit(limit)
         )
+        if starred is not None:
+            query = query.where(Session.is_starred == starred)
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
 
-    async def count_user_sessions(self, user_id: str) -> int:
+    async def count_user_sessions(
+        self, user_id: str, *, starred: bool | None = None
+    ) -> int:
         """Count sessions for a specific user."""
-        return await self.count(user_id=user_id)
+        query = (
+            select(func.count())
+            .select_from(Session)
+            .where(Session.user_id == user_id)
+        )
+        if starred is not None:
+            query = query.where(Session.is_starred == starred)
+        result = await self.db.execute(query)
+        return result.scalar() or 0
 
     async def create_session(
         self,

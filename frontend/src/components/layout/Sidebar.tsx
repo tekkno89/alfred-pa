@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from 'react-router-dom'
-import { Plus, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, PanelLeft, MessagesSquare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SessionList } from '@/components/sessions/SessionList'
@@ -13,7 +13,8 @@ interface SidebarProps {
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const navigate = useNavigate()
   const { sessionId } = useParams()
-  const { data: sessions, isLoading } = useSessions()
+  const { data: starredData, isLoading: starredLoading } = useSessions(1, 5, true)
+  const { data: recentData, isLoading: recentLoading } = useSessions(1, 15, false)
   const createSession = useCreateSession()
 
   const handleNewChat = async () => {
@@ -33,11 +34,29 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         collapsed ? 'w-14' : 'w-64'
       }`}
     >
-      <div className="p-2 flex items-center justify-between">
-        {!collapsed && (
+      <div className="p-2 space-y-1">
+        <Button
+          variant="ghost"
+          size="icon"
+          className={collapsed ? 'mx-auto w-full' : ''}
+          onClick={onToggle}
+        >
+          <PanelLeft className="h-4 w-4" />
+        </Button>
+        {collapsed ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="mx-auto w-full"
+            onClick={handleNewChat}
+            disabled={createSession.isPending}
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+        ) : (
           <Button
             variant="outline"
-            className="flex-1 mr-2"
+            className="w-full"
             onClick={handleNewChat}
             disabled={createSession.isPending}
           >
@@ -45,34 +64,43 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             New Chat
           </Button>
         )}
-        {collapsed && (
+      </div>
+
+      <div className="px-2">
+        {collapsed ? (
           <Button
             variant="ghost"
             size="icon"
-            className="mx-auto"
-            onClick={handleNewChat}
-            disabled={createSession.isPending}
+            className="mx-auto w-full text-muted-foreground hover:text-foreground"
+            onClick={() => navigate('/sessions')}
           >
-            <Plus className="h-4 w-4" />
+            <MessagesSquare className="h-4 w-4" />
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            className="w-full justify-start text-sm text-muted-foreground hover:text-foreground"
+            onClick={() => navigate('/sessions')}
+          >
+            <MessagesSquare className="h-4 w-4 mr-2" />
+            Sessions
           </Button>
         )}
-        <Button variant="ghost" size="icon" onClick={onToggle}>
-          {collapsed ? (
-            <ChevronRight className="h-4 w-4" />
-          ) : (
-            <ChevronLeft className="h-4 w-4" />
-          )}
-        </Button>
       </div>
 
+      <div className="mx-3 border-t border-border/50" />
+
       {!collapsed && (
-        <ScrollArea className="flex-1 px-2">
-          <SessionList
-            sessions={sessions?.items || []}
-            isLoading={isLoading}
-            activeSessionId={sessionId}
-          />
-        </ScrollArea>
+        <>
+          <ScrollArea className="flex-1 px-2">
+            <SessionList
+              sessions={recentData?.items || []}
+              starredSessions={starredData?.items || []}
+              isLoading={starredLoading || recentLoading}
+              activeSessionId={sessionId}
+            />
+          </ScrollArea>
+        </>
       )}
     </div>
   )
