@@ -1,0 +1,15 @@
+[Unit]
+Description=Alfred AI Assistant
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/alfred
+ExecStart=/opt/alfred/deploy/start.sh
+ExecStop=/usr/bin/docker compose -f /opt/alfred/docker-compose.prod.yml down
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

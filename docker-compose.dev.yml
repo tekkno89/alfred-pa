@@ -20,13 +20,15 @@ services:
       - VERTEX_LOCATION=${VERTEX_LOCATION:-us-central1}
       # OpenRouter (alternative - set DEFAULT_LLM=openrouter/anthropic/claude-3.5-sonnet)
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
-      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-/app/service-account-gcp.json}
+      # - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-/app/service-account-gcp.json}
+      # - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-/app/service-account-gcp.json}
     volumes:
       - ./backend:/app
       - backend_venv:/app/.venv
       - /app/__pycache__
       - /app/.pytest_cache
-      - ./service-account-gcp.json:/app/service-account-gcp.json
+      - ~/.config/gcloud:/root/.config/gcloud
+      # - ./service-account-gcp.json:/app/service-account-gcp.json
     depends_on:
       postgres:
         condition: service_healthy

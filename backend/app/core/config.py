@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     # Frontend URL (for OAuth callback redirects)
     frontend_url: str = "http://localhost:3000"
 
+    # CORS
+    cors_origins: str = "http://localhost:3000,http://localhost:5173"
+
     # Embeddings
     embedding_model: str = "BAAI/bge-base-en-v1.5"
 

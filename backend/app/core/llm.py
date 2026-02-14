@@ -6,7 +6,12 @@ from typing import Any, Literal
 
 import httpx
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from langchain_google_vertexai import ChatVertexAI, HarmBlockThreshold, HarmCategory
+from langchain_google_vertexai import (
+    ChatVertexAI,
+    HarmBlockThreshold,
+    HarmCategory,
+)
+from langchain_google_vertexai.model_garden import ChatAnthropicVertex
 
 from app.core.config import get_settings
 
@@ -239,15 +244,13 @@ class VertexClaudeProvider(LLMProvider):
         self,
         temperature: float,
         max_tokens: int,
-        streaming: bool = False,
-    ) -> ChatVertexAI:
-        return ChatVertexAI(
+    ) -> ChatAnthropicVertex:
+        return ChatAnthropicVertex(
             model_name=self.model_name,
             project=self.project_id,
             location=self.location,
             temperature=temperature,
-            max_output_tokens=max_tokens,
-            streaming=streaming,
+            max_tokens=max_tokens,
         )
 
     async def generate(
@@ -269,7 +272,7 @@ class VertexClaudeProvider(LLMProvider):
         temperature: float = 0.7,
         max_tokens: int = 4096,
     ) -> AsyncIterator[str]:
-        model = self._create_model(temperature, max_tokens, streaming=True)
+        model = self._create_model(temperature, max_tokens)
         lc_messages = _to_langchain_messages(messages)
         async for chunk in model.astream(lc_messages):
             if chunk.content:

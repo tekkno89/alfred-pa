@@ -29,7 +29,10 @@ class Session(Base, UUIDMixin, TimestampMixin):
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="sessions")
     messages: Mapped[list["Message"]] = relationship(
-        "Message", back_populates="session", cascade="all, delete-orphan"
+        "Message",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="Message.created_at.asc()",
     )
     memories: Mapped[list["Memory"]] = relationship(
         "Memory", back_populates="source_session"
