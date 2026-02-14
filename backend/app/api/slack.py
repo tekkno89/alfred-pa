@@ -303,25 +303,6 @@ async def handle_message_event(
             )
         return
 
-    # Check if user (sender) is in focus mode for DM conversations with the bot
-    # Note: This handles the case where a linked user DMs the bot while in focus mode
-    if await focus_service.is_in_focus_mode(user.id):
-        # Check if sender is VIP (bypass focus mode)
-        if not await focus_service.is_vip(user.id, sender_slack_id):
-            # User is in focus mode and sender is not VIP
-            # Send auto-reply with bypass button
-            custom_message = await focus_service.get_custom_message(user.id)
-            await send_focus_mode_reply(
-                slack_service,
-                channel_id,
-                thread_ts or message_ts,
-                user.id,
-                sender_slack_id,
-                custom_message,
-                recipient_slack_id=sender_slack_id,
-            )
-            return
-
     # Find or create session for this thread
     session = await session_repo.get_by_slack_thread(channel_id, thread_ts)
 
