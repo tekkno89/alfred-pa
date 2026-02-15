@@ -59,6 +59,15 @@ class WebSearchTool(BaseTool):
 
             logger.info(f"Tavily returned {len(raw_results)} results")
 
+            # Store metadata for streaming to frontend
+            self.last_execution_metadata = {
+                "query": query,
+                "sources": [
+                    {"title": r.get("title", ""), "url": r.get("url", "")}
+                    for r in raw_results
+                ],
+            }
+
             # 2. Format results for synthesis
             results_text = self._format_results(raw_results)
 

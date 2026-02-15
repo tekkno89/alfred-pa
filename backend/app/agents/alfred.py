@@ -46,6 +46,7 @@ class AlfredAgent:
             "llm_messages": [],
             "tool_calls": None,
             "tool_iteration": 0,
+            "tool_results_metadata": None,
             "user_message_id": "",
             "assistant_message_id": "",
             "error": None,

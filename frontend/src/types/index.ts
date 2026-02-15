@@ -84,11 +84,23 @@ export interface MessageList {
   total: number
 }
 
+export interface ToolSource {
+  title: string
+  url: string
+}
+
+export interface ToolResultData {
+  query: string
+  sources: ToolSource[]
+}
+
 export interface StreamEvent {
-  type: 'token' | 'tool_use' | 'done' | 'error'
+  type: 'token' | 'tool_use' | 'tool_result' | 'done' | 'error'
   content?: string
   message_id?: string
   tool_name?: string
+  tool_args?: Record<string, unknown>
+  tool_data?: ToolResultData
 }
 
 // Memories

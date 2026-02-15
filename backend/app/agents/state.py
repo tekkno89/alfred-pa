@@ -27,6 +27,9 @@ class AgentState(TypedDict):
     tool_calls: list | None  # Current tool calls from LLM (None = no calls)
     tool_iteration: int  # Counter for ReAct iterations
 
+    # Tool results metadata for persisting with assistant message
+    tool_results_metadata: list[dict] | None
+
     # Generated message IDs
     user_message_id: str
     assistant_message_id: str

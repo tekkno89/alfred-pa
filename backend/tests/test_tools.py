@@ -58,6 +58,43 @@ class TestWebSearchToolExecute:
             mock_synth.assert_called_once()
             assert "Python 3.13" in result
 
+    async def test_execute_sets_metadata(self):
+        """Should populate last_execution_metadata with query and sources after successful execute."""
+        tool = WebSearchTool()
+
+        mock_results = [
+            {
+                "title": "Test Article",
+                "url": "https://example.com/article",
+                "content": "Test content.",
+            },
+            {
+                "title": "Another Article",
+                "url": "https://example.com/another",
+                "content": "More content.",
+            },
+        ]
+
+        with patch.object(tool, "_search_tavily", new_callable=AsyncMock) as mock_search, \
+             patch.object(tool, "_synthesize", new_callable=AsyncMock) as mock_synth:
+            mock_search.return_value = mock_results
+            mock_synth.return_value = "Summary text"
+
+            assert tool.last_execution_metadata is None
+            await tool.execute(query="test query")
+
+            assert tool.last_execution_metadata is not None
+            assert tool.last_execution_metadata["query"] == "test query"
+            assert len(tool.last_execution_metadata["sources"]) == 2
+            assert tool.last_execution_metadata["sources"][0] == {
+                "title": "Test Article",
+                "url": "https://example.com/article",
+            }
+            assert tool.last_execution_metadata["sources"][1] == {
+                "title": "Another Article",
+                "url": "https://example.com/another",
+            }
+
     async def test_execute_empty_query(self):
         """Should return error for empty query."""
         tool = WebSearchTool()

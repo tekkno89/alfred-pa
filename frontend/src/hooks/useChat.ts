@@ -1,7 +1,12 @@
 import { useState, useCallback, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { apiStreamPost } from '@/lib/api'
-import type { Message } from '@/types'
+import type { Message, ToolResultData } from '@/types'
+
+export interface ToolResult {
+  toolName: string
+  data: ToolResultData
+}
 
 interface UseChatOptions {
   sessionId: string
@@ -12,6 +17,7 @@ interface UseChatReturn {
   streamingContent: string
   isStreaming: boolean
   activeToolName: string | null
+  completedToolResults: ToolResult[]
   sendMessage: (content: string) => void
   cancelStream: () => void
 }
@@ -21,6 +27,8 @@ export function useChat({ sessionId, onError }: UseChatOptions): UseChatReturn {
   const [streamingContent, setStreamingContent] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
   const [activeToolName, setActiveToolName] = useState<string | null>(null)
+  const [completedToolResults, setCompletedToolResults] = useState<ToolResult[]>([])
+  const completedToolResultsRef = useRef<ToolResult[]>([])
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamingContentRef = useRef('')
 
@@ -53,11 +61,12 @@ export function useChat({ sessionId, onError }: UseChatOptions): UseChatReturn {
       setIsStreaming(true)
       setStreamingContent('')
       streamingContentRef.current = ''
+      setCompletedToolResults([])
+      completedToolResultsRef.current = []
 
-      const handleEvent = (event: { type: string; content?: string; message_id?: string; tool_name?: string }) => {
+      const handleEvent = (event: { type: string; content?: string; message_id?: string; tool_name?: string; tool_data?: ToolResultData }) => {
         switch (event.type) {
           case 'token':
-            setActiveToolName(null)
             if (event.content) {
               streamingContentRef.current += event.content
               setStreamingContent(streamingContentRef.current)
@@ -65,15 +74,42 @@ export function useChat({ sessionId, onError }: UseChatOptions): UseChatReturn {
             break
           case 'tool_use':
             setActiveToolName(event.tool_name || null)
+            // Clear previous result for this tool — new search supersedes old one
+            if (event.tool_name) {
+              completedToolResultsRef.current = completedToolResultsRef.current.filter(
+                r => r.toolName !== event.tool_name
+              )
+              setCompletedToolResults([...completedToolResultsRef.current])
+            }
             break
-          case 'done':
-            // Add the complete message to cache
+          case 'tool_result':
+            setActiveToolName(null)
+            if (event.tool_name && event.tool_data) {
+              const newResult = { toolName: event.tool_name!, data: event.tool_data! }
+              const updated = completedToolResultsRef.current.filter(r => r.toolName !== event.tool_name)
+              updated.push(newResult)
+              completedToolResultsRef.current = updated
+              setCompletedToolResults([...updated])
+            }
+            break
+          case 'done': {
+            // Build metadata matching the DB format so cards render from persisted messages
+            const toolResults = completedToolResultsRef.current
+            const metadata = toolResults.length > 0
+              ? {
+                  tool_results: toolResults.map(r => ({
+                    tool_name: r.toolName,
+                    ...r.data,
+                  })),
+                }
+              : null
+
             const assistantMessage: Message = {
               id: event.message_id || `temp-${Date.now()}`,
               session_id: sessionId,
               role: 'assistant',
               content: streamingContentRef.current,
-              metadata_: null,
+              metadata_: metadata,
               created_at: new Date().toISOString(),
             }
 
@@ -92,13 +128,18 @@ export function useChat({ sessionId, onError }: UseChatOptions): UseChatReturn {
             streamingContentRef.current = ''
             setIsStreaming(false)
             setActiveToolName(null)
+            setCompletedToolResults([])
+            completedToolResultsRef.current = []
             break
+          }
           case 'error':
             onError?.(event.content || 'Unknown error')
             setIsStreaming(false)
             setStreamingContent('')
             streamingContentRef.current = ''
             setActiveToolName(null)
+            setCompletedToolResults([])
+            completedToolResultsRef.current = []
             break
         }
       }
@@ -133,12 +174,15 @@ export function useChat({ sessionId, onError }: UseChatOptions): UseChatReturn {
     setStreamingContent('')
     streamingContentRef.current = ''
     setActiveToolName(null)
+    setCompletedToolResults([])
+    completedToolResultsRef.current = []
   }, [])
 
   return {
     streamingContent,
     isStreaming,
     activeToolName,
+    completedToolResults,
     sendMessage,
     cancelStream,
   }

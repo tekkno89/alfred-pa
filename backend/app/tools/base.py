@@ -10,6 +10,7 @@ class BaseTool(ABC):
     name: str
     description: str
     parameters_schema: dict[str, Any]
+    last_execution_metadata: dict[str, Any] | None = None
 
     def to_definition(self) -> ToolDefinition:
         """Convert to a ToolDefinition for passing to the LLM."""

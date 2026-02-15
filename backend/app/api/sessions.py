@@ -276,7 +276,17 @@ async def send_message(
                     full_response.append(event["content"])
                     sse = StreamEvent(type="token", content=event["content"])
                 elif event["type"] == "tool_use":
-                    sse = StreamEvent(type="tool_use", tool_name=event["tool_name"])
+                    sse = StreamEvent(
+                        type="tool_use",
+                        tool_name=event["tool_name"],
+                        tool_args=event.get("tool_args"),
+                    )
+                elif event["type"] == "tool_result":
+                    sse = StreamEvent(
+                        type="tool_result",
+                        tool_name=event.get("tool_name"),
+                        tool_data=event.get("tool_data"),
+                    )
                 else:
                     continue
                 yield f"data: {sse.model_dump_json()}\n\n"

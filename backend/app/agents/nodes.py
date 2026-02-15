@@ -338,10 +338,17 @@ async def save_assistant_message_node(state: AgentState, config: RunnableConfig)
 
     response = state.get("response", "")
     if response:
+        # Include tool results metadata if any tools were executed
+        metadata = None
+        tool_results = state.get("tool_results_metadata")
+        if tool_results:
+            metadata = {"tool_results": tool_results}
+
         await message_repo.create_message(
             session_id=state["session_id"],
             role="assistant",
             content=response,
+            metadata=metadata,
         )
 
     return {}
@@ -510,13 +517,14 @@ async def tool_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]
     tool_calls = state.get("tool_calls") or []
     llm_messages = list(state.get("llm_messages") or [])
     tool_iteration = state.get("tool_iteration", 0)
+    tool_results_metadata = list(state.get("tool_results_metadata") or [])
 
     if streaming:
         writer = get_stream_writer()
 
     for tc in tool_calls:
         if streaming:
-            writer({"type": "tool_use", "tool_name": tc.name})
+            writer({"type": "tool_use", "tool_name": tc.name, "tool_args": tc.arguments})
 
         tool = tool_registry.get(tc.name)
         if tool:
@@ -527,6 +535,25 @@ async def tool_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]
             except Exception as e:
                 logger.error(f"Tool '{tc.name}' execution error: {e}")
                 result = f"Tool error: {str(e)}"
+
+            if tool.last_execution_metadata:
+                metadata_entry = {
+                    "tool_name": tc.name,
+                    **tool.last_execution_metadata,
+                }
+                # Replace any existing entry for this tool name
+                tool_results_metadata = [
+                    m for m in tool_results_metadata if m.get("tool_name") != tc.name
+                ]
+                tool_results_metadata.append(metadata_entry)
+
+                if streaming:
+                    writer({
+                        "type": "tool_result",
+                        "tool_name": tc.name,
+                        "tool_data": tool.last_execution_metadata,
+                    })
+                tool.last_execution_metadata = None
         else:
             result = f"Unknown tool: {tc.name}"
 
@@ -540,6 +567,7 @@ async def tool_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]
         "llm_messages": llm_messages,
         "tool_calls": None,
         "tool_iteration": tool_iteration + 1,
+        "tool_results_metadata": tool_results_metadata if tool_results_metadata else None,
     }
 
 
