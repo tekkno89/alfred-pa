@@ -9,7 +9,8 @@ Alfred is a personal AI assistant built with LangGraph, FastAPI, React, and Slac
 - **Backend:** `backend/` - FastAPI + LangGraph (Python 3.11+)
 - **Frontend:** `frontend/` - React + Tailwind + shadcn/ui
 - **Database:** PostgreSQL 16 + pgvector, Redis 7
-- **LLM:** Vertex AI (Gemini + Claude, configurable)
+- **LLM:** Vertex AI (Gemini + Claude, configurable), OpenRouter
+- **Tools:** Web search (Tavily) with ReAct loop
 - **Package Manager:** UV (Python), npm (Frontend)
 
 ## Development Commands
@@ -133,13 +134,16 @@ graph TD
 
 ### Existing Diagrams
 - `architecture.md` - System overview
-- `agent-flow.md` - LangGraph agent flow
+- `agent-flow.md` - LangGraph agent flow with ReAct loop
 - `auth-flow.md` - JWT authentication flow
-- `chat-api-flow.md` - Chat API sequence
+- `chat-api-flow.md` - Chat API sequence with tool events
 - `database-erd.md` - Database schema
-- `llm-providers.md` - LLM provider abstraction
+- `llm-providers.md` - LLM provider abstraction with tool-calling methods
 - `memory-flow.md` - Memory system flow
-- `streaming-flow.md` - SSE streaming flow
+- `streaming-flow.md` - SSE streaming flow with tool_use events
+- `tool-system.md` - Tool registry, web search, and adding new tools
+- `slack-flow.md` - Slack integration flow
+- `frontend-architecture.md` - Frontend component architecture
 
 ### When to Update Documentation
 - After completing a phase, ensure diagrams reflect the implementation
@@ -200,6 +204,8 @@ REDIS_URL=redis://localhost:6379
 VERTEX_PROJECT_ID=your-gcp-project
 VERTEX_LOCATION=us-central1
 DEFAULT_LLM=gemini-1.5-pro
+TAVILY_API_KEY=tvly-...
+WEB_SEARCH_SYNTHESIS_MODEL=gemini-2.5-flash
 SLACK_BOT_TOKEN=xoxb-...
 SLACK_SIGNING_SECRET=...
 JWT_SECRET=...
@@ -226,6 +232,15 @@ VITE_GOOGLE_CLIENT_ID=...
 3. Register with Alfred router
 4. Add tests
 5. Update CLAUDE.md if needed
+
+### Add a New Tool
+1. Create tool class extending `BaseTool` in `backend/app/tools/`
+2. Define `name`, `description`, and `parameters_schema` (JSON Schema)
+3. Implement `async def execute(self, **kwargs) -> str`
+4. Register in `get_tool_registry()` in `backend/app/tools/registry.py`
+5. Add display mapping in `frontend/src/components/chat/ToolStatusIndicator.tsx`
+6. Add tests in `backend/tests/test_tools.py`
+7. See `.claude/diagrams/tool-system.md` for architecture details
 
 ### Add a New API Endpoint
 1. Create route in `backend/app/api/`

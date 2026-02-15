@@ -11,8 +11,9 @@
 | Phase 5: Frontend Core | ✅ Complete | Auth pages, session list, chat interface, memories |
 | Phase 6: Slack Integration | ✅ Complete | Slack app, webhooks, cross-channel sync |
 | Phase 7: Focus Mode | ✅ Complete | Focus mode, pomodoro, VIP bypass, notifications |
-| Phase 8: Observability | 🔲 Not Started | Prometheus metrics, Loki logging, dashboards |
-| Phase 9: CI/CD | 🔲 Not Started | GitHub Actions, Cloud Run deployment |
+| Phase 8: Web Search & Tools | ✅ Complete | Tool-calling ReAct loop, Tavily web search |
+| Phase 9: Observability | 🔲 Not Started | Prometheus metrics, Loki logging, dashboards |
+| Phase 10: CI/CD | 🔲 Not Started | GitHub Actions, Cloud Run deployment |
 
 ---
 
@@ -146,10 +147,25 @@ Completed items:
 
 ---
 
-## Phase 8: Observability 🔲
+## Phase 8: Web Search & Tools ✅
+
+**Status:** Complete
+
+Completed items:
+- [x] Tool-calling abstraction (ToolDefinition, ToolCall, LLMResponse)
+- [x] generate_with_tools / stream_with_tools on all 3 LLM providers
+- [x] Tool system (BaseTool, ToolRegistry, auto-registration)
+- [x] Web search tool (Tavily API + LLM synthesis)
+- [x] ReAct loop (max 3 iterations with forced text fallback)
+- [x] tool_use SSE event type + frontend ToolStatusIndicator
+- [x] Today's date in system prompt for accurate search queries
+- [x] Comprehensive tests (30 total across test_agent.py + test_tools.py)
+
+---
+
+## Phase 9: Observability 🔲
 
 **Status:** Not Started
-**Plan File:** [08-observability.md](./08-observability.md)
 
 Key deliverables:
 - Prometheus metrics endpoints
@@ -158,10 +174,9 @@ Key deliverables:
 
 ---
 
-## Phase 9: CI/CD 🔲
+## Phase 10: CI/CD 🔲
 
 **Status:** Not Started
-**Plan File:** [09-cicd.md](./09-cicd.md)
 
 Key deliverables:
 - GitHub Actions workflow
@@ -222,9 +237,19 @@ docker-compose exec frontend npm test
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │              LangGraph Alfred Agent                  │   │
 │  │  ┌─────────┐  ┌─────────┐  ┌─────────┐             │   │
-│  │  │ Context │  │ Generate│  │ Extract │             │   │
-│  │  │Retrieval│→ │Response │→ │ Memory  │             │   │
-│  │  └─────────┘  └─────────┘  └─────────┘             │   │
+│  │  │ Context │  │  ReAct  │  │ Extract │             │   │
+│  │  │Retrieval│→ │  Loop   │→ │ Memory  │             │   │
+│  │  └─────────┘  └────┬────┘  └─────────┘             │   │
+│  │                     │                               │   │
+│  │               ┌─────┴─────┐                         │   │
+│  │               │   Tool    │                         │   │
+│  │               │ Registry  │                         │   │
+│  │               └─────┬─────┘                         │   │
+│  │                     │                               │   │
+│  │               ┌─────┴─────┐                         │   │
+│  │               │Web Search │                         │   │
+│  │               │ (Tavily)  │                         │   │
+│  │               └───────────┘                         │   │
 │  └─────────────────────────────────────────────────────┘   │
 └───────┼─────────────┼─────────────┼─────────────────────────┘
         │             │             │
