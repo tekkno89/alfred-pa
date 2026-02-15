@@ -3,21 +3,9 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.nodes import (
-    extract_memories,
-    generate_response,
-    generate_response_stream,
-    generate_response_stream_with_tools,
-    generate_response_with_tools,
-    handle_remember_command,
-    process_message,
-    retrieve_context,
-    save_assistant_message,
-    save_user_message,
-)
+from app.agents.graph import create_agent_graph
 from app.agents.state import AgentState
 from app.core.llm import LLMProvider, get_llm_provider
-from app.db.repositories import MemoryRepository, MessageRepository
 from app.tools.registry import ToolRegistry, get_tool_registry
 
 
@@ -25,10 +13,10 @@ class AlfredAgent:
     """
     Alfred AI Assistant agent.
 
-    Handles conversation flow:
+    Uses a LangGraph StateGraph for orchestration:
     1. Process incoming message
     2. Retrieve context (history + memories)
-    3. Generate response (streaming or non-streaming)
+    3. Generate response via ReAct loop (streaming or non-streaming)
     4. Extract memories (placeholder for Phase 4)
     5. Save messages to database
     """
@@ -42,8 +30,38 @@ class AlfredAgent:
         self.db = db
         self.llm_provider = llm_provider or get_llm_provider()
         self.tool_registry = tool_registry or get_tool_registry()
-        self.message_repo = MessageRepository(db)
-        self.memory_repo = MemoryRepository(db)
+        self.graph = create_agent_graph()
+
+    def _initial_state(self, session_id: str, user_id: str, message: str) -> AgentState:
+        """Build the initial state dict for a graph invocation."""
+        return {
+            "session_id": session_id,
+            "user_id": user_id,
+            "user_message": message,
+            "is_remember_command": False,
+            "remember_content": None,
+            "context_messages": [],
+            "memories": [],
+            "response": "",
+            "llm_messages": [],
+            "tool_calls": None,
+            "tool_iteration": 0,
+            "user_message_id": "",
+            "assistant_message_id": "",
+            "error": None,
+        }
+
+    def _config(self, streaming: bool = False) -> dict:
+        """Build the config dict for a graph invocation."""
+        return {
+            "configurable": {
+                "db": self.db,
+                "llm_provider": self.llm_provider,
+                "tool_registry": self.tool_registry,
+                "streaming": streaming,
+            },
+            "recursion_limit": 25,
+        }
 
     async def run(
         self,
@@ -62,62 +80,15 @@ class AlfredAgent:
         Returns:
             The assistant's response
         """
-        state: AgentState = {
-            "session_id": session_id,
-            "user_id": user_id,
-            "user_message": message,
-            "is_remember_command": False,
-            "remember_content": None,
-            "context_messages": [],
-            "memories": [],
-            "response": "",
-            "response_chunks": [],
-            "user_message_id": "",
-            "assistant_message_id": "",
-            "error": None,
-        }
+        state = self._initial_state(session_id, user_id, message)
+        config = self._config(streaming=False)
 
-        # Step 1: Process message (detects /remember commands)
-        state.update(await process_message(state))
-        if state.get("error"):
-            raise ValueError(state["error"])
+        final_state = await self.graph.ainvoke(state, config)
 
-        # Step 1b: Handle /remember command if detected
-        if state.get("is_remember_command"):
-            state.update(
-                await handle_remember_command(state, self.memory_repo)
-            )
-            # Save messages and return early
-            await save_user_message(state, self.message_repo)
-            await save_assistant_message(state, self.message_repo)
-            return state["response"]
+        if final_state.get("error"):
+            raise ValueError(final_state["error"])
 
-        # Step 2: Retrieve context (includes memory retrieval)
-        state.update(
-            await retrieve_context(state, self.message_repo, self.memory_repo)
-        )
-
-        # Step 3: Save user message (after context retrieval, before response generation)
-        # This ensures user message has earlier timestamp than assistant response
-        await save_user_message(state, self.message_repo)
-
-        # Step 4: Generate response (with tools if available)
-        if self.tool_registry.has_tools():
-            state.update(await generate_response_with_tools(
-                state, self.llm_provider, self.tool_registry
-            ))
-        else:
-            state.update(await generate_response(state, self.llm_provider))
-        if state.get("error"):
-            raise ValueError(state["error"])
-
-        # Step 5: Extract memories (handled by scheduled task)
-        state.update(await extract_memories(state))
-
-        # Step 6: Save assistant message
-        await save_assistant_message(state, self.message_repo)
-
-        return state["response"]
+        return final_state["response"]
 
     async def stream(
         self,
@@ -136,65 +107,11 @@ class AlfredAgent:
         Yields:
             Event dicts: {"type": "token", "content": ...} or {"type": "tool_use", "tool_name": ...}
         """
-        state: AgentState = {
-            "session_id": session_id,
-            "user_id": user_id,
-            "user_message": message,
-            "is_remember_command": False,
-            "remember_content": None,
-            "context_messages": [],
-            "memories": [],
-            "response": "",
-            "response_chunks": [],
-            "user_message_id": "",
-            "assistant_message_id": "",
-            "error": None,
-        }
+        if not message.strip():
+            raise ValueError("Empty message")
 
-        # Step 1: Process message (detects /remember commands)
-        state.update(await process_message(state))
-        if state.get("error"):
-            raise ValueError(state["error"])
+        state = self._initial_state(session_id, user_id, message)
+        config = self._config(streaming=True)
 
-        # Step 1b: Handle /remember command if detected
-        if state.get("is_remember_command"):
-            state.update(
-                await handle_remember_command(state, self.memory_repo)
-            )
-            # Yield the response and save messages
-            yield {"type": "token", "content": state["response"]}
-            await save_user_message(state, self.message_repo)
-            await save_assistant_message(state, self.message_repo)
-            return
-
-        # Step 2: Retrieve context (includes memory retrieval)
-        state.update(
-            await retrieve_context(state, self.message_repo, self.memory_repo)
-        )
-
-        # Step 3: Save user message (after context retrieval, before response generation)
-        # This ensures user message has earlier timestamp than assistant response
-        await save_user_message(state, self.message_repo)
-
-        # Step 4: Generate streaming response (with tools if available)
-        full_response: list[str] = []
-        if self.tool_registry.has_tools():
-            async for event in generate_response_stream_with_tools(
-                state, self.llm_provider, self.tool_registry
-            ):
-                if event["type"] == "token":
-                    full_response.append(event["content"])
-                yield event
-        else:
-            async for token in generate_response_stream(state, self.llm_provider):
-                full_response.append(token)
-                yield {"type": "token", "content": token}
-
-        # Collect full response for saving
-        state["response"] = "".join(full_response)
-
-        # Step 5: Extract memories (handled by scheduled task)
-        await extract_memories(state)
-
-        # Step 6: Save assistant message
-        await save_assistant_message(state, self.message_repo)
+        async for event in self.graph.astream(state, config, stream_mode="custom"):
+            yield event

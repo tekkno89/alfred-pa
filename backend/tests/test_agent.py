@@ -5,10 +5,7 @@ from collections.abc import AsyncIterator
 from app.agents import AlfredAgent
 from app.agents.nodes import (
     build_prompt_messages,
-    generate_response_stream_with_tools,
-    generate_response_with_tools,
     process_message,
-    retrieve_context,
 )
 from app.agents.state import AgentState
 from app.core.llm import LLMMessage, LLMProvider, LLMResponse, ToolCall, ToolDefinition
@@ -83,20 +80,7 @@ class TestProcessMessage:
 
     async def test_process_message_success(self):
         """Should process valid message."""
-        state: AgentState = {
-            "session_id": "test-session",
-            "user_id": "test-user",
-            "user_message": "Hello!",
-            "is_remember_command": False,
-            "remember_content": None,
-            "context_messages": [],
-            "memories": [],
-            "response": "",
-            "response_chunks": [],
-            "user_message_id": "",
-            "assistant_message_id": "",
-            "error": None,
-        }
+        state = _make_state(user_message="Hello!")
 
         result = await process_message(state)
 
@@ -108,20 +92,7 @@ class TestProcessMessage:
 
     async def test_process_message_empty(self):
         """Should return error for empty message."""
-        state: AgentState = {
-            "session_id": "test-session",
-            "user_id": "test-user",
-            "user_message": "   ",
-            "is_remember_command": False,
-            "remember_content": None,
-            "context_messages": [],
-            "memories": [],
-            "response": "",
-            "response_chunks": [],
-            "user_message_id": "",
-            "assistant_message_id": "",
-            "error": None,
-        }
+        state = _make_state(user_message="   ")
 
         result = await process_message(state)
 
@@ -133,20 +104,7 @@ class TestBuildPromptMessages:
 
     def test_build_prompt_basic(self):
         """Should build basic prompt with system message."""
-        state: AgentState = {
-            "session_id": "test",
-            "user_id": "test",
-            "user_message": "Hello!",
-            "is_remember_command": False,
-            "remember_content": None,
-            "context_messages": [],
-            "memories": [],
-            "response": "",
-            "response_chunks": [],
-            "user_message_id": "",
-            "assistant_message_id": "",
-            "error": None,
-        }
+        state = _make_state(user_message="Hello!")
 
         messages = build_prompt_messages(state)
 
@@ -157,23 +115,13 @@ class TestBuildPromptMessages:
 
     def test_build_prompt_with_history(self):
         """Should include conversation history."""
-        state: AgentState = {
-            "session_id": "test",
-            "user_id": "test",
-            "user_message": "Thanks!",
-            "is_remember_command": False,
-            "remember_content": None,
-            "context_messages": [
+        state = _make_state(
+            user_message="Thanks!",
+            context_messages=[
                 {"role": "user", "content": "Hi"},
                 {"role": "assistant", "content": "Hello!"},
             ],
-            "memories": [],
-            "response": "",
-            "response_chunks": [],
-            "user_message_id": "",
-            "assistant_message_id": "",
-            "error": None,
-        }
+        )
 
         messages = build_prompt_messages(state)
 
@@ -188,20 +136,10 @@ class TestBuildPromptMessages:
 
     def test_build_prompt_with_memories(self):
         """Should include memories in system prompt."""
-        state: AgentState = {
-            "session_id": "test",
-            "user_id": "test",
-            "user_message": "Hello!",
-            "is_remember_command": False,
-            "remember_content": None,
-            "context_messages": [],
-            "memories": ["User prefers Python", "User is a developer"],
-            "response": "",
-            "response_chunks": [],
-            "user_message_id": "",
-            "assistant_message_id": "",
-            "error": None,
-        }
+        state = _make_state(
+            user_message="Hello!",
+            memories=["User prefers Python", "User is a developer"],
+        )
 
         messages = build_prompt_messages(state)
 
@@ -225,9 +163,8 @@ class TestAlfredAgent:
 
     async def test_agent_run(self, mock_db, mock_provider):
         """Should run agent and return response."""
-        # Mock the message and memory repositories
-        with patch("app.agents.alfred.MessageRepository") as MockMsgRepo, \
-             patch("app.agents.alfred.MemoryRepository") as MockMemRepo:
+        with patch("app.agents.nodes.MessageRepository") as MockMsgRepo, \
+             patch("app.agents.nodes.MemoryRepository") as MockMemRepo:
             mock_msg_repo = AsyncMock()
             mock_msg_repo.get_recent_messages.return_value = []
             mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
@@ -249,8 +186,8 @@ class TestAlfredAgent:
 
     async def test_agent_stream(self, mock_db, mock_provider):
         """Should stream response events."""
-        with patch("app.agents.alfred.MessageRepository") as MockMsgRepo, \
-             patch("app.agents.alfred.MemoryRepository") as MockMemRepo:
+        with patch("app.agents.nodes.MessageRepository") as MockMsgRepo, \
+             patch("app.agents.nodes.MemoryRepository") as MockMemRepo:
             mock_msg_repo = AsyncMock()
             mock_msg_repo.get_recent_messages.return_value = []
             mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
@@ -279,16 +216,26 @@ class TestAlfredAgent:
 
     async def test_agent_empty_message(self, mock_db, mock_provider):
         """Should raise error for empty message."""
-        with patch("app.agents.alfred.MessageRepository"), \
-             patch("app.agents.alfred.MemoryRepository"):
-            agent = AlfredAgent(db=mock_db, llm_provider=mock_provider)
+        agent = AlfredAgent(db=mock_db, llm_provider=mock_provider)
 
-            with pytest.raises(ValueError, match="Empty message"):
-                await agent.run(
-                    session_id="test-session",
-                    user_id="test-user",
-                    message="   ",
-                )
+        with pytest.raises(ValueError, match="Empty message"):
+            await agent.run(
+                session_id="test-session",
+                user_id="test-user",
+                message="   ",
+            )
+
+    async def test_agent_stream_empty_message(self, mock_db, mock_provider):
+        """Should raise error for empty message in stream mode."""
+        agent = AlfredAgent(db=mock_db, llm_provider=mock_provider)
+
+        with pytest.raises(ValueError, match="Empty message"):
+            async for _ in agent.stream(
+                session_id="test-session",
+                user_id="test-user",
+                message="   ",
+            ):
+                pass
 
 
 class MockTool(BaseTool):
@@ -324,7 +271,9 @@ def _make_state(**overrides) -> AgentState:
         "context_messages": [],
         "memories": [],
         "response": "",
-        "response_chunks": [],
+        "llm_messages": [],
+        "tool_calls": None,
+        "tool_iteration": 0,
         "user_message_id": "msg-1",
         "assistant_message_id": "msg-2",
         "error": None,
@@ -334,7 +283,7 @@ def _make_state(**overrides) -> AgentState:
 
 
 class TestReActLoop:
-    """Tests for the ReAct loop (generate_response_with_tools)."""
+    """Tests for the ReAct loop via the graph."""
 
     async def test_no_tool_call(self):
         """When LLM returns text directly, should return it without calling tools."""
@@ -342,20 +291,34 @@ class TestReActLoop:
         registry = ToolRegistry()
         registry.register(MockTool())
 
-        state = _make_state()
-        result = await generate_response_with_tools(state, provider, registry)
+        mock_db = AsyncMock()
+        with patch("app.agents.nodes.MessageRepository") as MockMsgRepo, \
+             patch("app.agents.nodes.MemoryRepository") as MockMemRepo:
+            mock_msg_repo = AsyncMock()
+            mock_msg_repo.get_recent_messages.return_value = []
+            mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
+            MockMsgRepo.return_value = mock_msg_repo
 
-        assert result["response"] == "Direct answer"
+            mock_mem_repo = AsyncMock()
+            mock_mem_repo.search_similar.return_value = []
+            MockMemRepo.return_value = mock_mem_repo
+
+            agent = AlfredAgent(db=mock_db, llm_provider=provider, tool_registry=registry)
+            response = await agent.run(
+                session_id="test-session",
+                user_id="test-user",
+                message="Hello",
+            )
+
+            assert response == "Direct answer"
 
     async def test_tool_call_then_text(self):
         """LLM calls a tool, gets result, then returns final text."""
         provider = MockLLMProvider()
         provider._tool_responses = [
-            # First call: LLM requests tool
             LLMResponse(
                 tool_calls=[ToolCall(id="call_1", name="mock_tool", arguments={"input": "test"})]
             ),
-            # Second call: LLM returns final text
             LLMResponse(content="Here is the answer based on the tool result."),
         ]
 
@@ -363,11 +326,27 @@ class TestReActLoop:
         registry = ToolRegistry()
         registry.register(mock_tool)
 
-        state = _make_state()
-        result = await generate_response_with_tools(state, provider, registry)
+        mock_db = AsyncMock()
+        with patch("app.agents.nodes.MessageRepository") as MockMsgRepo, \
+             patch("app.agents.nodes.MemoryRepository") as MockMemRepo:
+            mock_msg_repo = AsyncMock()
+            mock_msg_repo.get_recent_messages.return_value = []
+            mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
+            MockMsgRepo.return_value = mock_msg_repo
 
-        assert result["response"] == "Here is the answer based on the tool result."
-        assert mock_tool.call_count == 1
+            mock_mem_repo = AsyncMock()
+            mock_mem_repo.search_similar.return_value = []
+            MockMemRepo.return_value = mock_mem_repo
+
+            agent = AlfredAgent(db=mock_db, llm_provider=provider, tool_registry=registry)
+            response = await agent.run(
+                session_id="test-session",
+                user_id="test-user",
+                message="Search for something",
+            )
+
+            assert response == "Here is the answer based on the tool result."
+            assert mock_tool.call_count == 1
 
     async def test_unknown_tool(self):
         """Should handle unknown tool names gracefully."""
@@ -379,14 +358,29 @@ class TestReActLoop:
             LLMResponse(content="Fallback response"),
         ]
 
-        # Need at least one tool registered so tool_defs is non-empty
         registry = ToolRegistry()
         registry.register(MockTool())
 
-        state = _make_state()
-        result = await generate_response_with_tools(state, provider, registry)
+        mock_db = AsyncMock()
+        with patch("app.agents.nodes.MessageRepository") as MockMsgRepo, \
+             patch("app.agents.nodes.MemoryRepository") as MockMemRepo:
+            mock_msg_repo = AsyncMock()
+            mock_msg_repo.get_recent_messages.return_value = []
+            mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
+            MockMsgRepo.return_value = mock_msg_repo
 
-        assert result["response"] == "Fallback response"
+            mock_mem_repo = AsyncMock()
+            mock_mem_repo.search_similar.return_value = []
+            MockMemRepo.return_value = mock_mem_repo
+
+            agent = AlfredAgent(db=mock_db, llm_provider=provider, tool_registry=registry)
+            response = await agent.run(
+                session_id="test-session",
+                user_id="test-user",
+                message="Search for something",
+            )
+
+            assert response == "Fallback response"
 
     async def test_max_iterations(self):
         """Should stop after max iterations by falling back to plain generate."""
@@ -403,53 +397,88 @@ class TestReActLoop:
         registry = ToolRegistry()
         registry.register(mock_tool)
 
-        state = _make_state()
-        result = await generate_response_with_tools(state, provider, registry)
+        mock_db = AsyncMock()
+        with patch("app.agents.nodes.MessageRepository") as MockMsgRepo, \
+             patch("app.agents.nodes.MemoryRepository") as MockMemRepo:
+            mock_msg_repo = AsyncMock()
+            mock_msg_repo.get_recent_messages.return_value = []
+            mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
+            MockMsgRepo.return_value = mock_msg_repo
 
-        # Last iteration uses plain generate() without tools, so only 2 tool executions
-        # (MAX_TOOL_ITERATIONS=3, iterations 1-2 allow tools, iteration 3 forces text)
-        assert mock_tool.call_count == 2
-        # Final response comes from plain generate() fallback
-        assert result["response"] == "Forced text response"
+            mock_mem_repo = AsyncMock()
+            mock_mem_repo.search_similar.return_value = []
+            MockMemRepo.return_value = mock_mem_repo
+
+            agent = AlfredAgent(db=mock_db, llm_provider=provider, tool_registry=registry)
+            response = await agent.run(
+                session_id="test-session",
+                user_id="test-user",
+                message="Search for something",
+            )
+
+            # Last iteration uses plain generate() without tools, so only 2 tool executions
+            # (MAX_TOOL_ITERATIONS=3, iterations 0-1 allow tools, iteration 2 forces text)
+            assert mock_tool.call_count == 2
+            # Final response comes from plain generate() fallback
+            assert response == "Forced text response"
 
     async def test_error_state_skips(self):
-        """Should return empty dict if state has an error."""
+        """Should raise ValueError when state has an error."""
         provider = MockLLMProvider()
         registry = ToolRegistry()
 
-        state = _make_state(error="Previous error")
-        result = await generate_response_with_tools(state, provider, registry)
+        mock_db = AsyncMock()
+        agent = AlfredAgent(db=mock_db, llm_provider=provider, tool_registry=registry)
 
-        assert result == {}
+        with pytest.raises(ValueError, match="Empty message"):
+            await agent.run(
+                session_id="test-session",
+                user_id="test-user",
+                message="   ",
+            )
 
 
 class TestReActStreamLoop:
-    """Tests for the streaming ReAct loop."""
+    """Tests for the streaming ReAct loop via the graph."""
 
     async def test_stream_no_tool_call(self):
         """When LLM streams text directly, should yield token events."""
         provider = MockLLMProvider("Streamed answer here")
         registry = ToolRegistry()
 
-        state = _make_state()
-        events = []
-        async for event in generate_response_stream_with_tools(state, provider, registry):
-            events.append(event)
+        mock_db = AsyncMock()
+        with patch("app.agents.nodes.MessageRepository") as MockMsgRepo, \
+             patch("app.agents.nodes.MemoryRepository") as MockMemRepo:
+            mock_msg_repo = AsyncMock()
+            mock_msg_repo.get_recent_messages.return_value = []
+            mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
+            MockMsgRepo.return_value = mock_msg_repo
 
-        token_events = [e for e in events if e["type"] == "token"]
-        assert len(token_events) > 0
-        full_text = "".join(e["content"] for e in token_events)
-        assert "Streamed" in full_text
+            mock_mem_repo = AsyncMock()
+            mock_mem_repo.search_similar.return_value = []
+            MockMemRepo.return_value = mock_mem_repo
+
+            agent = AlfredAgent(db=mock_db, llm_provider=provider, tool_registry=registry)
+            events = []
+            async for event in agent.stream(
+                session_id="test-session",
+                user_id="test-user",
+                message="Hello",
+            ):
+                events.append(event)
+
+            token_events = [e for e in events if e["type"] == "token"]
+            assert len(token_events) > 0
+            full_text = "".join(e["content"] for e in token_events)
+            assert "Streamed" in full_text
 
     async def test_stream_tool_call_then_text(self):
         """Should emit tool_use event, then stream final text."""
         provider = MockLLMProvider()
         provider._tool_responses = [
-            # First call: tool call
             LLMResponse(
                 tool_calls=[ToolCall(id="call_1", name="mock_tool", arguments={"input": "test"})]
             ),
-            # Second call: text response
             LLMResponse(content="Final streamed answer"),
         ]
 
@@ -457,32 +486,52 @@ class TestReActStreamLoop:
         registry = ToolRegistry()
         registry.register(mock_tool)
 
-        state = _make_state()
-        events = []
-        async for event in generate_response_stream_with_tools(state, provider, registry):
-            events.append(event)
+        mock_db = AsyncMock()
+        with patch("app.agents.nodes.MessageRepository") as MockMsgRepo, \
+             patch("app.agents.nodes.MemoryRepository") as MockMemRepo:
+            mock_msg_repo = AsyncMock()
+            mock_msg_repo.get_recent_messages.return_value = []
+            mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
+            MockMsgRepo.return_value = mock_msg_repo
 
-        # Should have a tool_use event
-        tool_events = [e for e in events if e["type"] == "tool_use"]
-        assert len(tool_events) == 1
-        assert tool_events[0]["tool_name"] == "mock_tool"
+            mock_mem_repo = AsyncMock()
+            mock_mem_repo.search_similar.return_value = []
+            MockMemRepo.return_value = mock_mem_repo
 
-        # Should have token events for the final answer
-        token_events = [e for e in events if e["type"] == "token"]
-        full_text = "".join(e["content"] for e in token_events)
-        assert "Final" in full_text
+            agent = AlfredAgent(db=mock_db, llm_provider=provider, tool_registry=registry)
+            events = []
+            async for event in agent.stream(
+                session_id="test-session",
+                user_id="test-user",
+                message="Search for something",
+            ):
+                events.append(event)
+
+            # Should have a tool_use event
+            tool_events = [e for e in events if e["type"] == "tool_use"]
+            assert len(tool_events) == 1
+            assert tool_events[0]["tool_name"] == "mock_tool"
+
+            # Should have token events for the final answer
+            token_events = [e for e in events if e["type"] == "token"]
+            full_text = "".join(e["content"] for e in token_events)
+            assert "Final" in full_text
 
     async def test_stream_error_state_skips(self):
-        """Should yield nothing if state has an error."""
+        """Should raise ValueError for empty message in stream mode."""
         provider = MockLLMProvider()
         registry = ToolRegistry()
 
-        state = _make_state(error="Previous error")
-        events = []
-        async for event in generate_response_stream_with_tools(state, provider, registry):
-            events.append(event)
+        mock_db = AsyncMock()
+        agent = AlfredAgent(db=mock_db, llm_provider=provider, tool_registry=registry)
 
-        assert len(events) == 0
+        with pytest.raises(ValueError, match="Empty message"):
+            async for _ in agent.stream(
+                session_id="test-session",
+                user_id="test-user",
+                message="   ",
+            ):
+                pass
 
 
 class TestAgentWithTools:
@@ -506,8 +555,8 @@ class TestAgentWithTools:
         registry = ToolRegistry()
         registry.register(mock_tool)
 
-        with patch("app.agents.alfred.MessageRepository") as MockMsgRepo, \
-             patch("app.agents.alfred.MemoryRepository") as MockMemRepo:
+        with patch("app.agents.nodes.MessageRepository") as MockMsgRepo, \
+             patch("app.agents.nodes.MemoryRepository") as MockMemRepo:
             mock_msg_repo = AsyncMock()
             mock_msg_repo.get_recent_messages.return_value = []
             mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
@@ -545,8 +594,8 @@ class TestAgentWithTools:
         registry = ToolRegistry()
         registry.register(mock_tool)
 
-        with patch("app.agents.alfred.MessageRepository") as MockMsgRepo, \
-             patch("app.agents.alfred.MemoryRepository") as MockMemRepo:
+        with patch("app.agents.nodes.MessageRepository") as MockMsgRepo, \
+             patch("app.agents.nodes.MemoryRepository") as MockMemRepo:
             mock_msg_repo = AsyncMock()
             mock_msg_repo.get_recent_messages.return_value = []
             mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")

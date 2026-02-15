@@ -1,9 +1,11 @@
 import logging
 import re
-from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
+
+from langchain_core.runnables import RunnableConfig
+from langgraph.config import get_stream_writer
 
 from app.agents.state import AgentState
 from app.core.config import get_settings
@@ -26,6 +28,8 @@ NATURAL_REMEMBER_PATTERNS = [
     re.compile(r"^note\s+that\s+(.+)$", re.IGNORECASE | re.DOTALL),
     re.compile(r"^keep\s+in\s+mind\s+that\s+(.+)$", re.IGNORECASE | re.DOTALL),
 ]
+
+MAX_TOOL_ITERATIONS = 3
 
 
 def detect_remember_intent(message: str) -> tuple[bool, str | None]:
@@ -109,132 +113,6 @@ SYSTEM_PROMPT = """You are Alfred, a personal AI assistant inspired by Alfred Pe
 - Complex topics: Break them down with the confidence of someone who's explained this before. You've seen a few things in your time."""
 
 
-async def process_message(state: AgentState) -> dict[str, Any]:
-    """
-    Process the incoming user message.
-    Validates input, detects /remember commands, and prepares state.
-    """
-    user_message = state.get("user_message", "").strip()
-
-    if not user_message:
-        return {"error": "Empty message"}
-
-    # Detect remember intent
-    is_remember, remember_content = detect_remember_intent(user_message)
-
-    return {
-        "user_message": user_message,
-        "user_message_id": str(uuid4()),
-        "assistant_message_id": str(uuid4()),
-        "is_remember_command": is_remember,
-        "remember_content": remember_content,
-        "error": None,
-    }
-
-
-async def handle_remember_command(
-    state: AgentState,
-    memory_repo: MemoryRepository,
-) -> dict[str, Any]:
-    """
-    Handle a /remember command or natural language memory save.
-
-    Saves the content as a memory and returns a confirmation response.
-    """
-    remember_content = state.get("remember_content")
-    if not remember_content:
-        return {"error": "No content to remember"}
-
-    user_id = state["user_id"]
-    session_id = state["session_id"]
-
-    # Infer memory type from content
-    memory_type = infer_memory_type(remember_content)
-
-    # Generate embedding
-    embedding_provider = get_embedding_provider()
-    embedding = embedding_provider.embed(remember_content)
-
-    # Check for duplicates
-    settings = get_settings()
-    existing = await memory_repo.find_duplicate(
-        user_id=user_id,
-        embedding=embedding,
-        threshold=settings.memory_similarity_threshold,
-    )
-
-    if existing:
-        return {
-            "response": f"I've already got that one: \"{existing.content}\"",
-            "memory_saved": False,
-        }
-
-    # Save the memory
-    await memory_repo.create_memory(
-        user_id=user_id,
-        type=memory_type,
-        content=remember_content,
-        embedding=embedding,
-        source_session_id=session_id,
-    )
-
-    return {
-        "response": f"I'll remember that: \"{remember_content}\"",
-        "memory_saved": True,
-    }
-
-
-async def retrieve_context(
-    state: AgentState,
-    message_repo: MessageRepository,
-    memory_repo: MemoryRepository | None = None,
-) -> dict[str, Any]:
-    """
-    Retrieve recent messages and relevant memories for context.
-
-    Uses semantic search via pgvector to find memories relevant to
-    the current user message.
-    """
-    session_id = state["session_id"]
-    user_id = state["user_id"]
-    user_message = state.get("user_message", "")
-
-    # Get recent messages from the session
-    recent_messages = await message_repo.get_recent_messages(
-        session_id=session_id,
-        limit=10,
-    )
-
-    context_messages = [
-        {"role": msg.role, "content": msg.content}
-        for msg in recent_messages
-    ]
-
-    # Retrieve relevant memories via semantic search
-    memories: list[str] = []
-    if memory_repo and user_message:
-        settings = get_settings()
-        embedding_provider = get_embedding_provider()
-
-        # Generate embedding for the user's message
-        query_embedding = embedding_provider.embed(user_message)
-
-        # Search for similar memories
-        similar_memories = await memory_repo.search_similar(
-            user_id=user_id,
-            query_embedding=query_embedding,
-            limit=settings.memory_retrieval_limit,
-        )
-
-        # Extract content from matched memories
-        memories = [memory.content for memory, _score in similar_memories]
-
-    return {
-        "context_messages": context_messages,
-        "memories": memories,
-    }
-
-
 def build_prompt_messages(state: AgentState) -> list[LLMMessage]:
     """Build the list of messages for the LLM."""
     messages: list[LLMMessage] = []
@@ -267,47 +145,6 @@ def build_prompt_messages(state: AgentState) -> list[LLMMessage]:
     messages.append(LLMMessage(role="user", content=state["user_message"]))
 
     return messages
-
-
-async def generate_response(
-    state: AgentState,
-    llm_provider: LLMProvider | None = None,
-) -> dict[str, Any]:
-    """
-    Generate a response using the LLM (non-streaming).
-    """
-    if state.get("error"):
-        return {}
-
-    provider = llm_provider or get_llm_provider()
-    messages = build_prompt_messages(state)
-
-    try:
-        response = await provider.generate(messages)
-        return {"response": response}
-    except Exception as e:
-        return {"error": f"LLM error: {str(e)}"}
-
-
-async def generate_response_stream(
-    state: AgentState,
-    llm_provider: LLMProvider | None = None,
-) -> AsyncGenerator[str, None]:
-    """
-    Generate a streaming response using the LLM.
-    Yields tokens as they arrive.
-    """
-    if state.get("error"):
-        return
-
-    provider = llm_provider or get_llm_provider()
-    messages = build_prompt_messages(state)
-
-    async for token in provider.stream(messages):
-        yield token
-
-
-MAX_TOOL_ITERATIONS = 3
 
 
 def _build_final_messages(messages: list[LLMMessage]) -> list[LLMMessage]:
@@ -347,195 +184,143 @@ def _build_final_messages(messages: list[LLMMessage]) -> list[LLMMessage]:
     return clean
 
 
-async def generate_response_with_tools(
-    state: AgentState,
-    llm_provider: LLMProvider,
-    tool_registry: ToolRegistry,
-) -> dict[str, Any]:
+# ---------------------------------------------------------------------------
+# Graph node functions
+# ---------------------------------------------------------------------------
+
+
+async def process_message_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
     """
-    Generate a response using the ReAct loop (non-streaming).
-    The LLM can call tools, get results, and call again until it produces text.
+    Process the incoming user message.
+    Validates input, detects /remember commands, and prepares state.
     """
-    if state.get("error"):
-        return {}
+    user_message = state.get("user_message", "").strip()
 
-    messages = build_prompt_messages(state)
-    tool_defs = tool_registry.get_definitions()
+    if not user_message:
+        return {"error": "Empty message"}
 
-    for iteration in range(MAX_TOOL_ITERATIONS):
-        # On the last iteration, force a text-only response (no tools)
-        is_last = iteration >= MAX_TOOL_ITERATIONS - 1
+    # Detect remember intent
+    is_remember, remember_content = detect_remember_intent(user_message)
 
-        logger.info(f"ReAct iteration {iteration + 1}/{MAX_TOOL_ITERATIONS}")
-
-        try:
-            if is_last:
-                logger.info("Final iteration — calling LLM without tools to force text response")
-                # Build clean messages that don't contain tool-specific types
-                clean_messages = _build_final_messages(messages)
-                text = await llm_provider.generate(clean_messages)
-                return {"response": text}
-            else:
-                response = await llm_provider.generate_with_tools(messages, tool_defs)
-        except Exception as e:
-            logger.error(f"LLM error on iteration {iteration + 1}: {e}")
-            return {"error": f"LLM error: {str(e)}"}
-
-        if response.tool_calls:
-            logger.info(
-                f"Iteration {iteration + 1}: {len(response.tool_calls)} tool call(s): "
-                f"{[tc.name for tc in response.tool_calls]}"
-            )
-            # Append assistant message with tool calls
-            messages.append(LLMMessage(
-                role="assistant",
-                content=response.content,
-                tool_calls=response.tool_calls,
-            ))
-
-            # Execute each tool and append results
-            for tc in response.tool_calls:
-                tool = tool_registry.get(tc.name)
-                if tool:
-                    logger.info(f"Executing tool '{tc.name}' with args: {tc.arguments}")
-                    try:
-                        result = await tool.execute(**tc.arguments)
-                        logger.info(f"Tool '{tc.name}' returned {len(result)} chars")
-                    except Exception as e:
-                        logger.error(f"Tool '{tc.name}' execution error: {e}")
-                        result = f"Tool error: {str(e)}"
-                else:
-                    result = f"Unknown tool: {tc.name}"
-
-                messages.append(LLMMessage(
-                    role="tool",
-                    content=result,
-                    tool_call_id=tc.id,
-                ))
-            continue
-
-        # No tool calls — we have the final text response
-        logger.info(f"ReAct completed on iteration {iteration + 1}")
-        return {"response": response.content or ""}
-
-    # Should not reach here, but just in case
-    return {"response": "I wasn't able to complete that request."}
+    return {
+        "user_message": user_message,
+        "user_message_id": str(uuid4()),
+        "assistant_message_id": str(uuid4()),
+        "is_remember_command": is_remember,
+        "remember_content": remember_content,
+        "error": None,
+    }
 
 
-async def generate_response_stream_with_tools(
-    state: AgentState,
-    llm_provider: LLMProvider,
-    tool_registry: ToolRegistry,
-) -> AsyncGenerator[dict[str, Any], None]:
+async def handle_remember_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
     """
-    Generate a streaming response using the ReAct loop.
-    Yields dict events: {"type": "token", "content": ...} or {"type": "tool_use", "tool_name": ...}
+    Handle a /remember command or natural language memory save.
+    Saves the content as a memory and returns a confirmation response.
     """
-    if state.get("error"):
-        return
+    db = config["configurable"]["db"]
+    memory_repo = MemoryRepository(db)
 
-    messages = build_prompt_messages(state)
-    tool_defs = tool_registry.get_definitions()
-    any_text_yielded = False
+    remember_content = state.get("remember_content")
+    if not remember_content:
+        return {"error": "No content to remember"}
 
-    for iteration in range(MAX_TOOL_ITERATIONS):
-        tool_calls_this_iteration: list[ToolCall] = []
-        text_this_iteration: list[str] = []
-
-        logger.info(f"ReAct stream iteration {iteration + 1}/{MAX_TOOL_ITERATIONS}")
-
-        # On the last iteration, don't offer tools — force a text response
-        if iteration >= MAX_TOOL_ITERATIONS - 1:
-            logger.info("Final iteration — streaming without tools to force text response")
-            # Build clean messages that don't contain tool-specific types
-            clean_messages = _build_final_messages(messages)
-            try:
-                async for token in llm_provider.stream(clean_messages):
-                    if token:
-                        any_text_yielded = True
-                        yield {"type": "token", "content": token}
-            except Exception as e:
-                logger.error(f"Final iteration stream error: {e}")
-                yield {"type": "token", "content": f"I ran into an issue: {str(e)}"}
-            return
-
-        try:
-            async for chunk in llm_provider.stream_with_tools(messages, tool_defs):
-                if chunk.content:
-                    text_this_iteration.append(chunk.content)
-                    any_text_yielded = True
-                    yield {"type": "token", "content": chunk.content}
-                if chunk.tool_calls:
-                    tool_calls_this_iteration.extend(chunk.tool_calls)
-        except Exception as e:
-            logger.error(f"stream_with_tools error on iteration {iteration + 1}: {e}")
-            # If we already emitted some text, just stop. Otherwise yield the error.
-            if not any_text_yielded:
-                yield {"type": "token", "content": f"I ran into an issue: {str(e)}"}
-            return
-
-        if tool_calls_this_iteration:
-            logger.info(
-                f"Iteration {iteration + 1}: {len(tool_calls_this_iteration)} tool call(s): "
-                f"{[tc.name for tc in tool_calls_this_iteration]}"
-            )
-            # Append assistant message with tool calls (include any text emitted)
-            messages.append(LLMMessage(
-                role="assistant",
-                content="".join(text_this_iteration) if text_this_iteration else None,
-                tool_calls=tool_calls_this_iteration,
-            ))
-
-            for tc in tool_calls_this_iteration:
-                # Emit tool_use event for frontend
-                yield {"type": "tool_use", "tool_name": tc.name}
-
-                tool = tool_registry.get(tc.name)
-                if tool:
-                    logger.info(f"Executing tool '{tc.name}' with args: {tc.arguments}")
-                    try:
-                        result = await tool.execute(**tc.arguments)
-                        logger.info(f"Tool '{tc.name}' returned {len(result)} chars")
-                    except Exception as e:
-                        logger.error(f"Tool '{tc.name}' execution error: {e}")
-                        result = f"Tool error: {str(e)}"
-                else:
-                    result = f"Unknown tool: {tc.name}"
-
-                messages.append(LLMMessage(
-                    role="tool",
-                    content=result,
-                    tool_call_id=tc.id,
-                ))
-            continue
-
-        # No tool calls — stream ended with text, we're done
-        logger.info(
-            f"ReAct stream completed on iteration {iteration + 1}, "
-            f"text yielded: {any_text_yielded}"
-        )
-        return
-
-    logger.warning("ReAct stream loop exhausted all iterations")
-
-
-async def save_user_message(
-    state: AgentState,
-    message_repo: MessageRepository,
-) -> dict[str, Any]:
-    """
-    Save the user message to the database.
-
-    This should be called BEFORE retrieving context so the user message
-    gets an earlier timestamp than the assistant response.
-    """
-    if state.get("error"):
-        return {}
-
+    user_id = state["user_id"]
     session_id = state["session_id"]
 
-    await message_repo.create_message(
+    # Infer memory type from content
+    memory_type = infer_memory_type(remember_content)
+
+    # Generate embedding
+    embedding_provider = get_embedding_provider()
+    embedding = embedding_provider.embed(remember_content)
+
+    # Check for duplicates
+    settings = get_settings()
+    existing = await memory_repo.find_duplicate(
+        user_id=user_id,
+        embedding=embedding,
+        threshold=settings.memory_similarity_threshold,
+    )
+
+    if existing:
+        response = f'I\'ve already got that one: "{existing.content}"'
+    else:
+        await memory_repo.create_memory(
+            user_id=user_id,
+            type=memory_type,
+            content=remember_content,
+            embedding=embedding,
+            source_session_id=session_id,
+        )
+        response = f'I\'ll remember that: "{remember_content}"'
+
+    # Stream the response if in streaming mode
+    streaming = config["configurable"].get("streaming", False)
+    if streaming:
+        writer = get_stream_writer()
+        writer({"type": "token", "content": response})
+
+    return {"response": response}
+
+
+async def retrieve_context_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+    """
+    Retrieve recent messages and relevant memories for context.
+    """
+    db = config["configurable"]["db"]
+    message_repo = MessageRepository(db)
+    memory_repo = MemoryRepository(db)
+
+    session_id = state["session_id"]
+    user_id = state["user_id"]
+    user_message = state.get("user_message", "")
+
+    # Get recent messages from the session
+    recent_messages = await message_repo.get_recent_messages(
         session_id=session_id,
+        limit=10,
+    )
+
+    context_messages = [
+        {"role": msg.role, "content": msg.content}
+        for msg in recent_messages
+    ]
+
+    # Retrieve relevant memories via semantic search
+    memories: list[str] = []
+    if user_message:
+        settings = get_settings()
+        embedding_provider = get_embedding_provider()
+
+        # Generate embedding for the user's message
+        query_embedding = embedding_provider.embed(user_message)
+
+        # Search for similar memories
+        similar_memories = await memory_repo.search_similar(
+            user_id=user_id,
+            query_embedding=query_embedding,
+            limit=settings.memory_retrieval_limit,
+        )
+
+        # Extract content from matched memories
+        memories = [memory.content for memory, _score in similar_memories]
+
+    return {
+        "context_messages": context_messages,
+        "memories": memories,
+    }
+
+
+async def save_user_message_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+    """Save the user message to the database."""
+    if state.get("error"):
+        return {}
+
+    db = config["configurable"]["db"]
+    message_repo = MessageRepository(db)
+
+    await message_repo.create_message(
+        session_id=state["session_id"],
         role="user",
         content=state["user_message"],
     )
@@ -543,24 +328,18 @@ async def save_user_message(
     return {}
 
 
-async def save_assistant_message(
-    state: AgentState,
-    message_repo: MessageRepository,
-) -> dict[str, Any]:
-    """
-    Save the assistant message to the database.
-
-    This should be called AFTER generating the response.
-    """
+async def save_assistant_message_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+    """Save the assistant message to the database."""
     if state.get("error"):
         return {}
 
-    session_id = state["session_id"]
-    response = state.get("response", "")
+    db = config["configurable"]["db"]
+    message_repo = MessageRepository(db)
 
+    response = state.get("response", "")
     if response:
         await message_repo.create_message(
-            session_id=session_id,
+            session_id=state["session_id"],
             role="assistant",
             content=response,
         )
@@ -568,10 +347,255 @@ async def save_assistant_message(
     return {}
 
 
-async def extract_memories(state: AgentState) -> dict[str, Any]:
+async def save_messages_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+    """Save both user and assistant messages (for the remember path)."""
+    if state.get("error"):
+        return {}
+
+    db = config["configurable"]["db"]
+    message_repo = MessageRepository(db)
+
+    await message_repo.create_message(
+        session_id=state["session_id"],
+        role="user",
+        content=state["user_message"],
+    )
+
+    response = state.get("response", "")
+    if response:
+        await message_repo.create_message(
+            session_id=state["session_id"],
+            role="assistant",
+            content=response,
+        )
+
+    return {}
+
+
+async def llm_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+    """
+    Call the LLM, with or without tools.
+
+    On first call (llm_messages empty), builds the prompt from state.
+    On subsequent calls (after tool execution), uses the existing llm_messages.
+    On the final iteration, calls without tools to force a text response.
+    """
+    if state.get("error"):
+        return {}
+
+    configurable = config["configurable"]
+    llm_provider: LLMProvider = configurable["llm_provider"]
+    tool_registry: ToolRegistry = configurable["tool_registry"]
+    streaming = configurable.get("streaming", False)
+
+    # Build or reuse llm_messages
+    llm_messages = list(state.get("llm_messages") or [])
+    if not llm_messages:
+        llm_messages = build_prompt_messages(state)
+
+    tool_iteration = state.get("tool_iteration", 0)
+    has_tools = tool_registry.has_tools()
+    is_last_iteration = tool_iteration >= MAX_TOOL_ITERATIONS - 1
+
+    # Decide whether to use tools
+    use_tools = has_tools and not is_last_iteration
+
+    if use_tools:
+        tool_defs = tool_registry.get_definitions()
+
+        if streaming:
+            writer = get_stream_writer()
+            tool_calls_this_iteration: list[ToolCall] = []
+            text_parts: list[str] = []
+
+            try:
+                async for chunk in llm_provider.stream_with_tools(llm_messages, tool_defs):
+                    if chunk.content:
+                        text_parts.append(chunk.content)
+                        writer({"type": "token", "content": chunk.content})
+                    if chunk.tool_calls:
+                        tool_calls_this_iteration.extend(chunk.tool_calls)
+            except Exception as e:
+                logger.error(f"stream_with_tools error: {e}")
+                return {"error": f"LLM error: {str(e)}"}
+
+            if tool_calls_this_iteration:
+                # Append assistant message with tool calls
+                llm_messages.append(LLMMessage(
+                    role="assistant",
+                    content="".join(text_parts) if text_parts else None,
+                    tool_calls=tool_calls_this_iteration,
+                ))
+                return {
+                    "llm_messages": llm_messages,
+                    "tool_calls": tool_calls_this_iteration,
+                }
+            else:
+                # No tool calls — final text response
+                return {
+                    "response": "".join(text_parts),
+                    "llm_messages": llm_messages,
+                    "tool_calls": None,
+                }
+        else:
+            # Non-streaming with tools
+            try:
+                response = await llm_provider.generate_with_tools(llm_messages, tool_defs)
+            except Exception as e:
+                logger.error(f"generate_with_tools error: {e}")
+                return {"error": f"LLM error: {str(e)}"}
+
+            if response.tool_calls:
+                llm_messages.append(LLMMessage(
+                    role="assistant",
+                    content=response.content,
+                    tool_calls=response.tool_calls,
+                ))
+                return {
+                    "llm_messages": llm_messages,
+                    "tool_calls": response.tool_calls,
+                }
+            else:
+                return {
+                    "response": response.content or "",
+                    "llm_messages": llm_messages,
+                    "tool_calls": None,
+                }
+    else:
+        # No tools or last iteration — force text response
+        if is_last_iteration and has_tools:
+            logger.info("Final iteration — calling LLM without tools to force text response")
+            clean_messages = _build_final_messages(llm_messages)
+        else:
+            clean_messages = llm_messages
+
+        if streaming:
+            writer = get_stream_writer()
+            text_parts = []
+            try:
+                async for token in llm_provider.stream(clean_messages):
+                    if token:
+                        text_parts.append(token)
+                        writer({"type": "token", "content": token})
+            except Exception as e:
+                logger.error(f"stream error: {e}")
+                return {"error": f"LLM error: {str(e)}"}
+            return {
+                "response": "".join(text_parts),
+                "llm_messages": llm_messages,
+                "tool_calls": None,
+            }
+        else:
+            try:
+                text = await llm_provider.generate(clean_messages)
+            except Exception as e:
+                logger.error(f"generate error: {e}")
+                return {"error": f"LLM error: {str(e)}"}
+            return {
+                "response": text,
+                "llm_messages": llm_messages,
+                "tool_calls": None,
+            }
+
+
+async def tool_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+    """
+    Execute tool calls from the LLM, append results to llm_messages,
+    increment tool_iteration, and clear tool_calls.
+    """
+    configurable = config["configurable"]
+    tool_registry: ToolRegistry = configurable["tool_registry"]
+    streaming = configurable.get("streaming", False)
+
+    tool_calls = state.get("tool_calls") or []
+    llm_messages = list(state.get("llm_messages") or [])
+    tool_iteration = state.get("tool_iteration", 0)
+
+    if streaming:
+        writer = get_stream_writer()
+
+    for tc in tool_calls:
+        if streaming:
+            writer({"type": "tool_use", "tool_name": tc.name})
+
+        tool = tool_registry.get(tc.name)
+        if tool:
+            logger.info(f"Executing tool '{tc.name}' with args: {tc.arguments}")
+            try:
+                result = await tool.execute(**tc.arguments)
+                logger.info(f"Tool '{tc.name}' returned {len(result)} chars")
+            except Exception as e:
+                logger.error(f"Tool '{tc.name}' execution error: {e}")
+                result = f"Tool error: {str(e)}"
+        else:
+            result = f"Unknown tool: {tc.name}"
+
+        llm_messages.append(LLMMessage(
+            role="tool",
+            content=result,
+            tool_call_id=tc.id,
+        ))
+
+    return {
+        "llm_messages": llm_messages,
+        "tool_calls": None,
+        "tool_iteration": tool_iteration + 1,
+    }
+
+
+async def extract_memories_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
     """
     Extract memories from the conversation.
     TODO: Implement in Phase 4 (Memory System).
     """
-    # Placeholder - will be implemented in Phase 4
     return {}
+
+
+# ---------------------------------------------------------------------------
+# Routing functions
+# ---------------------------------------------------------------------------
+
+
+def route_after_process(state: AgentState) -> str:
+    """Route after process_message: remember path or normal path."""
+    if state.get("error"):
+        # Error state — go to END (handled by the graph edge)
+        return "end"
+    if state.get("is_remember_command"):
+        return "handle_remember"
+    return "retrieve_context"
+
+
+def route_after_llm(state: AgentState) -> str:
+    """Route after llm_node: tool execution or finish."""
+    if state.get("tool_calls"):
+        return "tool_node"
+    return "extract_memories"
+
+
+# ---------------------------------------------------------------------------
+# Legacy function kept for backward compatibility with tests
+# ---------------------------------------------------------------------------
+
+
+async def process_message(state: AgentState) -> dict[str, Any]:
+    """
+    Process the incoming user message (legacy wrapper).
+    Validates input, detects /remember commands, and prepares state.
+    """
+    user_message = state.get("user_message", "").strip()
+
+    if not user_message:
+        return {"error": "Empty message"}
+
+    # Detect remember intent
+    is_remember, remember_content = detect_remember_intent(user_message)
+
+    return {
+        "user_message": user_message,
+        "user_message_id": str(uuid4()),
+        "assistant_message_id": str(uuid4()),
+        "is_remember_command": is_remember,
+        "remember_content": remember_content,
+        "error": None,
+    }

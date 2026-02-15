@@ -1,7 +1,4 @@
-from typing import TypedDict, Annotated
-from collections.abc import Sequence
-
-from langgraph.graph.message import add_messages
+from typing import TypedDict
 
 
 class AgentState(TypedDict):
@@ -24,7 +21,11 @@ class AgentState(TypedDict):
 
     # LLM response
     response: str
-    response_chunks: Annotated[list[str], lambda x, y: x + y]
+
+    # ReAct loop state
+    llm_messages: list  # LLMMessage list for the ReAct loop conversation
+    tool_calls: list | None  # Current tool calls from LLM (None = no calls)
+    tool_iteration: int  # Counter for ReAct iterations
 
     # Generated message IDs
     user_message_id: str
