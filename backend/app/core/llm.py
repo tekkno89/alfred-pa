@@ -1,11 +1,18 @@
 import json
+import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import httpx
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_google_vertexai import (
     ChatVertexAI,
     HarmBlockThreshold,
@@ -15,13 +22,43 @@ from langchain_google_vertexai.model_garden import ChatAnthropicVertex
 
 from app.core.config import get_settings
 
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ToolDefinition:
+    """Definition of a tool that the LLM can call."""
+
+    name: str
+    description: str
+    parameters: dict[str, Any]  # JSON Schema
+
+
+@dataclass
+class ToolCall:
+    """A tool call requested by the LLM."""
+
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass
+class LLMResponse:
+    """Response from the LLM, may contain text and/or tool calls."""
+
+    content: str | None = None
+    tool_calls: list[ToolCall] | None = None
+
 
 @dataclass
 class LLMMessage:
     """Standardized message format for LLM interactions."""
 
-    role: Literal["system", "user", "assistant"]
-    content: str
+    role: Literal["system", "user", "assistant", "tool"]
+    content: str | None = None
+    tool_calls: list[ToolCall] | None = None  # for assistant messages requesting tools
+    tool_call_id: str | None = None  # for tool result messages
 
 
 class LLMProvider(ABC):
@@ -49,23 +86,157 @@ class LLMProvider(ABC):
         """Stream response tokens from the LLM."""
         ...
 
+    async def generate_with_tools(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolDefinition],
+        *,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ) -> LLMResponse:
+        """Generate a response, allowing the LLM to call tools."""
+        # Default: fall back to plain generate (no tool support)
+        text = await self.generate(messages, temperature=temperature, max_tokens=max_tokens)
+        return LLMResponse(content=text)
+
+    async def stream_with_tools(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolDefinition],
+        *,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ) -> AsyncIterator[LLMResponse]:
+        """Stream a response, yielding text chunks or tool calls."""
+        # Default: fall back to plain stream (no tool support)
+        async for token in self.stream(messages, temperature=temperature, max_tokens=max_tokens):
+            yield LLMResponse(content=token)
+
 
 def _to_langchain_messages(messages: list[LLMMessage]) -> list[BaseMessage]:
     """Convert LLMMessages to LangChain message format."""
     lc_messages: list[BaseMessage] = []
     for msg in messages:
         if msg.role == "system":
-            lc_messages.append(SystemMessage(content=msg.content))
+            lc_messages.append(SystemMessage(content=msg.content or ""))
         elif msg.role == "user":
-            lc_messages.append(HumanMessage(content=msg.content))
+            lc_messages.append(HumanMessage(content=msg.content or ""))
         elif msg.role == "assistant":
-            lc_messages.append(AIMessage(content=msg.content))
+            if msg.tool_calls:
+                # Assistant message requesting tool calls
+                lc_tool_calls = [
+                    {
+                        "id": tc.id,
+                        "name": tc.name,
+                        "args": tc.arguments,
+                    }
+                    for tc in msg.tool_calls
+                ]
+                lc_messages.append(
+                    AIMessage(content=msg.content or "", tool_calls=lc_tool_calls)
+                )
+            else:
+                lc_messages.append(AIMessage(content=msg.content or ""))
+        elif msg.role == "tool":
+            lc_messages.append(
+                ToolMessage(
+                    content=msg.content or "",
+                    tool_call_id=msg.tool_call_id or "",
+                )
+            )
     return lc_messages
 
 
-def _to_openai_messages(messages: list[LLMMessage]) -> list[dict[str, str]]:
+def _to_openai_messages(messages: list[LLMMessage]) -> list[dict[str, Any]]:
     """Convert LLMMessages to OpenAI API message format."""
-    return [{"role": msg.role, "content": msg.content} for msg in messages]
+    result: list[dict[str, Any]] = []
+    for msg in messages:
+        if msg.role == "assistant" and msg.tool_calls:
+            result.append({
+                "role": "assistant",
+                "content": msg.content or None,
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": json.dumps(tc.arguments),
+                        },
+                    }
+                    for tc in msg.tool_calls
+                ],
+            })
+        elif msg.role == "tool":
+            result.append({
+                "role": "tool",
+                "content": msg.content or "",
+                "tool_call_id": msg.tool_call_id or "",
+            })
+        else:
+            result.append({"role": msg.role, "content": msg.content or ""})
+    return result
+
+
+def _tool_definitions_to_openai(tools: list[ToolDefinition]) -> list[dict[str, Any]]:
+    """Convert ToolDefinitions to OpenAI-compatible tool format."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.parameters,
+            },
+        }
+        for tool in tools
+    ]
+
+
+def _extract_text_content(content: Any) -> str | None:
+    """
+    Extract plain text from LangChain message content.
+
+    When tools are bound, Anthropic/Claude returns content as a list of
+    content blocks like [{'type': 'text', 'text': '...'}] instead of a
+    plain string. This normalizes both formats.
+    """
+    if content is None:
+        return None
+    if isinstance(content, str):
+        return content if content else None
+    if isinstance(content, list):
+        # Extract text from content blocks
+        parts = []
+        for block in content:
+            if isinstance(block, dict):
+                if block.get("type") == "text":
+                    parts.append(block.get("text", ""))
+                elif block.get("type") == "tool_use":
+                    # Skip tool_use blocks — handled separately
+                    pass
+                else:
+                    logger.debug(f"Unknown content block type: {block.get('type')}")
+            elif isinstance(block, str):
+                parts.append(block)
+            else:
+                logger.debug(f"Unknown content block format: {type(block)}")
+        text = "".join(parts)
+        return text if text else None
+    logger.debug(f"Unexpected content type: {type(content)}")
+    return str(content) if content else None
+
+
+def _tool_definitions_to_langchain(tools: list[ToolDefinition]) -> list[dict[str, Any]]:
+    """Convert ToolDefinitions to LangChain tool format for bind_tools."""
+    return [
+        {
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": tool.parameters,
+        }
+        for tool in tools
+    ]
 
 
 class OpenRouterProvider(LLMProvider):
@@ -164,6 +335,129 @@ class OpenRouterProvider(LLMProvider):
                         except json.JSONDecodeError:
                             continue
 
+    async def generate_with_tools(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolDefinition],
+        *,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ) -> LLMResponse:
+        payload: dict[str, Any] = {
+            "model": self.model_name,
+            "messages": _to_openai_messages(messages),
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "tools": _tool_definitions_to_openai(tools),
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                self.OPENROUTER_API_URL,
+                headers=self._get_headers(),
+                json=payload,
+                timeout=60.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+            choice = data["choices"][0]["message"]
+
+            tool_calls = None
+            if choice.get("tool_calls"):
+                tool_calls = [
+                    ToolCall(
+                        id=tc["id"],
+                        name=tc["function"]["name"],
+                        arguments=json.loads(tc["function"]["arguments"]),
+                    )
+                    for tc in choice["tool_calls"]
+                ]
+
+            return LLMResponse(
+                content=choice.get("content"),
+                tool_calls=tool_calls,
+            )
+
+    async def stream_with_tools(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolDefinition],
+        *,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ) -> AsyncIterator[LLMResponse]:
+        payload: dict[str, Any] = {
+            "model": self.model_name,
+            "messages": _to_openai_messages(messages),
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+            "tools": _tool_definitions_to_openai(tools),
+        }
+
+        async with httpx.AsyncClient() as client:
+            async with client.stream(
+                "POST",
+                self.OPENROUTER_API_URL,
+                headers=self._get_headers(),
+                json=payload,
+                timeout=60.0,
+            ) as response:
+                response.raise_for_status()
+
+                # Buffer tool call chunks
+                tool_call_buffers: dict[int, dict[str, Any]] = {}
+
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    if data_str.strip() == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+
+                    delta = data["choices"][0].get("delta", {})
+
+                    # Handle text content
+                    content = delta.get("content")
+                    if content:
+                        yield LLMResponse(content=content)
+
+                    # Handle tool call chunks
+                    if delta.get("tool_calls"):
+                        for tc_chunk in delta["tool_calls"]:
+                            idx = tc_chunk["index"]
+                            if idx not in tool_call_buffers:
+                                tool_call_buffers[idx] = {
+                                    "id": tc_chunk.get("id", ""),
+                                    "name": tc_chunk.get("function", {}).get("name", ""),
+                                    "arguments": "",
+                                }
+                            else:
+                                if tc_chunk.get("id"):
+                                    tool_call_buffers[idx]["id"] = tc_chunk["id"]
+                                if tc_chunk.get("function", {}).get("name"):
+                                    tool_call_buffers[idx]["name"] = tc_chunk["function"]["name"]
+                            # Accumulate arguments string
+                            args_chunk = tc_chunk.get("function", {}).get("arguments", "")
+                            if args_chunk:
+                                tool_call_buffers[idx]["arguments"] += args_chunk
+
+                # After stream ends, yield any accumulated tool calls
+                if tool_call_buffers:
+                    tool_calls = [
+                        ToolCall(
+                            id=buf["id"],
+                            name=buf["name"],
+                            arguments=json.loads(buf["arguments"]) if buf["arguments"] else {},
+                        )
+                        for buf in tool_call_buffers.values()
+                    ]
+                    yield LLMResponse(tool_calls=tool_calls)
+
 
 class VertexGeminiProvider(LLMProvider):
     """Vertex AI Gemini provider."""
@@ -225,6 +519,81 @@ class VertexGeminiProvider(LLMProvider):
             if chunk.content:
                 yield str(chunk.content)
 
+    async def generate_with_tools(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolDefinition],
+        *,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ) -> LLMResponse:
+        model = self._create_model(temperature, max_tokens)
+        lc_tools = _tool_definitions_to_langchain(tools)
+        model_with_tools = model.bind_tools(lc_tools)
+        lc_messages = _to_langchain_messages(messages)
+        response = await model_with_tools.ainvoke(lc_messages)
+
+        tool_calls = None
+        if hasattr(response, "tool_calls") and response.tool_calls:
+            tool_calls = [
+                ToolCall(
+                    id=tc.get("id", f"call_{i}"),
+                    name=tc["name"],
+                    arguments=tc.get("args", {}),
+                )
+                for i, tc in enumerate(response.tool_calls)
+            ]
+
+        return LLMResponse(
+            content=_extract_text_content(response.content),
+            tool_calls=tool_calls,
+        )
+
+    async def stream_with_tools(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolDefinition],
+        *,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ) -> AsyncIterator[LLMResponse]:
+        model = self._create_model(temperature, max_tokens, streaming=True)
+        lc_tools = _tool_definitions_to_langchain(tools)
+        model_with_tools = model.bind_tools(lc_tools)
+        lc_messages = _to_langchain_messages(messages)
+
+        collected_tool_calls: list[dict[str, Any]] = []
+
+        async for chunk in model_with_tools.astream(lc_messages):
+            text = _extract_text_content(chunk.content)
+            if text:
+                yield LLMResponse(content=text)
+            if hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
+                for tc_chunk in chunk.tool_call_chunks:
+                    # Accumulate tool call info
+                    idx = tc_chunk.get("index", len(collected_tool_calls))
+                    while len(collected_tool_calls) <= idx:
+                        collected_tool_calls.append({"id": "", "name": "", "args_str": ""})
+                    if tc_chunk.get("id"):
+                        collected_tool_calls[idx]["id"] = tc_chunk["id"]
+                    if tc_chunk.get("name"):
+                        collected_tool_calls[idx]["name"] = tc_chunk["name"]
+                    if tc_chunk.get("args"):
+                        collected_tool_calls[idx]["args_str"] += tc_chunk["args"]
+
+        if collected_tool_calls:
+            tool_calls = []
+            for i, tc in enumerate(collected_tool_calls):
+                if tc["name"]:
+                    args = json.loads(tc["args_str"]) if tc["args_str"] else {}
+                    tool_calls.append(ToolCall(
+                        id=tc["id"] or f"call_{i}",
+                        name=tc["name"],
+                        arguments=args,
+                    ))
+            if tool_calls:
+                yield LLMResponse(tool_calls=tool_calls)
+
 
 class VertexClaudeProvider(LLMProvider):
     """Vertex AI Claude provider (via Anthropic partner model)."""
@@ -277,6 +646,89 @@ class VertexClaudeProvider(LLMProvider):
         async for chunk in model.astream(lc_messages):
             if chunk.content:
                 yield str(chunk.content)
+
+    async def generate_with_tools(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolDefinition],
+        *,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ) -> LLMResponse:
+        model = self._create_model(temperature, max_tokens)
+        lc_tools = _tool_definitions_to_langchain(tools)
+        model_with_tools = model.bind_tools(lc_tools)
+        lc_messages = _to_langchain_messages(messages)
+        response = await model_with_tools.ainvoke(lc_messages)
+
+        tool_calls = None
+        if hasattr(response, "tool_calls") and response.tool_calls:
+            tool_calls = [
+                ToolCall(
+                    id=tc.get("id", f"call_{i}"),
+                    name=tc["name"],
+                    arguments=tc.get("args", {}),
+                )
+                for i, tc in enumerate(response.tool_calls)
+            ]
+
+        return LLMResponse(
+            content=_extract_text_content(response.content),
+            tool_calls=tool_calls,
+        )
+
+    async def stream_with_tools(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolDefinition],
+        *,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ) -> AsyncIterator[LLMResponse]:
+        model = self._create_model(temperature, max_tokens)
+        lc_tools = _tool_definitions_to_langchain(tools)
+        model_with_tools = model.bind_tools(lc_tools)
+        lc_messages = _to_langchain_messages(messages)
+
+        collected_tool_calls: list[dict[str, Any]] = []
+        chunk_count = 0
+        text_chunks = 0
+
+        async for chunk in model_with_tools.astream(lc_messages):
+            chunk_count += 1
+            text = _extract_text_content(chunk.content)
+            if text:
+                text_chunks += 1
+                yield LLMResponse(content=text)
+            if hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
+                for tc_chunk in chunk.tool_call_chunks:
+                    idx = tc_chunk.get("index", len(collected_tool_calls))
+                    while len(collected_tool_calls) <= idx:
+                        collected_tool_calls.append({"id": "", "name": "", "args_str": ""})
+                    if tc_chunk.get("id"):
+                        collected_tool_calls[idx]["id"] = tc_chunk["id"]
+                    if tc_chunk.get("name"):
+                        collected_tool_calls[idx]["name"] = tc_chunk["name"]
+                    if tc_chunk.get("args"):
+                        collected_tool_calls[idx]["args_str"] += tc_chunk["args"]
+
+        logger.info(
+            f"VertexClaude stream_with_tools: {chunk_count} chunks, "
+            f"{text_chunks} text, {len(collected_tool_calls)} tool calls"
+        )
+
+        if collected_tool_calls:
+            tool_calls = []
+            for i, tc in enumerate(collected_tool_calls):
+                if tc["name"]:
+                    args = json.loads(tc["args_str"]) if tc["args_str"] else {}
+                    tool_calls.append(ToolCall(
+                        id=tc["id"] or f"call_{i}",
+                        name=tc["name"],
+                        arguments=args,
+                    ))
+            if tool_calls:
+                yield LLMResponse(tool_calls=tool_calls)
 
 
 def get_llm_provider(model_name: str | None = None) -> LLMProvider:

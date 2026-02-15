@@ -267,14 +267,19 @@ async def send_message(
         full_response: list[str] = []
 
         try:
-            async for token in agent.stream(
+            async for event in agent.stream(
                 session_id=session_id,
                 user_id=user.id,
                 message=message_data.content,
             ):
-                full_response.append(token)
-                event = StreamEvent(type="token", content=token)
-                yield f"data: {event.model_dump_json()}\n\n"
+                if event["type"] == "token":
+                    full_response.append(event["content"])
+                    sse = StreamEvent(type="token", content=event["content"])
+                elif event["type"] == "tool_use":
+                    sse = StreamEvent(type="tool_use", tool_name=event["tool_name"])
+                else:
+                    continue
+                yield f"data: {sse.model_dump_json()}\n\n"
 
             # Send done event
             done_event = StreamEvent(type="done")

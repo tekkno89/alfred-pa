@@ -19,7 +19,7 @@ export function ChatContainer({ sessionId, messages }: ChatContainerProps) {
   const location = useLocation()
   const initialMessageSentRef = useRef(false)
 
-  const { streamingContent, isStreaming, sendMessage, cancelStream } = useChat({
+  const { streamingContent, isStreaming, activeToolName, sendMessage, cancelStream } = useChat({
     sessionId,
     onError: (errorMessage) => {
       setError(errorMessage)
@@ -48,6 +48,7 @@ export function ChatContainer({ sessionId, messages }: ChatContainerProps) {
         messages={messages}
         streamingContent={streamingContent}
         isStreaming={isStreaming}
+        activeToolName={activeToolName}
       />
       <ChatInput
         onSend={sendMessage}

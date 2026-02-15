@@ -33,6 +33,7 @@ class MessageList(BaseModel):
 class StreamEvent(BaseModel):
     """Schema for streaming response events."""
 
-    type: Literal["token", "done", "error"]
+    type: Literal["token", "tool_use", "done", "error"]
     content: str | None = None
     message_id: str | None = None
+    tool_name: str | None = None

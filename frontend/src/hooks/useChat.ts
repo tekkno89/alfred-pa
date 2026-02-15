@@ -11,6 +11,7 @@ interface UseChatOptions {
 interface UseChatReturn {
   streamingContent: string
   isStreaming: boolean
+  activeToolName: string | null
   sendMessage: (content: string) => void
   cancelStream: () => void
 }
@@ -19,6 +20,7 @@ export function useChat({ sessionId, onError }: UseChatOptions): UseChatReturn {
   const queryClient = useQueryClient()
   const [streamingContent, setStreamingContent] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
+  const [activeToolName, setActiveToolName] = useState<string | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamingContentRef = useRef('')
 
@@ -52,13 +54,17 @@ export function useChat({ sessionId, onError }: UseChatOptions): UseChatReturn {
       setStreamingContent('')
       streamingContentRef.current = ''
 
-      const handleEvent = (event: { type: string; content?: string; message_id?: string }) => {
+      const handleEvent = (event: { type: string; content?: string; message_id?: string; tool_name?: string }) => {
         switch (event.type) {
           case 'token':
+            setActiveToolName(null)
             if (event.content) {
               streamingContentRef.current += event.content
               setStreamingContent(streamingContentRef.current)
             }
+            break
+          case 'tool_use':
+            setActiveToolName(event.tool_name || null)
             break
           case 'done':
             // Add the complete message to cache
@@ -85,12 +91,14 @@ export function useChat({ sessionId, onError }: UseChatOptions): UseChatReturn {
             setStreamingContent('')
             streamingContentRef.current = ''
             setIsStreaming(false)
+            setActiveToolName(null)
             break
           case 'error':
             onError?.(event.content || 'Unknown error')
             setIsStreaming(false)
             setStreamingContent('')
             streamingContentRef.current = ''
+            setActiveToolName(null)
             break
         }
       }
@@ -100,6 +108,7 @@ export function useChat({ sessionId, onError }: UseChatOptions): UseChatReturn {
         setIsStreaming(false)
         setStreamingContent('')
         streamingContentRef.current = ''
+        setActiveToolName(null)
       }
 
       const handleComplete = () => {
@@ -123,11 +132,13 @@ export function useChat({ sessionId, onError }: UseChatOptions): UseChatReturn {
     setIsStreaming(false)
     setStreamingContent('')
     streamingContentRef.current = ''
+    setActiveToolName(null)
   }, [])
 
   return {
     streamingContent,
     isStreaming,
+    activeToolName,
     sendMessage,
     cancelStream,
   }

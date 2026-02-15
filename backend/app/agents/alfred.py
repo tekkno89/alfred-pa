@@ -7,6 +7,8 @@ from app.agents.nodes import (
     extract_memories,
     generate_response,
     generate_response_stream,
+    generate_response_stream_with_tools,
+    generate_response_with_tools,
     handle_remember_command,
     process_message,
     retrieve_context,
@@ -16,6 +18,7 @@ from app.agents.nodes import (
 from app.agents.state import AgentState
 from app.core.llm import LLMProvider, get_llm_provider
 from app.db.repositories import MemoryRepository, MessageRepository
+from app.tools.registry import ToolRegistry, get_tool_registry
 
 
 class AlfredAgent:
@@ -34,9 +37,11 @@ class AlfredAgent:
         self,
         db: AsyncSession,
         llm_provider: LLMProvider | None = None,
+        tool_registry: ToolRegistry | None = None,
     ):
         self.db = db
         self.llm_provider = llm_provider or get_llm_provider()
+        self.tool_registry = tool_registry or get_tool_registry()
         self.message_repo = MessageRepository(db)
         self.memory_repo = MemoryRepository(db)
 
@@ -96,8 +101,13 @@ class AlfredAgent:
         # This ensures user message has earlier timestamp than assistant response
         await save_user_message(state, self.message_repo)
 
-        # Step 4: Generate response
-        state.update(await generate_response(state, self.llm_provider))
+        # Step 4: Generate response (with tools if available)
+        if self.tool_registry.has_tools():
+            state.update(await generate_response_with_tools(
+                state, self.llm_provider, self.tool_registry
+            ))
+        else:
+            state.update(await generate_response(state, self.llm_provider))
         if state.get("error"):
             raise ValueError(state["error"])
 
@@ -114,7 +124,7 @@ class AlfredAgent:
         session_id: str,
         user_id: str,
         message: str,
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """
         Run the agent with streaming response.
 
@@ -124,7 +134,7 @@ class AlfredAgent:
             message: The user's message
 
         Yields:
-            Response tokens as they are generated
+            Event dicts: {"type": "token", "content": ...} or {"type": "tool_use", "tool_name": ...}
         """
         state: AgentState = {
             "session_id": session_id,
@@ -152,7 +162,7 @@ class AlfredAgent:
                 await handle_remember_command(state, self.memory_repo)
             )
             # Yield the response and save messages
-            yield state["response"]
+            yield {"type": "token", "content": state["response"]}
             await save_user_message(state, self.message_repo)
             await save_assistant_message(state, self.message_repo)
             return
@@ -166,11 +176,19 @@ class AlfredAgent:
         # This ensures user message has earlier timestamp than assistant response
         await save_user_message(state, self.message_repo)
 
-        # Step 4: Generate streaming response
+        # Step 4: Generate streaming response (with tools if available)
         full_response: list[str] = []
-        async for token in generate_response_stream(state, self.llm_provider):
-            full_response.append(token)
-            yield token
+        if self.tool_registry.has_tools():
+            async for event in generate_response_stream_with_tools(
+                state, self.llm_provider, self.tool_registry
+            ):
+                if event["type"] == "token":
+                    full_response.append(event["content"])
+                yield event
+        else:
+            async for token in generate_response_stream(state, self.llm_provider):
+                full_response.append(token)
+                yield {"type": "token", "content": token}
 
         # Collect full response for saving
         state["response"] = "".join(full_response)

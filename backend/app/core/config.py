@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     # OpenRouter (for multi-model access)
     openrouter_api_key: str = ""
 
+    # Tavily (web search)
+    tavily_api_key: str = ""
+    web_search_max_results: int = 5
+    web_search_synthesis_model: str = "gemini-1.5-flash"
+
     # Slack
     slack_bot_token: str = ""
     slack_signing_secret: str = ""

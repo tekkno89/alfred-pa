@@ -1,20 +1,22 @@
 import { useEffect, useRef } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { MessageBubble, StreamingBubble } from './MessageBubble'
+import { ToolStatusIndicator } from './ToolStatusIndicator'
 import type { Message } from '@/types'
 
 interface MessageListProps {
   messages: Message[]
   streamingContent: string
   isStreaming: boolean
+  activeToolName?: string | null
 }
 
-export function MessageList({ messages, streamingContent, isStreaming }: MessageListProps) {
+export function MessageList({ messages, streamingContent, isStreaming, activeToolName }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, streamingContent])
+  }, [messages, streamingContent, activeToolName])
 
   if (messages.length === 0 && !isStreaming) {
     return (
@@ -33,10 +35,13 @@ export function MessageList({ messages, streamingContent, isStreaming }: Message
         {messages.map((message) => (
           <MessageBubble key={message.id} message={message} />
         ))}
+        {isStreaming && activeToolName && (
+          <ToolStatusIndicator toolName={activeToolName} />
+        )}
         {isStreaming && streamingContent && (
           <StreamingBubble content={streamingContent} />
         )}
-        {isStreaming && !streamingContent && (
+        {isStreaming && !streamingContent && !activeToolName && (
           <div className="flex gap-3 py-4">
             <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
               <div className="h-4 w-4 border-2 border-muted-foreground/50 border-t-transparent rounded-full animate-spin" />

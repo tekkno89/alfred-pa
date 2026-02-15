@@ -85,9 +85,10 @@ export interface MessageList {
 }
 
 export interface StreamEvent {
-  type: 'token' | 'done' | 'error'
+  type: 'token' | 'tool_use' | 'done' | 'error'
   content?: string
   message_id?: string
+  tool_name?: string
 }
 
 // Memories

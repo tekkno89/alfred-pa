@@ -1,13 +1,18 @@
+import logging
 import re
 from collections.abc import AsyncGenerator
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
 from app.agents.state import AgentState
 from app.core.config import get_settings
 from app.core.embeddings import get_embedding_provider
-from app.core.llm import LLMMessage, LLMProvider, get_llm_provider
+from app.core.llm import LLMMessage, LLMProvider, LLMResponse, ToolCall, get_llm_provider
 from app.db.repositories import MemoryRepository, MessageRepository
+from app.tools.registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 # Pattern for /remember command
 REMEMBER_COMMAND_PATTERN = re.compile(r"^/remember\s+(.+)$", re.IGNORECASE | re.DOTALL)
@@ -235,7 +240,15 @@ def build_prompt_messages(state: AgentState) -> list[LLMMessage]:
     messages: list[LLMMessage] = []
 
     # System prompt
+    today = datetime.now(timezone.utc).strftime("%B %d, %Y")
     system_content = SYSTEM_PROMPT
+    system_content += f"\n\nToday's date is {today}."
+    system_content += (
+        "\n\n**Tool usage:** You have access to tools like web search. "
+        "When you use a tool, review the results carefully and then respond to the user. "
+        "One search is usually sufficient — do not repeat searches with slightly different queries. "
+        "Use the results you have, even if they're imperfect."
+    )
     if state.get("memories"):
         memory_context = "\n\nRelevant context about the user:\n" + "\n".join(
             f"- {m}" for m in state["memories"]
@@ -292,6 +305,218 @@ async def generate_response_stream(
 
     async for token in provider.stream(messages):
         yield token
+
+
+MAX_TOOL_ITERATIONS = 3
+
+
+def _build_final_messages(messages: list[LLMMessage]) -> list[LLMMessage]:
+    """
+    Build clean messages for the final iteration when we need to force a text response.
+
+    The plain stream()/generate() methods can't handle tool messages (ToolMessage
+    requires tool definitions on the model). Instead, we inject tool results into
+    the system prompt and keep only regular user/assistant messages.
+    """
+    clean: list[LLMMessage] = []
+    tool_results: list[str] = []
+
+    for msg in messages:
+        if msg.role == "assistant" and msg.tool_calls:
+            # Skip assistant messages that contain tool calls
+            continue
+        elif msg.role == "tool":
+            # Collect tool results
+            tool_results.append(msg.content or "(no result)")
+        else:
+            clean.append(LLMMessage(role=msg.role, content=msg.content))
+
+    # Inject tool results into the system prompt
+    if tool_results and clean and clean[0].role == "system":
+        results_context = (
+            "\n\n**Web search results (already retrieved for this conversation):**\n\n"
+            + "\n\n---\n\n".join(tool_results)
+            + "\n\nUse these search results to answer the user's question. "
+            "Do not claim you cannot search the web — the search was already performed."
+        )
+        clean[0] = LLMMessage(
+            role="system",
+            content=(clean[0].content or "") + results_context,
+        )
+
+    return clean
+
+
+async def generate_response_with_tools(
+    state: AgentState,
+    llm_provider: LLMProvider,
+    tool_registry: ToolRegistry,
+) -> dict[str, Any]:
+    """
+    Generate a response using the ReAct loop (non-streaming).
+    The LLM can call tools, get results, and call again until it produces text.
+    """
+    if state.get("error"):
+        return {}
+
+    messages = build_prompt_messages(state)
+    tool_defs = tool_registry.get_definitions()
+
+    for iteration in range(MAX_TOOL_ITERATIONS):
+        # On the last iteration, force a text-only response (no tools)
+        is_last = iteration >= MAX_TOOL_ITERATIONS - 1
+
+        logger.info(f"ReAct iteration {iteration + 1}/{MAX_TOOL_ITERATIONS}")
+
+        try:
+            if is_last:
+                logger.info("Final iteration — calling LLM without tools to force text response")
+                # Build clean messages that don't contain tool-specific types
+                clean_messages = _build_final_messages(messages)
+                text = await llm_provider.generate(clean_messages)
+                return {"response": text}
+            else:
+                response = await llm_provider.generate_with_tools(messages, tool_defs)
+        except Exception as e:
+            logger.error(f"LLM error on iteration {iteration + 1}: {e}")
+            return {"error": f"LLM error: {str(e)}"}
+
+        if response.tool_calls:
+            logger.info(
+                f"Iteration {iteration + 1}: {len(response.tool_calls)} tool call(s): "
+                f"{[tc.name for tc in response.tool_calls]}"
+            )
+            # Append assistant message with tool calls
+            messages.append(LLMMessage(
+                role="assistant",
+                content=response.content,
+                tool_calls=response.tool_calls,
+            ))
+
+            # Execute each tool and append results
+            for tc in response.tool_calls:
+                tool = tool_registry.get(tc.name)
+                if tool:
+                    logger.info(f"Executing tool '{tc.name}' with args: {tc.arguments}")
+                    try:
+                        result = await tool.execute(**tc.arguments)
+                        logger.info(f"Tool '{tc.name}' returned {len(result)} chars")
+                    except Exception as e:
+                        logger.error(f"Tool '{tc.name}' execution error: {e}")
+                        result = f"Tool error: {str(e)}"
+                else:
+                    result = f"Unknown tool: {tc.name}"
+
+                messages.append(LLMMessage(
+                    role="tool",
+                    content=result,
+                    tool_call_id=tc.id,
+                ))
+            continue
+
+        # No tool calls — we have the final text response
+        logger.info(f"ReAct completed on iteration {iteration + 1}")
+        return {"response": response.content or ""}
+
+    # Should not reach here, but just in case
+    return {"response": "I wasn't able to complete that request."}
+
+
+async def generate_response_stream_with_tools(
+    state: AgentState,
+    llm_provider: LLMProvider,
+    tool_registry: ToolRegistry,
+) -> AsyncGenerator[dict[str, Any], None]:
+    """
+    Generate a streaming response using the ReAct loop.
+    Yields dict events: {"type": "token", "content": ...} or {"type": "tool_use", "tool_name": ...}
+    """
+    if state.get("error"):
+        return
+
+    messages = build_prompt_messages(state)
+    tool_defs = tool_registry.get_definitions()
+    any_text_yielded = False
+
+    for iteration in range(MAX_TOOL_ITERATIONS):
+        tool_calls_this_iteration: list[ToolCall] = []
+        text_this_iteration: list[str] = []
+
+        logger.info(f"ReAct stream iteration {iteration + 1}/{MAX_TOOL_ITERATIONS}")
+
+        # On the last iteration, don't offer tools — force a text response
+        if iteration >= MAX_TOOL_ITERATIONS - 1:
+            logger.info("Final iteration — streaming without tools to force text response")
+            # Build clean messages that don't contain tool-specific types
+            clean_messages = _build_final_messages(messages)
+            try:
+                async for token in llm_provider.stream(clean_messages):
+                    if token:
+                        any_text_yielded = True
+                        yield {"type": "token", "content": token}
+            except Exception as e:
+                logger.error(f"Final iteration stream error: {e}")
+                yield {"type": "token", "content": f"I ran into an issue: {str(e)}"}
+            return
+
+        try:
+            async for chunk in llm_provider.stream_with_tools(messages, tool_defs):
+                if chunk.content:
+                    text_this_iteration.append(chunk.content)
+                    any_text_yielded = True
+                    yield {"type": "token", "content": chunk.content}
+                if chunk.tool_calls:
+                    tool_calls_this_iteration.extend(chunk.tool_calls)
+        except Exception as e:
+            logger.error(f"stream_with_tools error on iteration {iteration + 1}: {e}")
+            # If we already emitted some text, just stop. Otherwise yield the error.
+            if not any_text_yielded:
+                yield {"type": "token", "content": f"I ran into an issue: {str(e)}"}
+            return
+
+        if tool_calls_this_iteration:
+            logger.info(
+                f"Iteration {iteration + 1}: {len(tool_calls_this_iteration)} tool call(s): "
+                f"{[tc.name for tc in tool_calls_this_iteration]}"
+            )
+            # Append assistant message with tool calls (include any text emitted)
+            messages.append(LLMMessage(
+                role="assistant",
+                content="".join(text_this_iteration) if text_this_iteration else None,
+                tool_calls=tool_calls_this_iteration,
+            ))
+
+            for tc in tool_calls_this_iteration:
+                # Emit tool_use event for frontend
+                yield {"type": "tool_use", "tool_name": tc.name}
+
+                tool = tool_registry.get(tc.name)
+                if tool:
+                    logger.info(f"Executing tool '{tc.name}' with args: {tc.arguments}")
+                    try:
+                        result = await tool.execute(**tc.arguments)
+                        logger.info(f"Tool '{tc.name}' returned {len(result)} chars")
+                    except Exception as e:
+                        logger.error(f"Tool '{tc.name}' execution error: {e}")
+                        result = f"Tool error: {str(e)}"
+                else:
+                    result = f"Unknown tool: {tc.name}"
+
+                messages.append(LLMMessage(
+                    role="tool",
+                    content=result,
+                    tool_call_id=tc.id,
+                ))
+            continue
+
+        # No tool calls — stream ended with text, we're done
+        logger.info(
+            f"ReAct stream completed on iteration {iteration + 1}, "
+            f"text yielded: {any_text_yielded}"
+        )
+        return
+
+    logger.warning("ReAct stream loop exhausted all iterations")
 
 
 async def save_user_message(
