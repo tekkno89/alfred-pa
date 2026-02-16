@@ -64,7 +64,7 @@ docker compose -f docker-compose.prod.yml up -d
 echo "Waiting for backend health check..."
 MAX_RETRIES=30
 RETRY=0
-until curl -sf http://localhost:3000/health > /dev/null 2>&1; do
+until docker compose -f docker-compose.prod.yml ps backend 2>/dev/null | grep -q "(healthy)"; do
     RETRY=$((RETRY + 1))
     if [[ $RETRY -ge $MAX_RETRIES ]]; then
         echo "ERROR: Backend failed to become healthy after $MAX_RETRIES attempts"

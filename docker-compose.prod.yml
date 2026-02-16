@@ -51,9 +51,7 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      - "3000:3000"
-    environment:
-      - DOMAIN=${DOMAIN}
+    env_file: .env
     volumes:
       - certbot_certs:/etc/letsencrypt:ro
       - certbot_webroot:/var/www/certbot:ro
