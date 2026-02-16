@@ -124,8 +124,10 @@ def build_prompt_messages(state: AgentState) -> list[LLMMessage]:
     system_content += (
         "\n\n**Tool usage:** You have access to tools like web search. "
         "When you use a tool, review the results carefully and then respond to the user. "
-        "One search is usually sufficient — do not repeat searches with slightly different queries. "
-        "Use the results you have, even if they're imperfect."
+        "Don't repeat the exact same query, but do refine and search again when needed — "
+        "multiple searches help for complex multi-faceted questions, when initial results "
+        "are incomplete or conflicting, or when comparing different topics. "
+        "You have up to 3 tool iterations, so be strategic with your searches."
     )
     if state.get("memories"):
         memory_context = "\n\nRelevant context about the user:\n" + "\n".join(

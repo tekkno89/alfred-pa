@@ -181,12 +181,24 @@ class TestToolRegistry:
 class TestFormatResults:
     """Tests for WebSearchTool._format_results."""
 
-    def test_format_results(self):
-        """Should format results into readable text."""
+    def test_format_results_with_metadata(self):
+        """Should format results with relevance score and published date."""
         tool = WebSearchTool()
         results = [
-            {"title": "Title 1", "url": "https://example.com/1", "content": "Content 1"},
-            {"title": "Title 2", "url": "https://example.com/2", "content": "Content 2"},
+            {
+                "title": "Title 1",
+                "url": "https://example.com/1",
+                "content": "Content 1",
+                "score": 0.95,
+                "published_date": "2025-12-01",
+            },
+            {
+                "title": "Title 2",
+                "url": "https://example.com/2",
+                "content": "Content 2",
+                "score": 0.72,
+                "published_date": "2025-11-15",
+            },
         ]
 
         formatted = tool._format_results(results)
@@ -194,3 +206,28 @@ class TestFormatResults:
         assert "[2] Title 2" in formatted
         assert "https://example.com/1" in formatted
         assert "Content 1" in formatted
+        assert "Relevance Score: 0.95" in formatted
+        assert "Relevance Score: 0.72" in formatted
+        assert "Published: 2025-12-01" in formatted
+        assert "Published: 2025-11-15" in formatted
+        assert "---" in formatted
+
+    def test_format_results_missing_metadata(self):
+        """Should handle results without score or published_date gracefully."""
+        tool = WebSearchTool()
+        results = [
+            {"title": "Title 1", "url": "https://example.com/1", "content": "Content 1"},
+            {
+                "title": "Title 2",
+                "url": "https://example.com/2",
+                "content": "Content 2",
+                "score": 0.80,
+            },
+        ]
+
+        formatted = tool._format_results(results)
+        assert "[1] Title 1" in formatted
+        assert "[2] Title 2" in formatted
+        assert "Relevance Score:" not in formatted.split("---")[0]
+        assert "Published:" not in formatted
+        assert "Relevance Score: 0.80" in formatted

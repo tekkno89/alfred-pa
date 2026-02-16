@@ -36,7 +36,8 @@ class Settings(BaseSettings):
 
     # Tavily (web search)
     tavily_api_key: str = ""
-    web_search_max_results: int = 5
+    web_search_max_results: int = 8
+    web_search_depth: str = "advanced"
     web_search_synthesis_model: str = "gemini-1.5-flash"
 
     # Slack
