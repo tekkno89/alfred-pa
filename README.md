@@ -633,4 +633,4 @@ The dev stack includes:
 
 ## License
 
-Private - All rights reserved
+AGPL-3.0 - See [LICENSE](LICENSE) for details.
