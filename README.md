@@ -399,23 +399,215 @@ npm run lint
 
 ## Production Deployment
 
-`docker-compose.prod.yml` is configured for deployment with:
+The production stack runs on a VM with Docker Compose. It uses an external PostgreSQL database (e.g., Cloud SQL), Tailscale for private access, and Let's Encrypt for SSL.
 
-- **Nginx** reverse proxy with SSL (Let's Encrypt via Certbot)
-- **Alembic** migration service runs before backend starts
-- **ARQ** background worker for scheduled tasks
-- **Tailscale** for secure network access (optional)
+### Architecture
 
-```bash
-# Set production env vars
-cp .env.example .env
-# Edit .env with production values (DATABASE_URL, DOMAIN, etc.)
-
-# Deploy
-docker-compose -f docker-compose.prod.yml up -d
+```
+         Internet
+            │
+     ┌──────┴──────┐
+     │   Port 443   │──── Slack webhooks only
+     │   (HTTPS)    │
+     │              │
+     │    Nginx     │
+     │              │
+     │   Port 3000  │──── Full app (SPA + API)
+     │  (Tailscale) │
+     └──────┬───────┘
+            │
+    ┌───────┼───────┐
+    │       │       │
+ Backend  Worker  Redis
+    │       │
+    └───┬───┘
+        │
+   Cloud SQL
+  (PostgreSQL)
 ```
 
-For Cloud SQL, set `DATABASE_URL` to your Cloud SQL instance. The production compose file does not include PostgreSQL — it expects an external database.
+- **Port 80/443 (public):** HTTPS with Let's Encrypt. Only `/api/slack/` is exposed — everything else returns 403. HTTP redirects to HTTPS.
+- **Port 3000 (Tailscale):** Full access to the SPA and all API endpoints. Only reachable from your Tailscale network.
+- **No PostgreSQL in the compose file** — uses an external database (Cloud SQL, RDS, etc.).
+
+### External Resources
+
+Before deploying, set up the following:
+
+| Resource | Purpose |
+|----------|---------|
+| **VM** (e.g., GCE, EC2) | Runs Docker Compose |
+| **PostgreSQL** (e.g., Cloud SQL) | Database with `pgvector` extension enabled |
+| **Domain + DNS** | A record pointing to the VM's public IP |
+| **GCP Secret Manager** | Stores secrets (DB password, JWT secret, API keys) |
+| **Tailscale** | Private network access to the web UI |
+| **LLM provider** | Vertex AI or OpenRouter API access |
+
+For Cloud SQL, enable the pgvector extension:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+### GCP Secret Manager
+
+`deploy/start.sh` fetches secrets from GCP Secret Manager at startup. Create these secrets in your GCP project:
+
+| Secret Name | Value |
+|-------------|-------|
+| `alfred-db-password` | PostgreSQL password |
+| `alfred-jwt-secret` | Random string for JWT signing |
+| `alfred-slack-bot-token` | Slack bot token (`xoxb-...`) |
+| `alfred-slack-signing-secret` | Slack signing secret |
+| `alfred-slack-app-token` | Slack app-level token (`xapp-...`) |
+| `alfred-slack-client-secret` | Slack client secret (for OAuth) |
+| `alfred-tailscale-authkey` | Tailscale auth key |
+| `alfred-openrouter-api-key` | OpenRouter API key (optional) |
+| `alfred-google-client-secret` | Google OAuth secret (optional) |
+
+The VM's service account needs the `Secret Manager Secret Accessor` role.
+
+### VM Setup
+
+#### 1. Install dependencies
+
+```bash
+# Docker
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+
+# gcloud CLI (for Secret Manager access)
+# https://cloud.google.com/sdk/docs/install
+```
+
+#### 2. Clone the repo
+
+```bash
+sudo git clone <repo-url> /opt/alfred
+cd /opt/alfred
+```
+
+#### 3. Create the `.env` file
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and fill in the non-secret configuration:
+
+```bash
+# LLM
+DEFAULT_LLM=gemini-1.5-pro
+VERTEX_PROJECT_ID=your-gcp-project
+VERTEX_LOCATION=us-east5
+
+# Networking
+DOMAIN=yourdomain.com
+FRONTEND_URL=https://yourdomain.com:3000
+CORS_ORIGINS=http://localhost:3000
+
+# Database connection details (password is fetched from Secret Manager)
+DB_HOST=10.x.x.x       # Cloud SQL private IP
+DB_PORT=5432
+DB_NAME=alfred
+DB_USER=alfred
+
+# GCP project for Secret Manager
+GCP_PROJECT_ID=your-gcp-project
+
+# Auth
+JWT_ALGORITHM=HS256
+JWT_EXPIRATION_MINUTES=30
+
+# Slack
+SLACK_BOT_TOKEN=placeholder   # overwritten by start.sh
+SLACK_SIGNING_SECRET=placeholder
+SLACK_APP_TOKEN=placeholder
+SLACK_CLIENT_ID=your-slack-client-id
+SLACK_OAUTH_REDIRECT_URI=https://yourdomain.com/api/auth/slack/oauth/callback
+```
+
+You don't need to fill in secrets (`JWT_SECRET`, `DATABASE_URL`, `SLACK_*_SECRET`, etc.) — `start.sh` fetches those from GCP Secret Manager and injects them automatically.
+
+#### 4. SSL certificate
+
+Get a Let's Encrypt certificate by running the init script. This starts the nginx container on port 80, runs the ACME challenge inside the Certbot container, and stores the certificate in a Docker volume:
+
+```bash
+sudo /opt/alfred/deploy/init-ssl.sh
+```
+
+Nothing needs to be installed on the VM — Certbot runs as a container. After initial setup, the `certbot` container in the compose file handles automatic renewal every 12 hours.
+
+#### 5. Start Alfred
+
+```bash
+sudo /opt/alfred/deploy/start.sh
+```
+
+This script:
+1. Reads non-secret config from `.env`
+2. Fetches secrets from GCP Secret Manager
+3. Injects secrets into `.env` (between `# --- INJECTED SECRETS ---` markers)
+4. Runs `docker compose up -d`
+5. Waits for the backend health check to pass
+
+#### 6. Set up the systemd service (optional)
+
+To start Alfred automatically on boot:
+
+```bash
+sudo cp /opt/alfred/deploy/alfred.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable alfred
+```
+
+Then manage with:
+
+```bash
+sudo systemctl start alfred
+sudo systemctl stop alfred
+sudo systemctl restart alfred
+sudo systemctl status alfred
+journalctl -u alfred -f        # View logs
+```
+
+### Deploy Scripts Reference
+
+| File | Purpose |
+|------|---------|
+| `deploy/start.sh` | Main startup script. Fetches secrets, writes `.env`, starts all services, waits for health check. |
+| `deploy/init-ssl.sh` | One-time SSL setup. Starts nginx and runs the Certbot ACME challenge in a container to get a Let's Encrypt certificate. |
+| `deploy/alfred.service` | Systemd unit file. Starts Alfred on boot via `start.sh`, stops via `docker compose down`. |
+| `docker-compose.prod.yml` | Production compose file. Defines backend, worker, frontend (nginx), redis, certbot, and tailscale services. |
+| `frontend/Dockerfile.prod` | Multi-stage build: `npm run build` then serve with nginx. Uses `envsubst` to template the domain into the nginx config. |
+| `frontend/nginx.prod.conf` | Nginx config template. Three server blocks: HTTP redirect (80), HTTPS for Slack (443), Tailscale full app (3000). |
+
+### Updating
+
+```bash
+cd /opt/alfred
+sudo git pull
+sudo docker compose -f docker-compose.prod.yml up -d --build
+```
+
+Or with the systemd service:
+
+```bash
+cd /opt/alfred
+sudo git pull
+sudo systemctl restart alfred
+```
+
+### Applying `.env` changes
+
+Docker Compose only reads `env_file` when containers are created. To pick up `.env` changes:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --force-recreate backend worker
+```
+
+`docker compose restart` won't work — it reuses the existing container's environment.
 
 ## API Endpoints
 
