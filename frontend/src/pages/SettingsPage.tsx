@@ -86,12 +86,12 @@ export function SettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button variant="outline" asChild>
-                <RouterLink to="/settings/focus">
+              <RouterLink to="/settings/focus">
+                <Button variant="outline">
                   <Settings className="h-4 w-4 mr-2" />
                   Configure Focus Mode
-                </RouterLink>
-              </Button>
+                </Button>
+              </RouterLink>
             </CardContent>
           </Card>
         )}
@@ -208,12 +208,12 @@ export function SettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button variant="outline" asChild>
-              <RouterLink to="/settings/webhooks">
+            <RouterLink to="/settings/webhooks">
+              <Button variant="outline">
                 <Settings className="h-4 w-4 mr-2" />
                 Manage Webhooks
-              </RouterLink>
-            </Button>
+              </Button>
+            </RouterLink>
           </CardContent>
         </Card>
       </div>

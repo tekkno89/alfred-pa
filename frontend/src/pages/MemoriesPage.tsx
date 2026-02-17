@@ -1,5 +1,11 @@
 import { useState } from 'react'
-import { Select } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { MemoryList } from '@/components/memories/MemoryList'
 import { MemoryForm } from '@/components/memories/MemoryForm'
@@ -7,11 +13,11 @@ import { useMemories } from '@/hooks/useMemories'
 import type { MemoryType } from '@/types'
 
 export function MemoriesPage() {
-  const [typeFilter, setTypeFilter] = useState<MemoryType | ''>('')
+  const [typeFilter, setTypeFilter] = useState<MemoryType | 'all'>('all')
   const { data, isLoading } = useMemories(
     1,
     50,
-    typeFilter || undefined
+    typeFilter === 'all' ? undefined : typeFilter
   )
 
   return (
@@ -35,15 +41,16 @@ export function MemoriesPage() {
 
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Your Memories</h2>
-          <Select
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value as MemoryType | '')}
-            className="w-40"
-          >
-            <option value="">All types</option>
-            <option value="preference">Preference</option>
-            <option value="knowledge">Knowledge</option>
-            <option value="summary">Summary</option>
+          <Select value={typeFilter} onValueChange={(value) => setTypeFilter(value as MemoryType | 'all')}>
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="All types" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All types</SelectItem>
+              <SelectItem value="preference">Preference</SelectItem>
+              <SelectItem value="knowledge">Knowledge</SelectItem>
+              <SelectItem value="summary">Summary</SelectItem>
+            </SelectContent>
           </Select>
         </div>
 

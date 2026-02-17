@@ -1,7 +1,13 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Select } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { useCreateMemory } from '@/hooks/useMemories'
 import type { MemoryType } from '@/types'
@@ -28,14 +34,15 @@ export function MemoryForm({ onSuccess }: MemoryFormProps) {
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="type">Type</Label>
-        <Select
-          id="type"
-          value={type}
-          onChange={(e) => setType(e.target.value as MemoryType)}
-        >
-          <option value="preference">Preference</option>
-          <option value="knowledge">Knowledge</option>
-          <option value="summary">Summary</option>
+        <Select value={type} onValueChange={(value) => setType(value as MemoryType)}>
+          <SelectTrigger id="type">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="preference">Preference</SelectItem>
+            <SelectItem value="knowledge">Knowledge</SelectItem>
+            <SelectItem value="summary">Summary</SelectItem>
+          </SelectContent>
         </Select>
       </div>
       <div className="space-y-2">

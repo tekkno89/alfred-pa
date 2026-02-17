@@ -16,7 +16,7 @@ export function FocusToggle({ size = 'default', showLabel = true }: FocusToggleP
   const { data: status, isLoading } = useFocusStatus()
   const enableMutation = useEnableFocus()
   const disableMutation = useDisableFocus()
-  const [durationMinutes, setDurationMinutes] = useState<number | undefined>()
+  const [durationMinutes] = useState<number | undefined>()
 
   const isActive = status?.is_active ?? false
   const isPending = enableMutation.isPending || disableMutation.isPending

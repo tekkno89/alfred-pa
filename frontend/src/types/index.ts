@@ -230,6 +230,12 @@ export interface WebhookListResponse {
   webhooks: WebhookResponse[]
 }
 
+export interface WebhookTestResponse {
+  success: boolean
+  status_code?: number | null
+  error?: string | null
+}
+
 // Slack OAuth
 export interface SlackOAuthStatusResponse {
   connected: boolean

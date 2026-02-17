@@ -199,13 +199,13 @@ export function FocusPage() {
                         Focus Mode Active
                       </span>
                     </div>
-                    {status.time_remaining_seconds && (
+                    {status?.time_remaining_seconds && (
                       <div className="text-sm text-red-600 dark:text-red-400 mt-1 flex items-center gap-1">
                         <Clock className="h-3 w-3" />
                         {formatTimeRemaining(status.time_remaining_seconds)}
                       </div>
                     )}
-                    {status.custom_message && (
+                    {status?.custom_message && (
                       <div className="text-sm text-muted-foreground mt-2 italic">
                         "{status.custom_message}"
                       </div>
