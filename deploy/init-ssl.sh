@@ -28,7 +28,6 @@ cat > "$SCRIPT_DIR/cloudflare.ini" <<EOF
 dns_cloudflare_api_token = ${CF_TOKEN}
 EOF
 chmod 600 "$SCRIPT_DIR/cloudflare.ini"
-
 EMAIL=$(grep -E '^CERTBOT_EMAIL=' "$ENV_FILE" | cut -d= -f2- 2>/dev/null || echo "admin@${APP_DOMAIN}")
 
 echo "=== SSL Certificate Setup (Cloudflare DNS-01) ==="
@@ -39,7 +38,7 @@ cd "$PROJECT_DIR"
 
 # Request a single certificate covering both subdomains via DNS-01 challenge
 echo "Requesting certificate from Let's Encrypt..."
-docker compose -f docker-compose.prod.yml run --rm certbot \
+docker compose -f docker-compose.prod.yml run --rm --entrypoint certbot certbot \
     certonly \
     --dns-cloudflare \
     --dns-cloudflare-credentials /etc/cloudflare.ini \
