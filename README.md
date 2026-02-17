@@ -407,13 +407,11 @@ The production stack runs on a VM with Docker Compose. It uses an external Postg
          Internet
             │
      ┌──────┴──────┐
-     │   Port 443   │──── Slack webhooks only
-     │   (HTTPS)    │
+     │  Port 443    │
+     │  (HTTPS)     │
      │              │
      │    Nginx     │
      │              │
-     │   Port 3000  │──── Full app (SPA + API)
-     │  (Tailscale) │
      └──────┬───────┘
             │
     ┌───────┼───────┐
@@ -426,9 +424,12 @@ The production stack runs on a VM with Docker Compose. It uses an external Postg
   (PostgreSQL)
 ```
 
-- **Port 80/443 (public):** HTTPS with Let's Encrypt. Only `/api/slack/` is exposed — everything else returns 403. HTTP redirects to HTTPS.
-- **Port 3000 (Tailscale):** Full access to the SPA and all API endpoints. Only reachable from your Tailscale network.
+Two subdomains, both on port 443:
+
+- **`alfred-slack.yourdomain.com`** → VM's public IP. Only `/api/slack/` is exposed — everything else returns 403.
+- **`alfred.yourdomain.com`** → VM's Tailscale IP. Full access to the SPA and all API endpoints. Only reachable from your Tailscale network.
 - **No PostgreSQL in the compose file** — uses an external database (Cloud SQL, RDS, etc.).
+- **SSL** via Let's Encrypt with Cloudflare DNS-01 challenge (no port 80 needed for verification).
 
 ### External Resources
 
@@ -436,14 +437,52 @@ Before deploying, set up the following:
 
 | Resource | Purpose |
 |----------|---------|
-| **VM** (e.g., GCE, EC2) | Runs Docker Compose |
+| **VM** (e.g., GCE) | Runs Docker Compose |
 | **PostgreSQL** (e.g., Cloud SQL) | Database with `pgvector` extension enabled |
-| **Domain + DNS** | A record pointing to the VM's public IP |
+| **Cloudflare** | DNS + SSL certificate verification (DNS-01 challenge) |
 | **GCP Secret Manager** | Stores secrets (DB password, JWT secret, API keys) |
 | **Tailscale** | Private network access to the web UI |
 | **LLM provider** | Vertex AI or OpenRouter API access |
 
-For Cloud SQL, enable the pgvector extension:
+### GCP Setup
+
+#### Service Account Roles
+
+The VM's service account needs:
+
+| Role | Purpose |
+|------|---------|
+| `Vertex AI User` | LLM inference (Gemini + Claude via Model Garden) |
+| `Secret Manager Secret Accessor` | Fetching secrets at startup |
+
+#### Firewall Rules
+
+| Rule | Direction | Protocol/Port | Source | Purpose |
+|------|-----------|---------------|--------|---------|
+| `allow-http` | Ingress | TCP 80 | `0.0.0.0/0` | HTTP → HTTPS redirect |
+| `allow-https` | Ingress | TCP 443 | `0.0.0.0/0` | Slack webhooks |
+| `allow-tailscale` | Ingress | UDP 41641 | `0.0.0.0/0` | Tailscale direct connections (optional — works without via relay, but slower) |
+
+SSH is handled by GCP's default `default-allow-ssh` rule, or use IAP tunneling (`gcloud compute ssh`).
+
+Cloud SQL with private IP (`DB_HOST=10.x.x.x`) uses VPC peering — no firewall rule needed, just ensure the VM is in the same VPC.
+
+```bash
+gcloud compute firewall-rules create alfred-allow-http \
+  --allow tcp:80 --source-ranges 0.0.0.0/0 --target-tags alfred
+
+gcloud compute firewall-rules create alfred-allow-https \
+  --allow tcp:443 --source-ranges 0.0.0.0/0 --target-tags alfred
+
+gcloud compute firewall-rules create alfred-allow-tailscale \
+  --allow udp:41641 --source-ranges 0.0.0.0/0 --target-tags alfred
+```
+
+Tag your VM with `alfred` to apply these rules.
+
+#### Cloud SQL
+
+Enable the pgvector extension:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -451,12 +490,13 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 ### GCP Secret Manager
 
-`deploy/start.sh` fetches secrets from GCP Secret Manager at startup. Create these secrets in your GCP project:
+`deploy/start.sh` fetches secrets at startup. Create these secrets in your GCP project:
 
 | Secret Name | Value |
 |-------------|-------|
 | `alfred-db-password` | PostgreSQL password |
-| `alfred-jwt-secret` | Random string for JWT signing |
+| `alfred-jwt-secret` | Random string for JWT signing (`openssl rand -base64 32`) |
+| `alfred-cloudflare-api-token` | Cloudflare API token (DNS edit permission) |
 | `alfred-slack-bot-token` | Slack bot token (`xoxb-...`) |
 | `alfred-slack-signing-secret` | Slack signing secret |
 | `alfred-slack-app-token` | Slack app-level token (`xapp-...`) |
@@ -465,7 +505,38 @@ CREATE EXTENSION IF NOT EXISTS vector;
 | `alfred-openrouter-api-key` | OpenRouter API key (optional) |
 | `alfred-google-client-secret` | Google OAuth secret (optional) |
 
-The VM's service account needs the `Secret Manager Secret Accessor` role.
+### DNS (Cloudflare)
+
+Create two A records:
+
+| Name | Type | Value |
+|------|------|-------|
+| `alfred-slack` | A | VM's public IP |
+| `alfred` | A | VM's Tailscale IP |
+
+The Tailscale IP is visible in the [Tailscale admin console](https://login.tailscale.com/admin/machines) after the container first starts.
+
+#### Cloudflare API Token
+
+Needed for SSL certificate issuance via DNS-01 challenge. Create at [Cloudflare Dashboard > My Profile > API Tokens](https://dash.cloudflare.com/profile/api-tokens):
+
+1. Click **Create Token**
+2. Use the **Edit zone DNS** template, or create a custom token with `Zone > DNS > Edit` permission
+3. Restrict to your domain's zone
+4. Store in GCP Secret Manager as `alfred-cloudflare-api-token`
+
+### Tailscale
+
+Tailscale provides private network access so the web UI is never exposed to the public internet.
+
+1. Create an account at [login.tailscale.com](https://login.tailscale.com)
+2. Install Tailscale on your devices (laptop, phone, etc.)
+3. Generate an auth key at [Settings > Keys](https://login.tailscale.com/admin/settings/keys):
+   - **Reusable**: Yes (survives container restarts)
+   - **Ephemeral**: No (node should persist)
+4. Store in GCP Secret Manager as `alfred-tailscale-authkey`
+
+The `tailscale` service in `docker-compose.prod.yml` runs with `network_mode: host`, so the VM gets a Tailscale IP directly. No further configuration needed.
 
 ### VM Setup
 
@@ -493,7 +564,7 @@ cd /opt/alfred
 cp .env.example .env
 ```
 
-Edit `.env` and fill in the non-secret configuration:
+Edit `.env` with your non-secret configuration:
 
 ```bash
 # LLM
@@ -501,18 +572,19 @@ DEFAULT_LLM=gemini-1.5-pro
 VERTEX_PROJECT_ID=your-gcp-project
 VERTEX_LOCATION=us-east5
 
-# Networking
-DOMAIN=yourdomain.com
-FRONTEND_URL=https://yourdomain.com:3000
-CORS_ORIGINS=http://localhost:3000
+# Domains
+APP_DOMAIN=alfred.yourdomain.com
+SLACK_DOMAIN=alfred-slack.yourdomain.com
+FRONTEND_URL=https://alfred.yourdomain.com
+CORS_ORIGINS=https://alfred.yourdomain.com
 
-# Database connection details (password is fetched from Secret Manager)
+# Database connection (password fetched from Secret Manager)
 DB_HOST=10.x.x.x       # Cloud SQL private IP
 DB_PORT=5432
 DB_NAME=alfred
 DB_USER=alfred
 
-# GCP project for Secret Manager
+# GCP
 GCP_PROJECT_ID=your-gcp-project
 
 # Auth
@@ -520,24 +592,21 @@ JWT_ALGORITHM=HS256
 JWT_EXPIRATION_MINUTES=30
 
 # Slack
-SLACK_BOT_TOKEN=placeholder   # overwritten by start.sh
-SLACK_SIGNING_SECRET=placeholder
-SLACK_APP_TOKEN=placeholder
 SLACK_CLIENT_ID=your-slack-client-id
-SLACK_OAUTH_REDIRECT_URI=https://yourdomain.com/api/auth/slack/oauth/callback
+SLACK_OAUTH_REDIRECT_URI=https://alfred-slack.yourdomain.com/api/auth/slack/oauth/callback
 ```
 
-You don't need to fill in secrets (`JWT_SECRET`, `DATABASE_URL`, `SLACK_*_SECRET`, etc.) — `start.sh` fetches those from GCP Secret Manager and injects them automatically.
+Secrets (`JWT_SECRET`, `DATABASE_URL`, Slack tokens, etc.) are fetched from GCP Secret Manager by `start.sh` — don't add them to `.env` manually.
 
 #### 4. SSL certificate
 
-Get a Let's Encrypt certificate by running the init script. This starts the nginx container on port 80, runs the ACME challenge inside the Certbot container, and stores the certificate in a Docker volume:
+Get a Let's Encrypt certificate for both subdomains. The init script runs Certbot inside a container using Cloudflare DNS-01 challenge — no port 80 access or public DNS resolution needed:
 
 ```bash
 sudo /opt/alfred/deploy/init-ssl.sh
 ```
 
-Nothing needs to be installed on the VM — Certbot runs as a container. After initial setup, the `certbot` container in the compose file handles automatic renewal every 12 hours.
+The `certbot` container in the compose file handles automatic renewal every 12 hours.
 
 #### 5. Start Alfred
 
@@ -549,8 +618,9 @@ This script:
 1. Reads non-secret config from `.env`
 2. Fetches secrets from GCP Secret Manager
 3. Injects secrets into `.env` (between `# --- INJECTED SECRETS ---` markers)
-4. Runs `docker compose up -d`
-5. Waits for the backend health check to pass
+4. Writes `deploy/cloudflare.ini` for certbot renewals
+5. Runs `docker compose up -d`
+6. Waits for the backend health check to pass
 
 #### 6. Set up the systemd service (optional)
 
@@ -576,12 +646,12 @@ journalctl -u alfred -f        # View logs
 
 | File | Purpose |
 |------|---------|
-| `deploy/start.sh` | Main startup script. Fetches secrets, writes `.env`, starts all services, waits for health check. |
-| `deploy/init-ssl.sh` | One-time SSL setup. Starts nginx and runs the Certbot ACME challenge in a container to get a Let's Encrypt certificate. |
+| `deploy/start.sh` | Main startup script. Fetches secrets, writes `.env` and `cloudflare.ini`, starts all services, waits for health check. |
+| `deploy/init-ssl.sh` | One-time SSL setup. Runs Certbot DNS-01 challenge via Cloudflare to get a Let's Encrypt certificate for both subdomains. |
 | `deploy/alfred.service` | Systemd unit file. Starts Alfred on boot via `start.sh`, stops via `docker compose down`. |
-| `docker-compose.prod.yml` | Production compose file. Defines backend, worker, frontend (nginx), redis, certbot, and tailscale services. |
-| `frontend/Dockerfile.prod` | Multi-stage build: `npm run build` then serve with nginx. Uses `envsubst` to template the domain into the nginx config. |
-| `frontend/nginx.prod.conf` | Nginx config template. Three server blocks: HTTP redirect (80), HTTPS for Slack (443), Tailscale full app (3000). |
+| `docker-compose.prod.yml` | Production compose file. Defines backend, worker, frontend (nginx), redis, certbot (dns-cloudflare), and tailscale services. |
+| `frontend/Dockerfile.prod` | Multi-stage build: `npm run build` then serve with nginx. Uses `envsubst` to template domain variables into the nginx config. |
+| `frontend/nginx.prod.conf` | Nginx config template. Three server blocks: HTTP redirect (80), app domain with full access (443), Slack domain with restricted access (443). |
 
 ### Updating
 
