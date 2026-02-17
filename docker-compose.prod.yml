@@ -54,7 +54,6 @@ services:
     env_file: .env
     volumes:
       - certbot_certs:/etc/letsencrypt:ro
-      - certbot_webroot:/var/www/certbot:ro
     depends_on:
       backend:
         condition: service_healthy
@@ -72,11 +71,11 @@ services:
       - alfred-network
 
   certbot:
-    image: certbot/certbot
+    image: certbot/dns-cloudflare
     volumes:
       - certbot_certs:/etc/letsencrypt
-      - certbot_webroot:/var/www/certbot
-    entrypoint: /bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done'
+      - ./deploy/cloudflare.ini:/etc/cloudflare.ini:ro
+    entrypoint: /bin/sh -c 'trap exit TERM; while :; do certbot renew --dns-cloudflare --dns-cloudflare-credentials /etc/cloudflare.ini --quiet; sleep 12h & wait $${!}; done'
     restart: unless-stopped
 
   tailscale:
@@ -102,5 +101,4 @@ networks:
 volumes:
   redis_data:
   certbot_certs:
-  certbot_webroot:
   tailscale_state:

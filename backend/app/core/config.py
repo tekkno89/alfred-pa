@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
@@ -18,7 +19,14 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
 
     # JWT Authentication
-    jwt_secret: str = "change-me-in-production"
+    jwt_secret: str
+
+    @field_validator("jwt_secret")
+    @classmethod
+    def jwt_secret_must_be_set(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("JWT_SECRET must be set in environment or .env file")
+        return v
     jwt_algorithm: str = "HS256"
     jwt_expiration_minutes: int = 30
 

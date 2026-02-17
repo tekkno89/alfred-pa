@@ -57,6 +57,13 @@ TS_AUTHKEY=$(fetch_secret alfred-tailscale-authkey)
 # --- END SECRETS ---
 EOF
 
+# Write Cloudflare credentials for certbot DNS-01 challenge
+CF_TOKEN="$(fetch_secret alfred-cloudflare-api-token)"
+cat > "$SCRIPT_DIR/cloudflare.ini" <<EOF
+dns_cloudflare_api_token = ${CF_TOKEN}
+EOF
+chmod 600 "$SCRIPT_DIR/cloudflare.ini"
+
 echo "Starting services..."
 cd "$PROJECT_DIR"
 docker compose -f docker-compose.prod.yml up -d

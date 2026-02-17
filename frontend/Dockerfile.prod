@@ -24,9 +24,6 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # Copy nginx config template
 COPY nginx.prod.conf /etc/nginx/nginx.prod.conf.template
 
-# Create certbot webroot directory
-RUN mkdir -p /var/www/certbot
-
 EXPOSE 80 443
 
 # Substitute domain variables (preserving nginx variables like $uri, $host, etc.)

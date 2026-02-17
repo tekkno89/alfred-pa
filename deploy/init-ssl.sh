@@ -14,36 +14,32 @@ if [[ -z "$APP_DOMAIN" || -z "$SLACK_DOMAIN" ]]; then
     exit 1
 fi
 
+if [[ ! -f "$SCRIPT_DIR/cloudflare.ini" ]]; then
+    echo "ERROR: deploy/cloudflare.ini not found."
+    echo "Create it with: echo 'dns_cloudflare_api_token = YOUR_TOKEN' > deploy/cloudflare.ini"
+    exit 1
+fi
+
 EMAIL=$(grep -E '^CERTBOT_EMAIL=' "$ENV_FILE" | cut -d= -f2- 2>/dev/null || echo "admin@${APP_DOMAIN}")
 
-echo "=== SSL Certificate Setup ==="
-echo "  App domain:   ${APP_DOMAIN}"
+echo "=== SSL Certificate Setup (Cloudflare DNS-01) ==="
+echo "  App domain:    ${APP_DOMAIN}"
 echo "  Slack domain:  ${SLACK_DOMAIN}"
 
 cd "$PROJECT_DIR"
 
-# Start only the frontend on port 80 for ACME challenge
-echo "Starting frontend for ACME challenge..."
-docker compose -f docker-compose.prod.yml up -d frontend
-
-echo "Waiting for port 80 to be ready..."
-sleep 5
-
-# Request a single certificate covering both subdomains
+# Request a single certificate covering both subdomains via DNS-01 challenge
 echo "Requesting certificate from Let's Encrypt..."
 docker compose -f docker-compose.prod.yml run --rm certbot \
     certonly \
-    --webroot \
-    -w /var/www/certbot \
+    --dns-cloudflare \
+    --dns-cloudflare-credentials /etc/cloudflare.ini \
     -d "$APP_DOMAIN" \
     -d "$SLACK_DOMAIN" \
     --email "$EMAIL" \
     --agree-tos \
     --no-eff-email \
     --force-renewal
-
-echo "Restarting frontend to load SSL certificate..."
-docker compose -f docker-compose.prod.yml restart frontend
 
 echo "=== SSL setup complete ==="
 echo "Certificate installed for ${APP_DOMAIN} and ${SLACK_DOMAIN}"

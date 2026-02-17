@@ -56,6 +56,10 @@ secrets.yaml
 secrets.yml
 .secrets/
 
+# Cloudflare
+cloudflare.ini
+deploy/cloudflare.ini
+
 # GCP / Google Cloud
 gcp-credentials.json
 google-credentials.json
