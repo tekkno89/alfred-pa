@@ -9,16 +9,25 @@ ENV_FILE="$PROJECT_DIR/.env"
 APP_DOMAIN=$(grep -E '^APP_DOMAIN=' "$ENV_FILE" | cut -d= -f2-)
 SLACK_DOMAIN=$(grep -E '^SLACK_DOMAIN=' "$ENV_FILE" | cut -d= -f2-)
 
+GCP_PROJECT=$(grep -E '^GCP_PROJECT_ID=' "$ENV_FILE" | cut -d= -f2-)
+
 if [[ -z "$APP_DOMAIN" || -z "$SLACK_DOMAIN" ]]; then
     echo "ERROR: APP_DOMAIN and SLACK_DOMAIN must be set in .env"
     exit 1
 fi
 
-if [[ ! -f "$SCRIPT_DIR/cloudflare.ini" ]]; then
-    echo "ERROR: deploy/cloudflare.ini not found."
-    echo "Create it with: echo 'dns_cloudflare_api_token = YOUR_TOKEN' > deploy/cloudflare.ini"
+if [[ -z "$GCP_PROJECT" ]]; then
+    echo "ERROR: GCP_PROJECT_ID must be set in .env"
     exit 1
 fi
+
+# Fetch Cloudflare token from GCP Secret Manager
+echo "Fetching Cloudflare API token from GCP Secret Manager..."
+CF_TOKEN=$(gcloud secrets versions access latest --secret="alfred-cloudflare-api-token" --project="$GCP_PROJECT")
+cat > "$SCRIPT_DIR/cloudflare.ini" <<EOF
+dns_cloudflare_api_token = ${CF_TOKEN}
+EOF
+chmod 600 "$SCRIPT_DIR/cloudflare.ini"
 
 EMAIL=$(grep -E '^CERTBOT_EMAIL=' "$ENV_FILE" | cut -d= -f2- 2>/dev/null || echo "admin@${APP_DOMAIN}")
 
