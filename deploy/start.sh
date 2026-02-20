@@ -64,8 +64,11 @@ dns_cloudflare_api_token = ${CF_TOKEN}
 EOF
 chmod 600 "$SCRIPT_DIR/cloudflare.ini"
 
-echo "Starting services..."
+echo "Building images..."
 cd "$PROJECT_DIR"
+docker compose -f docker-compose.prod.yml build
+
+echo "Starting services..."
 docker compose -f docker-compose.prod.yml up -d
 
 echo "Waiting for backend health check..."

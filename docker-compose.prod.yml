@@ -1,8 +1,6 @@
 services:
   migrate:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: alfred-backend
     command: alembic upgrade head
     env_file: .env
     restart: "no"
@@ -13,6 +11,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    image: alfred-backend
     env_file: .env
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -30,9 +29,7 @@ services:
       - alfred-network
 
   worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: alfred-backend
     command: arq app.worker.WorkerSettings
     env_file: .env
     depends_on:
