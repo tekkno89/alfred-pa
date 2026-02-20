@@ -242,10 +242,27 @@ async def handle_message_event(
             # we don't need to do anything else (it's their normal DM)
             return
 
-        # User-token event where the sender IS the authorized user —
-        # this is the user's own outgoing DM to someone else. Ignore it.
+        # User-token event where the sender IS the authorized user.
+        # This could be: (a) user DMing the bot, or (b) user DMing another person.
+        # Only ignore if the DM is NOT with the bot.
         if not is_bot_authorization:
-            return
+            if channel_id.startswith("D"):
+                bot_user_id = await slack_service.get_bot_user_id()
+                if bot_user_id:
+                    try:
+                        conv = await slack_service.client.conversations_info(channel=channel_id)
+                        dm_partner = conv.data.get("channel", {}).get("user")
+                        if dm_partner != bot_user_id:
+                            # DM with another user, not the bot — ignore
+                            return
+                        # DM with the bot — fall through to process
+                        logger.info(f"User-token DM with bot detected, processing message")
+                    except Exception as e:
+                        logger.warning(f"Could not check DM channel info: {e}")
+                        # If we can't determine, let it through
+            else:
+                # Non-DM channel message from the authorized user — ignore
+                return
 
     # Check if any mentioned users are linked and in focus mode
     # This handles the case where someone mentions a user who is focusing

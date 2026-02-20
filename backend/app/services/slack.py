@@ -22,6 +22,17 @@ class SlackService:
         settings = get_settings()
         self.client = AsyncWebClient(token=settings.slack_bot_token)
         self.signing_secret = settings.slack_signing_secret
+        self._bot_user_id: str | None = None
+
+    async def get_bot_user_id(self) -> str | None:
+        """Get the bot's Slack user ID (cached after first call)."""
+        if self._bot_user_id is None:
+            try:
+                response = await self.client.auth_test()
+                self._bot_user_id = response.data.get("user_id")
+            except SlackApiError as e:
+                logger.error(f"Error getting bot user ID: {e.response['error']}")
+        return self._bot_user_id
 
     async def verify_signature(
         self,
