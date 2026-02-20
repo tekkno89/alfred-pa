@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -10,6 +11,19 @@ from app.api import router as api_router
 
 
 settings = get_settings()
+
+
+class _SuppressPollingFilter(logging.Filter):
+    """Filter out noisy polling endpoint access logs."""
+
+    _SUPPRESSED = ("/health", "/api/focus/status")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(path in msg for path in self._SUPPRESSED)
+
+
+logging.getLogger("uvicorn.access").addFilter(_SuppressPollingFilter())
 
 
 @asynccontextmanager
