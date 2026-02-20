@@ -22,17 +22,28 @@ class SlackService:
         settings = get_settings()
         self.client = AsyncWebClient(token=settings.slack_bot_token)
         self.signing_secret = settings.slack_signing_secret
-        self._bot_user_id: str | None = None
+        # Cache: slack_user_id -> bot DM channel ID
+        self._bot_dm_channels: dict[str, str] = {}
 
-    async def get_bot_user_id(self) -> str | None:
-        """Get the bot's Slack user ID (cached after first call)."""
-        if self._bot_user_id is None:
-            try:
-                response = await self.client.auth_test()
-                self._bot_user_id = response.data.get("user_id")
-            except SlackApiError as e:
-                logger.error(f"Error getting bot user ID: {e.response['error']}")
-        return self._bot_user_id
+    async def get_bot_dm_channel(self, slack_user_id: str) -> str | None:
+        """
+        Get the DM channel ID between the bot and a Slack user (cached).
+
+        Uses conversations.open which is idempotent — it returns the existing
+        DM channel without creating a new one or sending any message.
+        """
+        if slack_user_id in self._bot_dm_channels:
+            return self._bot_dm_channels[slack_user_id]
+
+        try:
+            response = await self.client.conversations_open(users=slack_user_id)
+            channel_id = response.data.get("channel", {}).get("id")
+            if channel_id:
+                self._bot_dm_channels[slack_user_id] = channel_id
+            return channel_id
+        except SlackApiError as e:
+            logger.error(f"Error opening DM channel for {slack_user_id}: {e.response['error']}")
+            return None
 
     async def verify_signature(
         self,

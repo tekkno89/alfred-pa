@@ -192,87 +192,66 @@ async def handle_message_event(
     session_repo = SessionRepository(db)
     focus_service = FocusModeService(db)
 
-    # Check if this is a user-context event (event on behalf of a user)
-    # For message.im events, this means someone DMed the authorized user
-    if authorizations and len(authorizations) > 0:
-        auth_entry = authorizations[0]
-        authorized_user_slack_id = auth_entry.get("user_id")
-        is_bot_authorization = auth_entry.get("is_bot", False)
+    # --- Step 1: Check if this is a DM to the Alfred bot ---
+    # Look up sender to see if they're a linked Alfred user, and if so,
+    # check whether this channel is their bot DM channel (cached).
+    is_bot_dm = False
+    if channel_id.startswith("D"):
+        sender_user = await user_repo.get_by_slack_id(sender_slack_id)
+        if sender_user:
+            bot_dm_channel = await slack_service.get_bot_dm_channel(sender_slack_id)
+            if bot_dm_channel and channel_id == bot_dm_channel:
+                is_bot_dm = True
 
-        # Only process as user-context if the authorized user is a real user
-        # (not the bot itself) and is different from the sender
-        if (
-            authorized_user_slack_id
-            and not is_bot_authorization
-            and authorized_user_slack_id != sender_slack_id
-        ):
-            logger.info(
-                f"User-context event: {sender_slack_id} -> {authorized_user_slack_id}"
-            )
+    if is_bot_dm:
+        # This is a message to Alfred — skip filtering and fall through to the
+        # Alfred agent processing at the bottom of this function (line ~296+).
+        logger.info(f"Bot DM from {sender_slack_id} in channel {channel_id}")
+    else:
+        # --- Step 2: Check focus mode for all authorized recipients ---
+        # Iterate all authorizations to find non-sender users who may have
+        # focus mode enabled (handles multi-user case where both parties
+        # are Alfred users).
+        if authorizations:
+            for auth_entry in authorizations:
+                auth_user_id = auth_entry.get("user_id")
+                is_bot_auth = auth_entry.get("is_bot", False)
 
-            # Look up the authorized user (recipient of the DM)
-            recipient_user = await user_repo.get_by_slack_id(authorized_user_slack_id)
+                # Skip bot authorizations and the sender's own authorization
+                if is_bot_auth or auth_user_id == sender_slack_id:
+                    continue
 
-            if recipient_user:
-                # Check if recipient is in focus mode
+                # This authorization represents a recipient — check focus mode
+                recipient_user = await user_repo.get_by_slack_id(auth_user_id)
+                if not recipient_user:
+                    continue
+
                 if await focus_service.is_in_focus_mode(recipient_user.id):
-                    # Check if sender is VIP for this user
                     if not await focus_service.is_vip(recipient_user.id, sender_slack_id):
-                        # Send auto-reply for the recipient
-                        # Use sender_slack_id as channel - this opens a DM between
-                        # the bot and sender (bot can't post to user-to-user DMs)
                         custom_message = await focus_service.get_custom_message(
                             recipient_user.id
                         )
                         await send_focus_mode_reply(
                             slack_service,
-                            sender_slack_id,  # DM the sender directly
-                            None,  # No thread for new DM
+                            sender_slack_id,
+                            None,
                             recipient_user.id,
                             sender_slack_id,
                             custom_message,
-                            recipient_slack_id=authorized_user_slack_id,
+                            recipient_slack_id=auth_user_id,
                         )
                         logger.info(
                             f"Sent focus mode auto-reply for user {recipient_user.id}"
                         )
-                        # Don't process further - this was just a focus mode check
-                        return
 
-            # For user-context events where recipient isn't in focus mode,
-            # we don't need to do anything else (it's their normal DM)
+        # Not a bot DM — nothing more to do for user-token events
+        has_bot_authorization = authorizations and any(
+            a.get("is_bot", False) for a in authorizations
+        )
+        if not has_bot_authorization:
             return
 
-        # User-token event where the sender IS the authorized user.
-        # This could be: (a) user DMing the bot, or (b) user DMing another person.
-        # Only ignore if the DM is NOT with the bot.
-        if not is_bot_authorization:
-            if not channel_id.startswith("D"):
-                # Non-DM channel message from the authorized user — ignore
-                return
-
-            # DM channel — check if this DM is with the bot
-            try:
-                bot_user_id = await slack_service.get_bot_user_id()
-                logger.info(f"Bot user ID: {bot_user_id}")
-                if bot_user_id:
-                    conv = await slack_service.client.conversations_info(
-                        channel=channel_id
-                    )
-                    dm_partner = conv.data.get("channel", {}).get("user")
-                    logger.info(
-                        f"DM channel {channel_id} partner: {dm_partner}"
-                    )
-                    if dm_partner != bot_user_id:
-                        # DM with another user, not the bot — ignore
-                        return
-                    # DM with the bot — fall through to process
-            except Exception as e:
-                logger.warning(f"Could not check DM channel info: {e}")
-                # If we can't determine, let it through rather than dropping
-
-    # Check if any mentioned users are linked and in focus mode
-    # This handles the case where someone mentions a user who is focusing
+    # --- Step 3: Check @mentions for focus mode (bot-token events) ---
     mentioned_user_ids = _extract_mentioned_user_ids(original_text)
     logger.info(f"Message from {sender_slack_id}, mentions: {mentioned_user_ids}")
     for mentioned_slack_id in mentioned_user_ids:
