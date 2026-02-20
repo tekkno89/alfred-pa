@@ -193,15 +193,12 @@ async def handle_message_event(
     focus_service = FocusModeService(db)
 
     # --- Step 1: Check if this is a DM to the Alfred bot ---
-    # Look up sender to see if they're a linked Alfred user, and if so,
-    # check whether this channel is their bot DM channel (cached).
+    # For DM channels, check if the bot is a participant (cached after first check).
+    # The bot can only see DM channels it's in, so conversations.info succeeding
+    # means this is a bot DM. User-to-user DMs will fail and be filtered out.
     is_bot_dm = False
     if channel_id.startswith("D"):
-        sender_user = await user_repo.get_by_slack_id(sender_slack_id)
-        if sender_user:
-            bot_dm_channel = await slack_service.get_bot_dm_channel(sender_slack_id)
-            if bot_dm_channel and channel_id == bot_dm_channel:
-                is_bot_dm = True
+        is_bot_dm = await slack_service.is_bot_dm_channel(channel_id)
 
     if is_bot_dm:
         # This is a message to Alfred — skip filtering and fall through to the
