@@ -148,12 +148,13 @@ async def process_message_event_background(
     authorizations: list[dict[str, Any]] | None = None,
 ) -> None:
     """Process Slack message event in background with its own DB session."""
+    logger.info(f"Background task started for event in channel {event.get('channel')}")
     # Get a fresh database session for background processing
     async for db in get_db():
         try:
             await handle_message_event(event, db, authorizations)
         except Exception as e:
-            logger.error(f"Error in background Slack event processing: {e}")
+            logger.error(f"Error in background Slack event processing: {e}", exc_info=True)
 
 
 async def handle_message_event(
@@ -246,23 +247,29 @@ async def handle_message_event(
         # This could be: (a) user DMing the bot, or (b) user DMing another person.
         # Only ignore if the DM is NOT with the bot.
         if not is_bot_authorization:
-            if channel_id.startswith("D"):
-                bot_user_id = await slack_service.get_bot_user_id()
-                if bot_user_id:
-                    try:
-                        conv = await slack_service.client.conversations_info(channel=channel_id)
-                        dm_partner = conv.data.get("channel", {}).get("user")
-                        if dm_partner != bot_user_id:
-                            # DM with another user, not the bot — ignore
-                            return
-                        # DM with the bot — fall through to process
-                        logger.info(f"User-token DM with bot detected, processing message")
-                    except Exception as e:
-                        logger.warning(f"Could not check DM channel info: {e}")
-                        # If we can't determine, let it through
-            else:
+            if not channel_id.startswith("D"):
                 # Non-DM channel message from the authorized user — ignore
                 return
+
+            # DM channel — check if this DM is with the bot
+            try:
+                bot_user_id = await slack_service.get_bot_user_id()
+                logger.info(f"Bot user ID: {bot_user_id}")
+                if bot_user_id:
+                    conv = await slack_service.client.conversations_info(
+                        channel=channel_id
+                    )
+                    dm_partner = conv.data.get("channel", {}).get("user")
+                    logger.info(
+                        f"DM channel {channel_id} partner: {dm_partner}"
+                    )
+                    if dm_partner != bot_user_id:
+                        # DM with another user, not the bot — ignore
+                        return
+                    # DM with the bot — fall through to process
+            except Exception as e:
+                logger.warning(f"Could not check DM channel info: {e}")
+                # If we can't determine, let it through rather than dropping
 
     # Check if any mentioned users are linked and in focus mode
     # This handles the case where someone mentions a user who is focusing
