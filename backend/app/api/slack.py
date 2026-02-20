@@ -194,11 +194,17 @@ async def handle_message_event(
     # Check if this is a user-context event (event on behalf of a user)
     # For message.im events, this means someone DMed the authorized user
     if authorizations and len(authorizations) > 0:
-        authorized_user_slack_id = authorizations[0].get("user_id")
+        auth_entry = authorizations[0]
+        authorized_user_slack_id = auth_entry.get("user_id")
+        is_bot_authorization = auth_entry.get("is_bot", False)
 
-        # Only process if authorized user is different from sender
-        # (someone else is DMing the authorized user)
-        if authorized_user_slack_id and authorized_user_slack_id != sender_slack_id:
+        # Only process as user-context if the authorized user is a real user
+        # (not the bot itself) and is different from the sender
+        if (
+            authorized_user_slack_id
+            and not is_bot_authorization
+            and authorized_user_slack_id != sender_slack_id
+        ):
             logger.info(
                 f"User-context event: {sender_slack_id} -> {authorized_user_slack_id}"
             )
