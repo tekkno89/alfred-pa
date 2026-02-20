@@ -1,38 +1,40 @@
-"""Local embedding provider using sentence-transformers."""
+"""Local embedding provider using fastembed."""
 
 from functools import lru_cache
 
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 
 from app.core.config import get_settings
 
 
 class LocalEmbeddingProvider:
-    """Local embedding provider using sentence-transformers models."""
+    """Local embedding provider using fastembed (ONNX)."""
 
     def __init__(self, model_name: str | None = None):
         """
         Initialize the embedding provider.
 
         Args:
-            model_name: The sentence-transformers model to use.
+            model_name: The embedding model to use.
                        Defaults to bge-base-en-v1.5 from settings.
         """
         settings = get_settings()
         self._model_name = model_name or settings.embedding_model
-        self._model: SentenceTransformer | None = None
+        self._model: TextEmbedding | None = None
 
     @property
-    def model(self) -> SentenceTransformer:
+    def model(self) -> TextEmbedding:
         """Lazy load the model on first use."""
         if self._model is None:
-            self._model = SentenceTransformer(self._model_name)
+            self._model = TextEmbedding(model_name=self._model_name)
         return self._model
 
     @property
     def dimension(self) -> int:
         """Get the embedding dimension for this model."""
-        return self.model.get_sentence_embedding_dimension()  # type: ignore
+        # Embed a dummy string to determine dimension
+        sample = list(self.model.embed(["test"]))[0]
+        return len(sample)
 
     def embed(self, text: str) -> list[float]:
         """
@@ -44,8 +46,8 @@ class LocalEmbeddingProvider:
         Returns:
             A list of floats representing the embedding.
         """
-        embedding = self.model.encode(text, normalize_embeddings=True)
-        return embedding.tolist()
+        embeddings = list(self.model.embed([text]))
+        return embeddings[0].tolist()
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """
@@ -57,8 +59,8 @@ class LocalEmbeddingProvider:
         Returns:
             List of embeddings, one per input text.
         """
-        embeddings = self.model.encode(texts, normalize_embeddings=True)
-        return embeddings.tolist()
+        embeddings = list(self.model.embed(texts))
+        return [e.tolist() for e in embeddings]
 
 
 @lru_cache

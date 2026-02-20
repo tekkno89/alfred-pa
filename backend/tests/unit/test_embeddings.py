@@ -9,14 +9,12 @@ class TestLocalEmbeddingProvider:
 
     def test_embed_returns_list_of_floats(self):
         """Should return a list of floats for a single text."""
-        # Mock the SentenceTransformer to avoid loading the actual model
-        with patch("app.core.embeddings.SentenceTransformer") as mock_st:
+        with patch("app.core.embeddings.TextEmbedding") as mock_te:
             import numpy as np
 
             mock_model = MagicMock()
-            mock_model.encode.return_value = np.array([0.1, 0.2, 0.3, 0.4])
-            mock_model.get_sentence_embedding_dimension.return_value = 768
-            mock_st.return_value = mock_model
+            mock_model.embed.return_value = iter([np.array([0.1, 0.2, 0.3, 0.4])])
+            mock_te.return_value = mock_model
 
             from app.core.embeddings import LocalEmbeddingProvider
 
@@ -25,21 +23,20 @@ class TestLocalEmbeddingProvider:
 
             assert isinstance(result, list)
             assert all(isinstance(x, float) for x in result)
-            mock_model.encode.assert_called_once_with(
-                "Hello world", normalize_embeddings=True
-            )
+            mock_model.embed.assert_called_once_with(["Hello world"])
 
     def test_embed_batch_returns_list_of_embeddings(self):
         """Should return a list of embeddings for multiple texts."""
-        with patch("app.core.embeddings.SentenceTransformer") as mock_st:
+        with patch("app.core.embeddings.TextEmbedding") as mock_te:
             import numpy as np
 
             mock_model = MagicMock()
-            mock_model.encode.return_value = np.array(
-                [[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]]
-            )
-            mock_model.get_sentence_embedding_dimension.return_value = 768
-            mock_st.return_value = mock_model
+            mock_model.embed.return_value = iter([
+                np.array([0.1, 0.2]),
+                np.array([0.3, 0.4]),
+                np.array([0.5, 0.6]),
+            ])
+            mock_te.return_value = mock_model
 
             from app.core.embeddings import LocalEmbeddingProvider
 
@@ -50,14 +47,16 @@ class TestLocalEmbeddingProvider:
             assert isinstance(result, list)
             assert len(result) == 3
             assert all(isinstance(emb, list) for emb in result)
-            mock_model.encode.assert_called_once_with(texts, normalize_embeddings=True)
+            mock_model.embed.assert_called_once_with(texts)
 
     def test_dimension_property(self):
         """Should return the correct embedding dimension."""
-        with patch("app.core.embeddings.SentenceTransformer") as mock_st:
+        with patch("app.core.embeddings.TextEmbedding") as mock_te:
+            import numpy as np
+
             mock_model = MagicMock()
-            mock_model.get_sentence_embedding_dimension.return_value = 768
-            mock_st.return_value = mock_model
+            mock_model.embed.return_value = iter([np.zeros(768)])
+            mock_te.return_value = mock_model
 
             from app.core.embeddings import LocalEmbeddingProvider
 
@@ -67,22 +66,22 @@ class TestLocalEmbeddingProvider:
 
     def test_lazy_model_loading(self):
         """Should only load the model when first accessed."""
-        with patch("app.core.embeddings.SentenceTransformer") as mock_st:
+        with patch("app.core.embeddings.TextEmbedding") as mock_te:
             mock_model = MagicMock()
-            mock_st.return_value = mock_model
+            mock_te.return_value = mock_model
 
             from app.core.embeddings import LocalEmbeddingProvider
 
             provider = LocalEmbeddingProvider("test-model")
 
             # Model should not be loaded yet
-            mock_st.assert_not_called()
+            mock_te.assert_not_called()
 
             # Access the model
             _ = provider.model
 
             # Now it should be loaded
-            mock_st.assert_called_once_with("test-model")
+            mock_te.assert_called_once_with(model_name="test-model")
 
 
 class TestDetectRememberIntent:
