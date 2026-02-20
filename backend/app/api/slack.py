@@ -242,6 +242,11 @@ async def handle_message_event(
             # we don't need to do anything else (it's their normal DM)
             return
 
+        # User-token event where the sender IS the authorized user —
+        # this is the user's own outgoing DM to someone else. Ignore it.
+        if not is_bot_authorization:
+            return
+
     # Check if any mentioned users are linked and in focus mode
     # This handles the case where someone mentions a user who is focusing
     mentioned_user_ids = _extract_mentioned_user_ids(original_text)
