@@ -10,6 +10,12 @@ from app.schemas.memory import (
     MemoryResponse,
     MemoryUpdate,
 )
+from app.schemas.note import (
+    NoteCreate,
+    NoteList,
+    NoteResponse,
+    NoteUpdate,
+)
 from app.schemas.message import (
     MessageCreate,
     MessageList,
@@ -49,6 +55,10 @@ __all__ = [
     "MemoryList",
     "MemoryResponse",
     "MemoryUpdate",
+    "NoteCreate",
+    "NoteList",
+    "NoteResponse",
+    "NoteUpdate",
     "MessageCreate",
     "MessageList",
     "MessageResponse",

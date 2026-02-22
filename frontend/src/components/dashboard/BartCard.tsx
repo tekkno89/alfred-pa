@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Train, RefreshCw } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
@@ -84,8 +85,28 @@ interface BartCardProps {
   stations: BartStationPreference[]
 }
 
+function formatUpdatedTime(dataUpdatedAt: number): string {
+  const seconds = Math.floor((Date.now() - dataUpdatedAt) / 1000)
+  if (seconds < 10) return 'just now'
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  return `${minutes}m ago`
+}
+
 export function BartCard({ stations }: BartCardProps) {
   const navigate = useNavigate()
+  const firstStation = stations[0]
+  const { dataUpdatedAt } = useBartDepartures(
+    firstStation?.abbr ?? '',
+    firstStation?.platform
+  )
+
+  // Re-render every 10s so the "Updated Xs ago" text stays current
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const interval = setInterval(() => setTick((t) => t + 1), 10000)
+    return () => clearInterval(interval)
+  }, [])
 
   return (
     <Card
@@ -93,9 +114,16 @@ export function BartCard({ stations }: BartCardProps) {
       onClick={() => navigate('/dashboard/bart')}
     >
       <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Train className="h-4 w-4" />
-          BART Departures
+        <CardTitle className="flex items-start gap-2 text-base">
+          <Train className="h-4 w-4 mt-1 shrink-0" />
+          <div>
+            BART Departures
+            {dataUpdatedAt > 0 && (
+              <div className="text-[10px] font-normal text-muted-foreground">
+                Updated {formatUpdatedTime(dataUpdatedAt)}
+              </div>
+            )}
+          </div>
           <RefreshCw className="h-3 w-3 ml-auto text-muted-foreground" />
         </CardTitle>
       </CardHeader>

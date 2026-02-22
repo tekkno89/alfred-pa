@@ -10,6 +10,8 @@ import { FocusPage } from '@/pages/FocusPage'
 import { FocusSettingsPage } from '@/pages/FocusSettingsPage'
 import { WebhooksPage } from '@/pages/WebhooksPage'
 import { BartPage } from '@/pages/BartPage'
+import { NotesPage } from '@/pages/NotesPage'
+import { NoteEditorPage } from '@/pages/NoteEditorPage'
 import { AdminPage } from '@/pages/AdminPage'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { AuthGuard } from '@/components/auth/AuthGuard'
@@ -43,6 +45,9 @@ function App() {
           <Route path="/focus" element={<FocusPage />} />
           <Route path="/settings/focus" element={<FocusSettingsPage />} />
           <Route path="/settings/webhooks" element={<WebhooksPage />} />
+          <Route path="/notes" element={<NotesPage />} />
+          <Route path="/notes/new" element={<NoteEditorPage />} />
+          <Route path="/notes/:noteId" element={<NoteEditorPage />} />
           <Route path="/dashboard/bart" element={<BartPage />} />
           <Route path="/admin" element={<AdminPage />} />
         </Route>

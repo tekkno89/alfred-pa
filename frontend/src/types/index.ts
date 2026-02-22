@@ -132,6 +132,39 @@ export interface MemoryList {
   size: number
 }
 
+// Notes
+export interface NoteCreate {
+  title?: string
+  body?: string
+  is_favorited?: boolean
+  tags?: string[]
+}
+
+export interface NoteUpdate {
+  title?: string | null
+  body?: string | null
+  is_favorited?: boolean | null
+  tags?: string[] | null
+}
+
+export interface Note {
+  id: string
+  title: string
+  body: string
+  is_favorited: boolean
+  is_archived: boolean
+  tags: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface NoteList {
+  items: Note[]
+  total: number
+  page: number
+  size: number
+}
+
 // Common
 export interface DeleteResponse {
   success: boolean

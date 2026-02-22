@@ -64,6 +64,8 @@ async def get_available_cards(
     repo = FeatureAccessRepository(db)
     if await repo.is_enabled(user.id, "card:bart"):
         cards.append("bart")
+    if await repo.is_enabled(user.id, "card:notes"):
+        cards.append("notes")
     return cards
 
 

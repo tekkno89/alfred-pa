@@ -10,6 +10,7 @@ from app.db.repositories.focus import (
 )
 from app.db.repositories.webhook import WebhookRepository
 from app.db.repositories.oauth_token import OAuthTokenRepository
+from app.db.repositories.note import NoteRepository
 from app.db.repositories.dashboard import (
     DashboardPreferenceRepository,
     FeatureAccessRepository,
@@ -26,6 +27,7 @@ __all__ = [
     "FocusVIPListRepository",
     "WebhookRepository",
     "OAuthTokenRepository",
+    "NoteRepository",
     "DashboardPreferenceRepository",
     "FeatureAccessRepository",
 ]

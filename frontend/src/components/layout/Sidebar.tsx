@@ -1,9 +1,10 @@
 import { useNavigate, useParams } from 'react-router-dom'
-import { Plus, PanelLeft, MessagesSquare } from 'lucide-react'
+import { Plus, PanelLeft, MessagesSquare, StickyNote } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SessionList } from '@/components/sessions/SessionList'
 import { useSessions, useCreateSession } from '@/hooks/useSessions'
+import { useAvailableCards } from '@/hooks/useDashboard'
 
 interface SidebarProps {
   collapsed: boolean
@@ -16,6 +17,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { data: starredData, isLoading: starredLoading } = useSessions(1, 5, true)
   const { data: recentData, isLoading: recentLoading } = useSessions(1, 15, false)
   const createSession = useCreateSession()
+  const { data: availableCards } = useAvailableCards()
+  const showNotes = availableCards?.includes('notes') ?? false
 
   const handleNewChat = async () => {
     const title = new Date().toLocaleString(undefined, {
@@ -86,6 +89,25 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             Sessions
           </Button>
         )}
+        {showNotes && (collapsed ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="mx-auto w-full text-muted-foreground hover:text-foreground"
+            onClick={() => navigate('/notes')}
+          >
+            <StickyNote className="h-4 w-4" />
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            className="w-full justify-start text-sm text-muted-foreground hover:text-foreground"
+            onClick={() => navigate('/notes')}
+          >
+            <StickyNote className="h-4 w-4 mr-2" />
+            Notes
+          </Button>
+        ))}
       </div>
 
       <div className="mx-3 border-t border-border/50" />

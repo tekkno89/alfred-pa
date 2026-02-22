@@ -15,7 +15,7 @@ import { useAuthStore } from '@/lib/auth'
 import { useAdminUsers, useUpdateUserRole, useUserFeatures, useSetFeatureAccess } from '@/hooks/useAdmin'
 import type { AdminUser } from '@/types'
 
-const FEATURE_KEYS = ['card:bart'] as const
+const FEATURE_KEYS = ['card:bart', 'card:notes'] as const
 
 function UserFeatureToggles({ user }: { user: AdminUser }) {
   const { data: features } = useUserFeatures(user.id)

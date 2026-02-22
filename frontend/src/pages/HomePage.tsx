@@ -7,6 +7,7 @@ import { BatmanRunner } from '@/components/game/BatmanRunner'
 import { useCreateSession } from '@/hooks/useSessions'
 import { useAvailableCards, useDashboardPreferences } from '@/hooks/useDashboard'
 import { BartCard } from '@/components/dashboard/BartCard'
+import { NotesCard } from '@/components/dashboard/NotesCard'
 import type { BartStationPreference } from '@/types'
 
 export function HomePage() {
@@ -62,6 +63,7 @@ export function HomePage() {
   }
 
   const showBart = availableCards?.includes('bart') ?? false
+  const showNotes = availableCards?.includes('notes') ?? false
   const bartPref = prefs?.items.find((p) => p.card_type === 'bart')
   const bartStations: BartStationPreference[] =
     (bartPref?.preferences?.stations as BartStationPreference[]) || []
@@ -70,9 +72,10 @@ export function HomePage() {
     <div className="h-full flex flex-col">
       {/* Dashboard area (scrollable) */}
       <div className="flex-1 overflow-y-auto p-4">
-        {showBart ? (
+        {showBart || showNotes ? (
           <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <BartCard stations={bartStations} />
+            {showBart && <BartCard stations={bartStations} />}
+            {showNotes && <NotesCard />}
           </div>
         ) : (
           <div className="h-full flex items-center justify-center">

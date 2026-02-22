@@ -7,6 +7,7 @@ from app.api.notifications import router as notifications_router
 from app.api.sessions import router as sessions_router
 from app.api.slack import router as slack_router
 from app.api.webhooks import router as webhooks_router
+from app.api.notes import router as notes_router
 from app.api.dashboard import router as dashboard_router
 from app.api.admin import router as admin_router
 
@@ -27,5 +28,6 @@ router.include_router(notifications_router, prefix="/notifications", tags=["noti
 router.include_router(sessions_router, prefix="/sessions", tags=["sessions"])
 router.include_router(slack_router, prefix="/slack", tags=["slack"])
 router.include_router(webhooks_router, prefix="/webhooks", tags=["webhooks"])
+router.include_router(notes_router, prefix="/notes", tags=["notes"])
 router.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
 router.include_router(admin_router, prefix="/admin", tags=["admin"])
