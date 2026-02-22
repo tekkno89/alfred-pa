@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
 
+    # BART API (default is the public demo key from api.bart.gov)
+    bart_api_key: str = "MW9S-E7SL-26DU-VV8V"
+
     # Embeddings
     embedding_model: str = "BAAI/bge-base-en-v1.5"
 

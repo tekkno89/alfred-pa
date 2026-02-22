@@ -26,6 +26,12 @@ graph TD
     MainContent --> HomePage[HomePage]
     MainContent --> ChatPage[ChatPage]
     MainContent --> MemoriesPage[MemoriesPage]
+    MainContent --> BartPage[BartPage]
+    MainContent --> AdminPage[AdminPage]
+
+    HomePage --> BartCard[BartCard]
+    BartPage --> BartStationPicker[BartStationPicker]
+    BartPage --> StationBoard[StationBoard]
 
     ChatPage --> ChatContainer[ChatContainer]
     ChatContainer --> MessageList[MessageList]
@@ -76,6 +82,10 @@ flowchart TD
         Sessions[Sessions Query]
         Session[Session + Messages]
         Memories[Memories Query]
+        Dashboard[Dashboard Queries]
+        Dashboard --> AvailableCards[Available Cards]
+        Dashboard --> BartDepartures[BART Departures]
+        Dashboard --> DashboardPrefs[Dashboard Preferences]
     end
 
     subgraph "Local State"
@@ -117,8 +127,9 @@ sequenceDiagram
 |----------|-------|
 | **Entry** | `main.tsx`, `App.tsx` |
 | **Lib** | `lib/api.ts`, `lib/auth.ts`, `lib/sse.ts` |
-| **Hooks** | `hooks/useSessions.ts`, `hooks/useChat.ts`, `hooks/useMemories.ts` |
-| **Pages** | `pages/LoginPage.tsx`, `pages/ChatPage.tsx`, `pages/MemoriesPage.tsx` |
+| **Hooks** | `hooks/useSessions.ts`, `hooks/useChat.ts`, `hooks/useMemories.ts`, `hooks/useDashboard.ts`, `hooks/useAdmin.ts` |
+| **Pages** | `pages/LoginPage.tsx`, `pages/ChatPage.tsx`, `pages/MemoriesPage.tsx`, `pages/BartPage.tsx`, `pages/AdminPage.tsx` |
+| **Dashboard** | `components/dashboard/BartCard.tsx`, `BartStationPicker.tsx`, `sortEstimates.ts` |
 | **Layout** | `components/layout/AppLayout.tsx`, `Sidebar.tsx`, `Header.tsx` |
 | **UI** | `components/ui/*.tsx` (shadcn/ui style components) |
 

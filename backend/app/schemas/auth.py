@@ -33,6 +33,7 @@ class UserResponse(BaseModel):
 
     id: str
     email: str
+    role: str = "user"
     slack_user_id: str | None = None
     created_at: datetime
 
