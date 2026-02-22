@@ -4,9 +4,10 @@ import { Button } from '@/components/ui/button'
 import { useNotificationContext } from './NotificationProvider'
 
 export function NotificationBanner() {
-  const { notifications, clearNotifications } = useNotificationContext()
+  const { notifications, dismissBypassAlert } = useNotificationContext()
   const [visible, setVisible] = useState(false)
   const [message, setMessage] = useState('')
+  const [senderName, setSenderName] = useState<string | null>(null)
 
   // Show banner when there's a new focus_bypass notification
   useEffect(() => {
@@ -14,31 +15,46 @@ export function NotificationBanner() {
     if (bypassNotifications.length > 0) {
       const latest = bypassNotifications[bypassNotifications.length - 1]
       setMessage(latest.message || 'Someone is trying to reach you urgently!')
+      setSenderName(latest.sender_name || null)
       setVisible(true)
     }
   }, [notifications])
 
   const handleDismiss = () => {
     setVisible(false)
-    clearNotifications()
+    dismissBypassAlert()
   }
 
   if (!visible) return null
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-50 bg-red-600 text-white p-4 flex items-center justify-between">
+    <div className="fixed top-0 left-0 right-0 z-50 bg-red-600 text-white p-4 flex items-center justify-between animate-pulse-subtle">
       <div className="flex items-center gap-3">
-        <AlertTriangle className="h-5 w-5" />
-        <span className="font-medium">{message}</span>
+        <AlertTriangle className="h-5 w-5 shrink-0 animate-bounce" />
+        <div>
+          <span className="font-medium">{message}</span>
+          {senderName && (
+            <p className="text-sm text-red-100">From: {senderName}</p>
+          )}
+        </div>
       </div>
       <Button
         variant="ghost"
         size="sm"
         onClick={handleDismiss}
-        className="text-white hover:bg-red-700"
+        className="text-white hover:bg-red-700 shrink-0"
       >
         <X className="h-4 w-4" />
       </Button>
+      <style>{`
+        @keyframes pulse-subtle {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.85; }
+        }
+        .animate-pulse-subtle {
+          animation: pulse-subtle 2s ease-in-out infinite;
+        }
+      `}</style>
     </div>
   )
 }

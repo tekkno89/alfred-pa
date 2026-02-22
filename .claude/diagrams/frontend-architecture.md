@@ -28,6 +28,9 @@ graph TD
     MainContent --> MemoriesPage[MemoriesPage]
     MainContent --> BartPage[BartPage]
     MainContent --> AdminPage[AdminPage]
+    MainContent --> FocusPage[FocusPage]
+    MainContent --> FocusSettingsPage[FocusSettingsPage]
+    MainContent --> WebhooksPage[WebhooksPage]
 
     HomePage --> BartCard[BartCard]
     BartPage --> BartStationPicker[BartStationPicker]
@@ -83,9 +86,12 @@ flowchart TD
         Session[Session + Messages]
         Memories[Memories Query]
         Dashboard[Dashboard Queries]
+        FocusQueries[Focus Queries]
         Dashboard --> AvailableCards[Available Cards]
         Dashboard --> BartDepartures[BART Departures]
         Dashboard --> DashboardPrefs[Dashboard Preferences]
+        FocusQueries --> FocusStatus[Focus Status]
+        FocusQueries --> FocusSettings[Focus Settings]
     end
 
     subgraph "Local State"
@@ -127,11 +133,13 @@ sequenceDiagram
 |----------|-------|
 | **Entry** | `main.tsx`, `App.tsx` |
 | **Lib** | `lib/api.ts`, `lib/auth.ts`, `lib/sse.ts` |
-| **Hooks** | `hooks/useSessions.ts`, `hooks/useChat.ts`, `hooks/useMemories.ts`, `hooks/useDashboard.ts`, `hooks/useAdmin.ts` |
-| **Pages** | `pages/LoginPage.tsx`, `pages/ChatPage.tsx`, `pages/MemoriesPage.tsx`, `pages/BartPage.tsx`, `pages/AdminPage.tsx` |
+| **Hooks** | `hooks/useSessions.ts`, `hooks/useChat.ts`, `hooks/useMemories.ts`, `hooks/useDashboard.ts`, `hooks/useAdmin.ts`, `hooks/useFocusMode.ts`, `hooks/useNotifications.ts`, `hooks/useAlertSound.ts`, `hooks/useTitleFlash.ts` |
+| **Pages** | `pages/LoginPage.tsx`, `pages/ChatPage.tsx`, `pages/MemoriesPage.tsx`, `pages/BartPage.tsx`, `pages/AdminPage.tsx`, `pages/FocusPage.tsx`, `pages/FocusSettingsPage.tsx`, `pages/WebhooksPage.tsx` |
 | **Dashboard** | `components/dashboard/BartCard.tsx`, `BartStationPicker.tsx`, `sortEstimates.ts` |
 | **Layout** | `components/layout/AppLayout.tsx`, `Sidebar.tsx`, `Header.tsx` |
-| **UI** | `components/ui/*.tsx` (shadcn/ui style components) |
+| **Focus** | `components/focus/FocusToggle.tsx`, `PomodoroTimer.tsx`, `VipList.tsx` |
+| **Notifications** | `components/notifications/NotificationProvider.tsx` (SSE events, sound loop, title flash), `NotificationBanner.tsx` (bypass alert banner with animation) |
+| **UI** | `components/ui/*.tsx` (shadcn/ui: button, input, card, select, switch, etc.) |
 
 ## Technology Stack
 

@@ -144,6 +144,9 @@ Completed items:
 - [x] Slack OAuth for status control
 - [x] Focus page, settings page, webhooks page
 - [x] Notification banner for bypass alerts
+- [x] Configurable bypass notifications (sound, title flash, email/SMS stubs)
+- [x] Looping alert sound with Web Audio API (4 sound options)
+- [x] Bypass notification settings UI with sound preview
 
 ---
 

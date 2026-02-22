@@ -47,6 +47,7 @@ class FocusSettings(Base, UUIDMixin, TimestampMixin):
     default_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     pomodoro_work_minutes: Mapped[int] = mapped_column(Integer, default=25)
     pomodoro_break_minutes: Mapped[int] = mapped_column(Integer, default=5)
+    bypass_notification_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="focus_settings")

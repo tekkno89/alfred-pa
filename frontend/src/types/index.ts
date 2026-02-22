@@ -168,16 +168,29 @@ export interface PomodoroStartRequest {
   total_sessions?: number | null
 }
 
+export interface BypassNotificationConfig {
+  alfred_ui_enabled: boolean
+  email_enabled: boolean
+  email_address?: string | null
+  sms_enabled: boolean
+  phone_number?: string | null
+  alert_sound_enabled: boolean
+  alert_sound_name: string
+  alert_title_flash_enabled: boolean
+}
+
 export interface FocusSettingsResponse {
   default_message?: string | null
   pomodoro_work_minutes: number
   pomodoro_break_minutes: number
+  bypass_notification_config?: BypassNotificationConfig | null
 }
 
 export interface FocusSettingsUpdate {
   default_message?: string | null
   pomodoro_work_minutes?: number | null
   pomodoro_break_minutes?: number | null
+  bypass_notification_config?: BypassNotificationConfig | null
 }
 
 export interface VIPResponse {

@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, status
 from app.api.deps import CurrentUser, DbSession
 from app.db.repositories import FocusSettingsRepository, FocusVIPListRepository
 from app.schemas.focus import (
+    BypassNotificationConfig,
     FocusEnableRequest,
     FocusPomodoroStartRequest,
     FocusSettingsResponse,
@@ -312,7 +313,13 @@ async def get_focus_settings(
     """Get focus mode settings."""
     settings_repo = FocusSettingsRepository(db)
     settings = await settings_repo.get_or_create(current_user.id)
-    return FocusSettingsResponse.model_validate(settings)
+    response = FocusSettingsResponse.model_validate(settings)
+
+    # Apply defaults if bypass_notification_config is not set
+    if response.bypass_notification_config is None and settings.bypass_notification_config is None:
+        response.bypass_notification_config = BypassNotificationConfig()
+
+    return response
 
 
 @router.put("/settings", response_model=FocusSettingsResponse)
@@ -326,6 +333,11 @@ async def update_focus_settings(
     settings = await settings_repo.get_or_create(current_user.id)
 
     updates = data.model_dump(exclude_unset=True)
+
+    # Serialize bypass_notification_config to dict for JSON storage
+    if "bypass_notification_config" in updates and updates["bypass_notification_config"] is not None:
+        updates["bypass_notification_config"] = data.bypass_notification_config.model_dump()
+
     if updates:
         settings = await settings_repo.update(settings, **updates)
 

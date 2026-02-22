@@ -28,6 +28,10 @@ Implemented a Focus Mode feature that integrates with Slack to help users minimi
 - [x] SSE endpoint for real-time webapp notifications
 - [x] Webhook subscriptions for external services
 - [x] Browser notifications for bypass alerts
+- [x] Configurable bypass notification destinations (Alfred UI, email stub, SMS stub)
+- [x] Looping alert sound via Web Audio API (chime, urgent, gentle, ping)
+- [x] Browser tab title flashing on bypass events
+- [x] Sound/flash auto-stop on dismiss or focus mode end
 
 ### Background Jobs (ARQ)
 - [x] Scheduled phase transitions for pomodoro timer
@@ -40,13 +44,16 @@ Implemented a Focus Mode feature that integrates with Slack to help users minimi
 - [x] Focus settings page
 - [x] VIP list management
 - [x] Webhook management page
-- [x] Notification banner for bypass alerts
+- [x] Notification banner for bypass alerts (animated, shows sender name)
 - [x] Focus mode indicator in header
+- [x] Bypass notification settings card (sound picker, preview, title flash toggle)
+- [x] Switch UI component (Radix)
 
 ## Files Created
 
 ### Backend
 - `alembic/versions/004_add_focus_mode_tables.py` - Database migration
+- `alembic/versions/008_add_bypass_notification_config.py` - Bypass notification config migration
 - `app/db/models/focus.py` - FocusModeState, FocusSettings, FocusVIPList models
 - `app/db/models/webhook.py` - WebhookSubscription model
 - `app/db/models/oauth_token.py` - UserOAuthToken model
@@ -55,6 +62,7 @@ Implemented a Focus Mode feature that integrates with Slack to help users minimi
 - `app/db/repositories/oauth_token.py` - OAuth token repository
 - `app/services/focus.py` - FocusModeService
 - `app/services/notifications.py` - NotificationService
+- `app/services/bypass_notify.py` - Stubbed email/SMS bypass notification senders
 - `app/services/slack_user.py` - SlackUserService
 - `app/api/focus.py` - Focus mode endpoints
 - `app/api/webhooks.py` - Webhook endpoints
@@ -77,6 +85,8 @@ Implemented a Focus Mode feature that integrates with Slack to help users minimi
 - `src/components/notifications/NotificationBanner.tsx` - Bypass alert banner
 - `src/hooks/useFocusMode.ts` - Focus mode React Query hooks
 - `src/hooks/useNotifications.ts` - SSE notification hook
+- `src/hooks/useAlertSound.ts` - Web Audio API sound synthesis
+- `src/hooks/useTitleFlash.ts` - Browser tab title flash effect
 
 ### Modified Files
 - `app/db/models/user.py` - Added focus/webhook relationships
@@ -133,7 +143,7 @@ Implemented a Focus Mode feature that integrates with Slack to help users minimi
 
 ## Database Tables
 - `focus_mode_state` - Current focus state per user
-- `focus_settings` - Focus mode settings per user
+- `focus_settings` - Focus mode settings per user (includes `bypass_notification_config` JSON)
 - `focus_vip_list` - VIP whitelist per user
 - `webhook_subscriptions` - Webhook subscriptions per user
 - `user_oauth_tokens` - OAuth tokens per user

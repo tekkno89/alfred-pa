@@ -96,3 +96,43 @@ User messages from webapp appear in Slack as:
 :speech_balloon: username (via webapp):
 > message content here
 ```
+
+## Focus Mode Bypass Flow
+
+```mermaid
+sequenceDiagram
+    participant S as Sender (Slack)
+    participant B as Backend
+    participant DB as PostgreSQL
+    participant SSE as SSE Stream
+    participant UI as Alfred UI (Browser)
+
+    S->>B: Message to focused user
+    B->>S: Auto-reply with "Urgent - Notify Them" button
+    S->>B: POST /api/slack/interactive (button click)
+    B->>B: Verify Slack signature
+    B->>B: Verify HMAC-signed payload + timestamp
+    B->>DB: Load user's bypass_notification_config
+    alt Alfred UI enabled
+        B->>SSE: Publish focus_bypass event (user-scoped)
+        SSE->>UI: SSE event received
+        UI->>UI: Start looping alert sound (Web Audio API)
+        UI->>UI: Start title flash ("URGENT MESSAGE")
+        UI->>UI: Show browser Notification
+        UI->>UI: Display red banner with sender name
+    end
+    alt Email enabled (stubbed)
+        B->>B: Log "Email notification stubbed"
+    end
+    alt SMS enabled (stubbed)
+        B->>B: Log "SMS notification stubbed"
+    end
+    Note over UI: Sound loops every 5s until user dismisses banner or focus mode ends
+```
+
+### Bypass Security
+- **Slack signature verification**: Only legitimate Slack requests accepted
+- **HMAC-signed payload**: Button value contains `user_id:sender_id:timestamp:signature`, signed with `JWT_SECRET`
+- **1-hour expiry**: Bypass payloads expire after 1 hour
+- **User-scoped SSE**: Events only delivered to the target user's authenticated stream
+- **JWT-authenticated SSE**: `/api/notifications/subscribe` requires valid Bearer token

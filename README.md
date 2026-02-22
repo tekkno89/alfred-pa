@@ -316,6 +316,8 @@ Block distractions with timed focus sessions:
 - **Pomodoro mode:** Alternating work/break intervals (default 25min/5min)
 - **VIP list:** Designated users bypass focus mode
 - **Slack integration:** Sets status, enables DND, auto-replies to messages
+- **Bypass notifications:** When someone clicks "Urgent - Notify Them" in Slack, you get a looping alert sound, flashing browser tab, browser notification, and a red banner — all configurable per-user
+- **Notification settings:** Choose your alert sound (chime, urgent, gentle, ping), toggle title flash, and configure future email/SMS delivery
 - **Webhooks:** Get notified of focus events via HTTP webhooks
 
 ### Webhooks

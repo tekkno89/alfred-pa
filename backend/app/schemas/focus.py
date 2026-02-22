@@ -69,6 +69,22 @@ class FocusStatusResponse(BaseModel):
     time_remaining_seconds: int | None = None
 
 
+# Bypass Notification Config
+class BypassNotificationConfig(BaseModel):
+    """Configuration for how bypass notifications are delivered."""
+
+    # Notification destinations
+    alfred_ui_enabled: bool = True
+    email_enabled: bool = False
+    email_address: str | None = None
+    sms_enabled: bool = False
+    phone_number: str | None = None
+    # Browser alert preferences (only relevant when alfred_ui_enabled)
+    alert_sound_enabled: bool = True
+    alert_sound_name: str = "chime"  # chime | urgent | gentle | ping
+    alert_title_flash_enabled: bool = True
+
+
 # Focus Settings
 class FocusSettingsUpdate(BaseModel):
     """Request to update focus settings."""
@@ -76,6 +92,7 @@ class FocusSettingsUpdate(BaseModel):
     default_message: str | None = None
     pomodoro_work_minutes: int | None = Field(None, ge=1, le=120)
     pomodoro_break_minutes: int | None = Field(None, ge=1, le=60)
+    bypass_notification_config: BypassNotificationConfig | None = None
 
 
 class FocusSettingsResponse(BaseModel):
@@ -86,6 +103,7 @@ class FocusSettingsResponse(BaseModel):
     default_message: str | None = None
     pomodoro_work_minutes: int = 25
     pomodoro_break_minutes: int = 5
+    bypass_notification_config: BypassNotificationConfig | None = None
 
 
 # VIP List

@@ -17,6 +17,9 @@ from app.api.deps import DbSession, get_db
 from app.core.config import get_settings
 from app.core.redis import get_redis
 from app.db.repositories import SessionRepository, UserRepository
+from app.db.repositories.focus import FocusSettingsRepository
+from app.schemas.focus import BypassNotificationConfig
+from app.services.bypass_notify import send_bypass_email, send_bypass_sms
 from app.services.focus import FocusModeService
 from app.services.linking import get_linking_service
 from app.services.notifications import NotificationService
@@ -775,17 +778,34 @@ async def handle_focus_bypass(
     except Exception:
         sender_name = "Someone"
 
-    # Publish bypass notification
+    # Load user's bypass notification config
+    settings_repo = FocusSettingsRepository(db)
+    focus_settings = await settings_repo.get_or_create(user_id)
+    if focus_settings.bypass_notification_config:
+        notify_config = BypassNotificationConfig(**focus_settings.bypass_notification_config)
+    else:
+        notify_config = BypassNotificationConfig()
+
+    # Publish SSE event for Alfred UI (if enabled)
     notification_service = NotificationService(db)
-    await notification_service.publish(
-        user_id,
-        "focus_bypass",
-        {
-            "sender_slack_id": sender_slack_id,
-            "sender_name": sender_name,
-            "channel_id": channel_id,
-            "message": f"{sender_name} is trying to reach you urgently!",
-        },
-    )
+    if notify_config.alfred_ui_enabled:
+        await notification_service.publish(
+            user_id,
+            "focus_bypass",
+            {
+                "sender_slack_id": sender_slack_id,
+                "sender_name": sender_name,
+                "channel_id": channel_id,
+                "message": f"{sender_name} is trying to reach you urgently!",
+            },
+        )
+
+    # Dispatch to email if enabled
+    if notify_config.email_enabled and notify_config.email_address:
+        await send_bypass_email(notify_config.email_address, sender_name)
+
+    # Dispatch to SMS if enabled
+    if notify_config.sms_enabled and notify_config.phone_number:
+        await send_bypass_sms(notify_config.phone_number, sender_name)
 
     logger.info(f"Focus bypass notification sent for user {user_id} from {sender_name}")
