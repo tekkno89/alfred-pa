@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Brain, Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { BatmanRunner } from '@/components/game/BatmanRunner'
 import { useCreateSession } from '@/hooks/useSessions'
 import { useAvailableCards, useDashboardPreferences } from '@/hooks/useDashboard'
 import { BartCard } from '@/components/dashboard/BartCard'
@@ -14,7 +15,18 @@ export function HomePage() {
   const { data: availableCards } = useAvailableCards()
   const { data: prefs } = useDashboardPreferences()
   const [input, setInput] = useState('')
+  const [gameEnabled, setGameEnabled] = useState(() => {
+    try { return localStorage.getItem('batman-runner-enabled') === '1' } catch { return false }
+  })
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const toggleGame = () => {
+    setGameEnabled(prev => {
+      const next = !prev
+      try { localStorage.setItem('batman-runner-enabled', next ? '1' : '0') } catch {}
+      return next
+    })
+  }
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -81,8 +93,27 @@ export function HomePage() {
         )}
       </div>
 
-      {/* Chat input (pinned bottom) */}
-      <div className="border-t bg-background p-4">
+      {/* Bottom pinned section */}
+      <div className="shrink-0">
+        {/* Game + bat symbol wrapper */}
+        <div className="relative">
+          {gameEnabled && <BatmanRunner />}
+          {/* Hidden bat symbol toggle */}
+          <button
+            onClick={toggleGame}
+            className="absolute bottom-1 right-6 transition-opacity duration-300 cursor-default z-20 group/bat"
+            style={{ opacity: 0.06 }}
+            onMouseEnter={e => { e.currentTarget.style.opacity = '0.5' }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = '0.06' }}
+            title=""
+            aria-label="Toggle game"
+          >
+            <img src="/bat-symbol.png" alt="" className="w-11 h-auto" draggable={false} />
+          </button>
+        </div>
+
+        {/* Chat input */}
+        <div className="border-t bg-background p-4">
         <div className="max-w-2xl mx-auto">
           <div className="flex gap-2">
             <Textarea
@@ -106,6 +137,7 @@ export function HomePage() {
           <p className="text-xs text-muted-foreground mt-1 text-center">
             Press Enter to send, Shift+Enter for new line
           </p>
+        </div>
         </div>
       </div>
     </div>
