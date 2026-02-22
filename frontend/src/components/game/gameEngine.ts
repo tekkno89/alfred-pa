@@ -488,7 +488,7 @@ function drawOverlay(ctx: CanvasRenderingContext2D, engine: Engine) {
   const cx = engine.canvasWidth / 2
   const cy = engine.canvasHeight / 2
 
-  if (engine.state === 'IDLE') {
+  if (engine.state === 'IDLE' && engine.focused) {
     ctx.font = '13px monospace'
     ctx.textAlign = 'center'
     ctx.fillStyle = COL_MID

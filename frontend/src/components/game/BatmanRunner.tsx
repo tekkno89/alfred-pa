@@ -7,6 +7,7 @@ export function BatmanRunner() {
   const engineRef = useRef(createEngine(600, 120))
   const rafRef = useRef<number>(0)
   const [focused, setFocusedState] = useState(false)
+  const [hovered, setHovered] = useState(false)
 
   const gameLoop = useCallback(() => {
     const canvas = canvasRef.current
@@ -70,8 +71,18 @@ export function BatmanRunner() {
 
   const onBlur = useCallback(() => {
     setFocusedState(false)
-    setFocused(engineRef.current, false)
+    if (!hovered) setFocused(engineRef.current, false)
+  }, [hovered])
+
+  const onMouseEnter = useCallback(() => {
+    setHovered(true)
+    setFocused(engineRef.current, true)
   }, [])
+
+  const onMouseLeave = useCallback(() => {
+    setHovered(false)
+    if (!focused) setFocused(engineRef.current, false)
+  }, [focused])
 
   const onCanvasInteract = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault()
@@ -101,6 +112,8 @@ export function BatmanRunner() {
         onTouchStart={onCanvasInteract}
         onFocus={onFocus}
         onBlur={onBlur}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
       />
     </div>
   )
