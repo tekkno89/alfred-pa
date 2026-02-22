@@ -1,6 +1,6 @@
 import { useNavigate, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { LogOut, User, Brain, Settings, Bell, BellOff, Coffee, Shield } from 'lucide-react'
+import { LogOut, User, Settings, Bell, BellOff, Coffee, Shield } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -80,7 +80,7 @@ export function Header() {
   return (
     <header className="h-14 border-b bg-background flex items-center justify-between px-4">
       <Link to="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-        <Brain className="h-6 w-6" />
+        <img src="/alfred-icon.png" alt="Alfred" className="h-6 w-6" />
         <span className="font-semibold text-lg">Alfred</span>
       </Link>
 
