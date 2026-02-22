@@ -54,6 +54,7 @@ export function useSetFeatureAccess() {
       ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-user-features'] })
+      queryClient.invalidateQueries({ queryKey: ['available-cards'] })
     },
   })
 }

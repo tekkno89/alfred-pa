@@ -62,8 +62,7 @@ async def get_available_cards(
     """Return card types the current user has access to."""
     cards: list[str] = []
     repo = FeatureAccessRepository(db)
-    # Admins get all cards; regular users need explicit access
-    if user.role == "admin" or await repo.is_enabled(user.id, "card:bart"):
+    if await repo.is_enabled(user.id, "card:bart"):
         cards.append("bart")
     return cards
 

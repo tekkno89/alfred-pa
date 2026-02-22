@@ -44,7 +44,7 @@ function UserFeatureToggles({ user }: { user: AdminUser }) {
             key={key}
             variant={enabled ? 'default' : 'outline'}
             size="sm"
-            className="text-xs h-7"
+            className={`text-xs h-7 ${enabled ? 'bg-green-600 hover:bg-green-700' : ''}`}
             onClick={() => toggleFeature(key)}
           >
             {key}
