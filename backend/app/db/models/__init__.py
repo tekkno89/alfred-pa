@@ -6,6 +6,7 @@ from app.db.models.checkpoint import Checkpoint
 from app.db.models.focus import FocusModeState, FocusSettings, FocusVIPList
 from app.db.models.webhook import WebhookSubscription
 from app.db.models.oauth_token import UserOAuthToken
+from app.db.models.dashboard import UserDashboardPreference, UserFeatureAccess
 
 __all__ = [
     "User",
@@ -18,4 +19,6 @@ __all__ = [
     "FocusVIPList",
     "WebhookSubscription",
     "UserOAuthToken",
+    "UserDashboardPreference",
+    "UserFeatureAccess",
 ]

@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from app.db.models.focus import FocusModeState, FocusSettings, FocusVIPList
     from app.db.models.webhook import WebhookSubscription
     from app.db.models.oauth_token import UserOAuthToken
+    from app.db.models.dashboard import UserDashboardPreference, UserFeatureAccess
 
 
 class User(Base, UUIDMixin, TimestampMixin):
@@ -23,6 +24,7 @@ class User(Base, UUIDMixin, TimestampMixin):
     oauth_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
     oauth_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     slack_user_id: Mapped[str | None] = mapped_column(String(50), unique=True, nullable=True)
+    role: Mapped[str] = mapped_column(String(20), nullable=False, server_default="user")
 
     # Relationships
     sessions: Mapped[list["Session"]] = relationship(
@@ -45,6 +47,15 @@ class User(Base, UUIDMixin, TimestampMixin):
     )
     oauth_tokens: Mapped[list["UserOAuthToken"]] = relationship(
         "UserOAuthToken", back_populates="user", cascade="all, delete-orphan"
+    )
+    dashboard_preferences: Mapped[list["UserDashboardPreference"]] = relationship(
+        "UserDashboardPreference", back_populates="user", cascade="all, delete-orphan"
+    )
+    feature_access: Mapped[list["UserFeatureAccess"]] = relationship(
+        "UserFeatureAccess",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        foreign_keys="UserFeatureAccess.user_id",
     )
 
     def __repr__(self) -> str:

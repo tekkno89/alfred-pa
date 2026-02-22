@@ -19,6 +19,7 @@ export interface TokenResponse {
 export interface User {
   id: string
   email: string
+  role: 'admin' | 'user'
   slack_user_id?: string | null
   created_at: string
 }
@@ -250,4 +251,91 @@ export interface NotificationEvent {
   sender_name?: string
   message?: string
   [key: string]: unknown
+}
+
+// Dashboard / BART
+export interface BartStationPreference {
+  abbr: string
+  platform: number | null
+  sort?: 'destination' | 'eta'
+  destinations?: string[]
+}
+
+export interface BartEstimate {
+  destination: string
+  abbreviation: string
+  minutes: string
+  platform: string
+  direction: string
+  color: string
+  hex_color: string
+  length: string
+  delay: string
+}
+
+export interface BartDepartureResponse {
+  station_name: string
+  station_abbr: string
+  estimates: BartEstimate[]
+  fetched_at: string
+}
+
+export interface BartStation {
+  name: string
+  abbr: string
+  city: string
+  county: string
+  latitude: number
+  longitude: number
+}
+
+export interface BartStationsResponse {
+  stations: BartStation[]
+}
+
+export interface DashboardPreference {
+  id: string
+  card_type: string
+  preferences: Record<string, unknown>
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface DashboardPreferenceList {
+  items: DashboardPreference[]
+}
+
+export interface DashboardPreferenceUpdate {
+  preferences: Record<string, unknown>
+  sort_order?: number
+}
+
+export interface FeatureAccess {
+  id: string
+  user_id: string
+  feature_key: string
+  enabled: boolean
+  granted_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AdminUser {
+  id: string
+  email: string
+  role: 'admin' | 'user'
+  created_at: string
+}
+
+export interface AdminUserList {
+  items: AdminUser[]
+}
+
+export interface RoleUpdate {
+  role: 'admin' | 'user'
+}
+
+export interface FeatureAccessUpdate {
+  enabled: boolean
 }

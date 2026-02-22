@@ -6,6 +6,8 @@
 graph TD
     A[User] -->|1:N| B[Session]
     A -->|1:N| C[Memory]
+    A -->|1:N| E[UserDashboardPreference]
+    A -->|1:N| F[UserFeatureAccess]
     B -->|1:N| D[Message]
     B -->|1:N| C
 ```
@@ -19,6 +21,7 @@ graph TD
 - `oauth_provider` nullable
 - `oauth_id` nullable
 - `slack_user_id` unique nullable (for Slack account linking)
+- `role` string(20) default "user" (admin | user)
 
 ### Session
 - `id` UUID PK
@@ -43,3 +46,19 @@ graph TD
 - `type` preference, knowledge, or summary
 - `content` text
 - `embedding` vector(768) nullable
+
+### UserDashboardPreference
+- `id` UUID PK
+- `user_id` FK → User
+- `card_type` string(50)
+- `preferences` JSON (e.g. `{"stations": [{"abbr": "EMBR", "platform": null, "sort": "eta", "destinations": []}]}`)
+- `sort_order` integer default 0
+- UNIQUE(user_id, card_type)
+
+### UserFeatureAccess
+- `id` UUID PK
+- `user_id` FK → User
+- `feature_key` string(100) (e.g. "card:bart")
+- `enabled` boolean default true
+- `granted_by` FK → User nullable
+- UNIQUE(user_id, feature_key)

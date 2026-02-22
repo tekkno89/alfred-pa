@@ -9,6 +9,9 @@ graph TD
     B --> D[Sessions API]
     B --> E[Auth API]
     B --> S[Slack API]
+    B --> DA[Dashboard API]
+    B --> AD[Admin API]
+    DA --> BART[BART API]
     D --> F[AlfredAgent]
     S --> F
     F --> G[ReAct Loop]
@@ -22,6 +25,7 @@ graph TD
     H --> K[OpenRouter]
     F --> L[PostgreSQL + pgvector]
     S --> M[Redis]
+    DA -->|cache| M
     D -->|Cross-sync| C
 ```
 
@@ -39,4 +43,7 @@ graph TD
 - **Web Search Tool**: Tavily search + LLM synthesis (returns concise summary to main agent)
 - **LLM Providers**: Gemini, Claude, or OpenRouter models
 - **PostgreSQL**: Primary database with vector search
-- **Redis**: Event deduplication, linking codes (TTL-based)
+- **Dashboard API**: Dashboard preferences, feature access, BART proxy endpoints
+- **Admin API**: User role management, feature access control (admin-only)
+- **BART API**: Real-time train departure data from `api.bart.gov`, cached in Redis (30s departures, 24h stations)
+- **Redis**: Event deduplication, linking codes (TTL-based), BART API cache

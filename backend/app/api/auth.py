@@ -92,6 +92,7 @@ async def get_current_user_profile(current_user: CurrentUser) -> UserResponse:
     return UserResponse(
         id=current_user.id,
         email=current_user.email,
+        role=current_user.role,
         slack_user_id=current_user.slack_user_id,
         created_at=current_user.created_at,
     )

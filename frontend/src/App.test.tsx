@@ -62,6 +62,7 @@ describe('App', () => {
       useAuthStore.getState().setAuth('test-token', {
         id: 'test-user-id',
         email: 'test@example.com',
+        role: 'user',
         created_at: new Date().toISOString(),
       })
     })

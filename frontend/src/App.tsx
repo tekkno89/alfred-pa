@@ -9,6 +9,8 @@ import { SessionsPage } from '@/pages/SessionsPage'
 import { FocusPage } from '@/pages/FocusPage'
 import { FocusSettingsPage } from '@/pages/FocusSettingsPage'
 import { WebhooksPage } from '@/pages/WebhooksPage'
+import { BartPage } from '@/pages/BartPage'
+import { AdminPage } from '@/pages/AdminPage'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { AuthGuard } from '@/components/auth/AuthGuard'
 import { NotificationProvider } from '@/components/notifications/NotificationProvider'
@@ -41,6 +43,8 @@ function App() {
           <Route path="/focus" element={<FocusPage />} />
           <Route path="/settings/focus" element={<FocusSettingsPage />} />
           <Route path="/settings/webhooks" element={<WebhooksPage />} />
+          <Route path="/dashboard/bart" element={<BartPage />} />
+          <Route path="/admin" element={<AdminPage />} />
         </Route>
       </Routes>
     </div>

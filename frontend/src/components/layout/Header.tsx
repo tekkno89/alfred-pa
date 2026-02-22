@@ -1,6 +1,6 @@
 import { useNavigate, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { LogOut, User, Brain, Settings, Bell, BellOff, Coffee } from 'lucide-react'
+import { LogOut, User, Brain, Settings, Bell, BellOff, Coffee, Shield } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -122,6 +122,12 @@ export function Header() {
               <Settings className="mr-2 h-4 w-4" />
               Settings
             </DropdownMenuItem>
+            {user?.role === 'admin' && (
+              <DropdownMenuItem onClick={() => navigate('/admin')}>
+                <Shield className="mr-2 h-4 w-4" />
+                Admin
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleLogout}>
               <LogOut className="mr-2 h-4 w-4" />
