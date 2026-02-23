@@ -215,8 +215,8 @@ export function update(engine: Engine) {
     // Auto-jump: look ahead for obstacles
     for (const o of engine.obstacles) {
       const dist = o.x - engine.batman.x
-      if (dist > 0 && dist < 80 && engine.batman.grounded) {
-        engine.batman.vy = JUMP_VELOCITY * 0.85
+      if (dist > 0 && dist < 50 && engine.batman.grounded) {
+        engine.batman.vy = JUMP_VELOCITY
         engine.batman.grounded = false
         break
       }
