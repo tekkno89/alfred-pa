@@ -6,6 +6,7 @@ import hmac
 import json
 import logging
 import time
+from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qs
 
@@ -30,6 +31,8 @@ from app.services.slack import get_slack_service
 EVENT_DEDUP_TTL = 300
 # Cache TTL for Slack name lookups (1 day)
 SLACK_NAME_CACHE_TTL = 86400
+# TTL for focus auto-reply dedup keys (24 hours)
+FOCUS_REPLY_DEDUP_TTL = 86400
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +83,21 @@ async def _cached_slack_channel_name(
         name = channel_id
     await redis_client.set(cache_key, name, ex=SLACK_NAME_CACHE_TTL)
     return name
+
+
+async def _has_already_replied(user_id: str, started_at: datetime, sender_slack_id: str) -> bool:
+    """Check if we've already sent a focus auto-reply to this sender during this session."""
+    redis_client = await get_redis()
+    key = f"focus:replied:{user_id}:{int(started_at.timestamp())}"
+    return await redis_client.sismember(key, sender_slack_id)
+
+
+async def _mark_replied(user_id: str, started_at: datetime, sender_slack_id: str) -> None:
+    """Record that we sent a focus auto-reply to this sender during this session."""
+    redis_client = await get_redis()
+    key = f"focus:replied:{user_id}:{int(started_at.timestamp())}"
+    await redis_client.sadd(key, sender_slack_id)
+    await redis_client.expire(key, FOCUS_REPLY_DEDUP_TTL)
 
 
 class SlackChallenge(BaseModel):
@@ -283,6 +301,15 @@ async def handle_message_event(
 
                 if await focus_service.is_in_focus_mode(recipient_user.id):
                     if not await focus_service.is_vip(recipient_user.id, sender_slack_id):
+                        # Dedup: skip if we already replied to this sender this session
+                        started_at = await focus_service.get_started_at(recipient_user.id)
+                        if started_at and await _has_already_replied(recipient_user.id, started_at, sender_slack_id):
+                            logger.info(
+                                f"[FOCUS DEDUP Step2] Already replied to sender={sender_slack_id} "
+                                f"for user={recipient_user.id} this session, skipping"
+                            )
+                            continue
+
                         # --- DEBUG: dry-run logging (auto-reply temporarily disabled) ---
                         sender_name = await _cached_slack_user_name(slack_service, sender_slack_id)
                         receiver_name = await _cached_slack_user_name(slack_service, auth_user_id)
@@ -294,6 +321,11 @@ async def handle_message_event(
                             f"is_mention=False, "
                             f"receiver={auth_user_id} ({receiver_name})"
                         )
+
+                        # Mark this sender as replied for dedup
+                        if started_at:
+                            await _mark_replied(recipient_user.id, started_at, sender_slack_id)
+
                         # TODO: re-enable auto-reply after verification
                         # custom_message = await focus_service.get_custom_message(
                         #     recipient_user.id
@@ -328,6 +360,15 @@ async def handle_message_event(
                 if await focus_service.is_in_focus_mode(mentioned_user.id):
                     # Check if sender is VIP for this user
                     if not await focus_service.is_vip(mentioned_user.id, sender_slack_id):
+                        # Dedup: skip if we already replied to this sender this session
+                        started_at = await focus_service.get_started_at(mentioned_user.id)
+                        if started_at and await _has_already_replied(mentioned_user.id, started_at, sender_slack_id):
+                            logger.info(
+                                f"[FOCUS DEDUP Step3] Already replied to sender={sender_slack_id} "
+                                f"for user={mentioned_user.id} this session, skipping"
+                            )
+                            continue
+
                         # --- DEBUG: dry-run logging (auto-reply temporarily disabled) ---
                         sender_name = await _cached_slack_user_name(slack_service, sender_slack_id)
                         receiver_name = await _cached_slack_user_name(slack_service, mentioned_slack_id)
@@ -339,6 +380,11 @@ async def handle_message_event(
                             f"is_mention=True, "
                             f"receiver={mentioned_slack_id} ({receiver_name})"
                         )
+
+                        # Mark this sender as replied for dedup
+                        if started_at:
+                            await _mark_replied(mentioned_user.id, started_at, sender_slack_id)
+
                         # TODO: re-enable auto-reply after verification
                         # custom_message = await focus_service.get_custom_message(mentioned_user.id)
                         # await send_focus_mode_reply(

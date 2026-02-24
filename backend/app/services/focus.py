@@ -322,6 +322,11 @@ class FocusModeService:
             )
             return "work"
 
+    async def get_started_at(self, user_id: str) -> datetime | None:
+        """Get the started_at timestamp for the current focus session."""
+        state = await self.state_repo.get_by_user_id(user_id)
+        return state.started_at if state and state.is_active else None
+
     async def is_vip(self, user_id: str, sender_slack_id: str) -> bool:
         """Check if a Slack user is in the VIP list."""
         return await self.vip_repo.is_vip(user_id, sender_slack_id)
