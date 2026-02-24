@@ -1,11 +1,13 @@
 """Admin API endpoints."""
 
 from fastapi import APIRouter, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.api.deps import AdminUser, DbSession
 from app.db.models import User
 from app.db.repositories.dashboard import FeatureAccessRepository
+from app.db.repositories.system_settings import SystemSettingsRepository
 from app.schemas.dashboard import (
     AdminUserList,
     AdminUserResponse,
@@ -105,3 +107,60 @@ async def delete_feature_access(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Feature access not found",
         )
+
+
+# --- System settings ---
+
+
+class SystemSettingResponse(BaseModel):
+    """Response for a single system setting."""
+
+    key: str
+    value: str
+
+
+class SystemSettingUpdate(BaseModel):
+    """Request to update a system setting."""
+
+    value: str
+
+
+@router.get("/settings", response_model=list[SystemSettingResponse])
+async def list_system_settings(
+    admin: AdminUser,
+    db: DbSession,
+) -> list[SystemSettingResponse]:
+    """List all system settings."""
+    repo = SystemSettingsRepository(db)
+    settings = await repo.get_all()
+    return [SystemSettingResponse(key=s.key, value=s.value) for s in settings]
+
+
+@router.get("/settings/{key}", response_model=SystemSettingResponse)
+async def get_system_setting(
+    key: str,
+    admin: AdminUser,
+    db: DbSession,
+) -> SystemSettingResponse:
+    """Get a single system setting."""
+    repo = SystemSettingsRepository(db)
+    value = await repo.get(key)
+    if value is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Setting '{key}' not found",
+        )
+    return SystemSettingResponse(key=key, value=value)
+
+
+@router.put("/settings/{key}", response_model=SystemSettingResponse)
+async def update_system_setting(
+    key: str,
+    data: SystemSettingUpdate,
+    admin: AdminUser,
+    db: DbSession,
+) -> SystemSettingResponse:
+    """Update a system setting."""
+    repo = SystemSettingsRepository(db)
+    setting = await repo.set(key, data.value)
+    return SystemSettingResponse(key=setting.key, value=setting.value)

@@ -8,6 +8,7 @@ from app.db.models.webhook import WebhookSubscription
 from app.db.models.oauth_token import UserOAuthToken
 from app.db.models.note import Note
 from app.db.models.dashboard import UserDashboardPreference, UserFeatureAccess
+from app.db.models.system_settings import SystemSetting
 
 __all__ = [
     "User",
@@ -23,4 +24,5 @@ __all__ = [
     "Note",
     "UserDashboardPreference",
     "UserFeatureAccess",
+    "SystemSetting",
 ]

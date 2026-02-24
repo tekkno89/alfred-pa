@@ -6,6 +6,8 @@ import type {
   FeatureAccess,
   FeatureAccessUpdate,
   RoleUpdate,
+  SystemSetting,
+  SystemSettingUpdate,
 } from '@/types'
 
 export function useAdminUsers() {
@@ -72,6 +74,25 @@ export function useDeleteFeatureAccess() {
     }) => apiDelete<void>(`/admin/users/${userId}/features/${featureKey}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-user-features'] })
+    },
+  })
+}
+
+export function useSystemSettings() {
+  return useQuery({
+    queryKey: ['admin-system-settings'],
+    queryFn: () => apiGet<SystemSetting[]>('/admin/settings'),
+  })
+}
+
+export function useUpdateSystemSetting() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ key, data }: { key: string; data: SystemSettingUpdate }) =>
+      apiPut<SystemSetting>(`/admin/settings/${key}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-system-settings'] })
     },
   })
 }

@@ -385,3 +385,12 @@ export interface RoleUpdate {
 export interface FeatureAccessUpdate {
   enabled: boolean
 }
+
+export interface SystemSetting {
+  key: string
+  value: string
+}
+
+export interface SystemSettingUpdate {
+  value: string
+}

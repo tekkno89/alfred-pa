@@ -18,6 +18,7 @@ from app.core.config import get_settings
 from app.core.redis import get_redis
 from app.db.repositories import SessionRepository, UserRepository
 from app.db.repositories.focus import FocusSettingsRepository
+from app.db.repositories.system_settings import SystemSettingsRepository
 from app.schemas.focus import BypassNotificationConfig
 from app.services.bypass_notify import send_bypass_email, send_bypass_sms
 from app.services.focus import FocusModeService
@@ -194,6 +195,12 @@ async def handle_message_event(
     user_repo = UserRepository(db)
     session_repo = SessionRepository(db)
     focus_service = FocusModeService(db)
+    system_settings_repo = SystemSettingsRepository(db)
+
+    # Check system-level toggle for focus auto-replies
+    auto_reply_enabled = await system_settings_repo.get_bool(
+        "focus_auto_reply_enabled", default=True
+    )
 
     # --- Step 1: Check if this is a DM to the Alfred bot ---
     # For DM channels, check if the bot is a participant (cached after first check).
@@ -212,7 +219,7 @@ async def handle_message_event(
         # Iterate all authorizations to find non-sender users who may have
         # focus mode enabled (handles multi-user case where both parties
         # are Alfred users).
-        if authorizations:
+        if authorizations and auto_reply_enabled:
             for auth_entry in authorizations:
                 auth_user_id = auth_entry.get("user_id")
                 is_bot_auth = auth_entry.get("is_bot", False)
@@ -254,32 +261,33 @@ async def handle_message_event(
     # --- Step 3: Check @mentions for focus mode (bot-token events) ---
     mentioned_user_ids = _extract_mentioned_user_ids(original_text)
     logger.info(f"Message from {sender_slack_id}, mentions: {mentioned_user_ids}")
-    for mentioned_slack_id in mentioned_user_ids:
-        # Skip if the sender mentioned themselves
-        if mentioned_slack_id == sender_slack_id:
-            continue
+    if auto_reply_enabled:
+        for mentioned_slack_id in mentioned_user_ids:
+            # Skip if the sender mentioned themselves
+            if mentioned_slack_id == sender_slack_id:
+                continue
 
-        mentioned_user = await user_repo.get_by_slack_id(mentioned_slack_id)
-        if not mentioned_user:
-            continue
+            mentioned_user = await user_repo.get_by_slack_id(mentioned_slack_id)
+            if not mentioned_user:
+                continue
 
-        # Check if the mentioned user is in focus mode
-        if await focus_service.is_in_focus_mode(mentioned_user.id):
-            # Check if sender is VIP for this user
-            if not await focus_service.is_vip(mentioned_user.id, sender_slack_id):
-                # Send auto-reply for the mentioned user
-                # DM the sender directly (bot may not be in the channel)
-                custom_message = await focus_service.get_custom_message(mentioned_user.id)
-                await send_focus_mode_reply(
-                    slack_service,
-                    sender_slack_id,  # DM the sender
-                    None,  # No thread for DM
-                    mentioned_user.id,
-                    sender_slack_id,
-                    custom_message,
-                    recipient_slack_id=mentioned_slack_id,
-                )
-                # Continue checking other mentions (don't return)
+            # Check if the mentioned user is in focus mode
+            if await focus_service.is_in_focus_mode(mentioned_user.id):
+                # Check if sender is VIP for this user
+                if not await focus_service.is_vip(mentioned_user.id, sender_slack_id):
+                    # Send auto-reply for the mentioned user
+                    # DM the sender directly (bot may not be in the channel)
+                    custom_message = await focus_service.get_custom_message(mentioned_user.id)
+                    await send_focus_mode_reply(
+                        slack_service,
+                        sender_slack_id,  # DM the sender
+                        None,  # No thread for DM
+                        mentioned_user.id,
+                        sender_slack_id,
+                        custom_message,
+                        recipient_slack_id=mentioned_slack_id,
+                    )
+                    # Continue checking other mentions (don't return)
 
     # Only continue processing if this is a DM or bot mention
     # For channel messages where only a user was mentioned, we're done

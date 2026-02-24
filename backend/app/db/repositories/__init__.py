@@ -15,6 +15,7 @@ from app.db.repositories.dashboard import (
     DashboardPreferenceRepository,
     FeatureAccessRepository,
 )
+from app.db.repositories.system_settings import SystemSettingsRepository
 
 __all__ = [
     "BaseRepository",
@@ -30,4 +31,5 @@ __all__ = [
     "NoteRepository",
     "DashboardPreferenceRepository",
     "FeatureAccessRepository",
+    "SystemSettingsRepository",
 ]

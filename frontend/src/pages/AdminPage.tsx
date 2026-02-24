@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { Shield, ArrowLeft } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -12,7 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useAuthStore } from '@/lib/auth'
-import { useAdminUsers, useUpdateUserRole, useUserFeatures, useSetFeatureAccess } from '@/hooks/useAdmin'
+import { useAdminUsers, useUpdateUserRole, useUserFeatures, useSetFeatureAccess, useSystemSettings, useUpdateSystemSetting } from '@/hooks/useAdmin'
 import type { AdminUser } from '@/types'
 
 const FEATURE_KEYS = ['card:bart', 'card:notes'] as const
@@ -105,6 +107,53 @@ function UserRow({ user }: { user: AdminUser }) {
   )
 }
 
+function SystemSettingsCard() {
+  const { data: settings, isLoading } = useSystemSettings()
+  const updateSetting = useUpdateSystemSetting()
+
+  const autoReplyEnabled = settings?.find(
+    (s) => s.key === 'focus_auto_reply_enabled'
+  )?.value === 'true'
+
+  const handleToggle = (checked: boolean) => {
+    updateSetting.mutate({
+      key: 'focus_auto_reply_enabled',
+      data: { value: checked ? 'true' : 'false' },
+    })
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>System Settings</CardTitle>
+        <CardDescription>Global settings that affect all users</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading settings...</p>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="focus-auto-reply">Focus mode auto-reply</Label>
+                <p className="text-xs text-muted-foreground">
+                  Send auto-reply messages when someone DMs or @mentions a user in focus mode
+                </p>
+              </div>
+              <Switch
+                id="focus-auto-reply"
+                checked={autoReplyEnabled}
+                onCheckedChange={handleToggle}
+                disabled={updateSetting.isPending}
+              />
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function AdminPage() {
   const navigate = useNavigate()
   const currentUser = useAuthStore((state) => state.user)
@@ -144,6 +193,8 @@ export function AdminPage() {
             <h1 className="text-xl font-semibold">Admin</h1>
           </div>
         </div>
+
+        <SystemSettingsCard />
 
         <Card>
           <CardHeader>
