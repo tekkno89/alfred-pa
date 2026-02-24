@@ -195,6 +195,11 @@ graph TD
 - Cross-channel sync enabled
 - Responses from webapp mirror to Slack
 
+### Focus Mode Vocabulary
+- **Alfred user**: The Alfred user who has focus mode enabled
+- **Sender**: The Slack user who DMs or @mentions the Alfred user, triggering an auto-reply
+- **VIP**: A sender who is allowed to bypass an Alfred user's focus session (no auto-reply sent)
+
 ## Environment Variables
 
 ### Backend

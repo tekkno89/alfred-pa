@@ -28,10 +28,58 @@ from app.services.slack import get_slack_service
 
 # Event deduplication TTL (5 minutes)
 EVENT_DEDUP_TTL = 300
+# Cache TTL for Slack name lookups (1 day)
+SLACK_NAME_CACHE_TTL = 86400
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+async def _cached_slack_user_name(
+    slack_service, slack_user_id: str
+) -> str:
+    """Look up a Slack user's display name, caching in Redis for 1 day."""
+    cache_key = f"slack:user_name:{slack_user_id}"
+    redis_client = await get_redis()
+    cached = await redis_client.get(cache_key)
+    if cached:
+        return cached
+    try:
+        user_info = await slack_service.get_user_info(slack_user_id)
+        name = (
+            user_info.get("real_name")
+            or user_info.get("profile", {}).get("display_name")
+            or user_info.get("name")
+            or slack_user_id
+        )
+    except Exception:
+        name = slack_user_id
+    await redis_client.set(cache_key, name, ex=SLACK_NAME_CACHE_TTL)
+    return name
+
+
+async def _cached_slack_channel_name(
+    slack_service, channel_id: str
+) -> str:
+    """Look up a Slack channel/DM name, caching in Redis for 1 day."""
+    cache_key = f"slack:channel_name:{channel_id}"
+    redis_client = await get_redis()
+    cached = await redis_client.get(cache_key)
+    if cached:
+        return cached
+    try:
+        resp = await slack_service.client.conversations_info(channel=channel_id)
+        ch = resp.data.get("channel", {})
+        if ch.get("is_im"):
+            # For DMs, show as "DM(<user_id>)"
+            name = f"DM({ch.get('user', channel_id)})"
+        else:
+            name = f"#{ch.get('name', channel_id)}"
+    except Exception:
+        name = channel_id
+    await redis_client.set(cache_key, name, ex=SLACK_NAME_CACHE_TTL)
+    return name
 
 
 class SlackChallenge(BaseModel):
@@ -219,7 +267,7 @@ async def handle_message_event(
         # Iterate all authorizations to find non-sender users who may have
         # focus mode enabled (handles multi-user case where both parties
         # are Alfred users).
-        if authorizations and auto_reply_enabled:
+        if channel_id.startswith("D") and authorizations and auto_reply_enabled:
             for auth_entry in authorizations:
                 auth_user_id = auth_entry.get("user_id")
                 is_bot_auth = auth_entry.get("is_bot", False)
@@ -235,59 +283,98 @@ async def handle_message_event(
 
                 if await focus_service.is_in_focus_mode(recipient_user.id):
                     if not await focus_service.is_vip(recipient_user.id, sender_slack_id):
-                        custom_message = await focus_service.get_custom_message(
-                            recipient_user.id
-                        )
-                        await send_focus_mode_reply(
-                            slack_service,
-                            sender_slack_id,
-                            None,
-                            recipient_user.id,
-                            sender_slack_id,
-                            custom_message,
-                            recipient_slack_id=auth_user_id,
-                        )
+                        # --- DEBUG: dry-run logging (auto-reply temporarily disabled) ---
+                        sender_name = await _cached_slack_user_name(slack_service, sender_slack_id)
+                        receiver_name = await _cached_slack_user_name(slack_service, auth_user_id)
+                        channel_name = await _cached_slack_channel_name(slack_service, channel_id)
                         logger.info(
-                            f"Sent focus mode auto-reply for user {recipient_user.id}"
+                            f"[FOCUS DRY-RUN Step2] "
+                            f"sender={sender_slack_id} ({sender_name}), "
+                            f"channel={channel_id} ({channel_name}), "
+                            f"is_mention=False, "
+                            f"receiver={auth_user_id} ({receiver_name})"
                         )
+                        # TODO: re-enable auto-reply after verification
+                        # custom_message = await focus_service.get_custom_message(
+                        #     recipient_user.id
+                        # )
+                        # await send_focus_mode_reply(
+                        #     slack_service,
+                        #     sender_slack_id,
+                        #     None,
+                        #     recipient_user.id,
+                        #     sender_slack_id,
+                        #     custom_message,
+                        #     recipient_slack_id=auth_user_id,
+                        # )
+                        # logger.info(
+                        #     f"Sent focus mode auto-reply for user {recipient_user.id}"
+                        # )
+
+        # --- Step 3: Check @mentions for focus mode ---
+        mentioned_user_ids = _extract_mentioned_user_ids(original_text)
+        logger.info(f"Message from {sender_slack_id}, mentions: {mentioned_user_ids}")
+        if auto_reply_enabled:
+            for mentioned_slack_id in mentioned_user_ids:
+                # Skip if the sender mentioned themselves
+                if mentioned_slack_id == sender_slack_id:
+                    continue
+
+                mentioned_user = await user_repo.get_by_slack_id(mentioned_slack_id)
+                if not mentioned_user:
+                    continue
+
+                # Check if the mentioned user is in focus mode
+                if await focus_service.is_in_focus_mode(mentioned_user.id):
+                    # Check if sender is VIP for this user
+                    if not await focus_service.is_vip(mentioned_user.id, sender_slack_id):
+                        # --- DEBUG: dry-run logging (auto-reply temporarily disabled) ---
+                        sender_name = await _cached_slack_user_name(slack_service, sender_slack_id)
+                        receiver_name = await _cached_slack_user_name(slack_service, mentioned_slack_id)
+                        channel_name = await _cached_slack_channel_name(slack_service, channel_id)
+                        logger.info(
+                            f"[FOCUS DRY-RUN Step3] "
+                            f"sender={sender_slack_id} ({sender_name}), "
+                            f"channel={channel_id} ({channel_name}), "
+                            f"is_mention=True, "
+                            f"receiver={mentioned_slack_id} ({receiver_name})"
+                        )
+                        # TODO: re-enable auto-reply after verification
+                        # custom_message = await focus_service.get_custom_message(mentioned_user.id)
+                        # await send_focus_mode_reply(
+                        #     slack_service,
+                        #     sender_slack_id,  # DM the sender
+                        #     None,  # No thread for DM
+                        #     mentioned_user.id,
+                        #     sender_slack_id,
+                        #     custom_message,
+                        #     recipient_slack_id=mentioned_slack_id,
+                        # )
+                        # Continue checking other mentions (don't return)
 
         # Not a bot DM — nothing more to do for user-token events
         has_bot_authorization = authorizations and any(
             a.get("is_bot", False) for a in authorizations
         )
         if not has_bot_authorization:
+            sender_name = await _cached_slack_user_name(slack_service, sender_slack_id)
+            channel_name = await _cached_slack_channel_name(slack_service, channel_id)
+            # Find the Alfred user from authorizations (non-bot, non-sender)
+            receiver_ids = [
+                a.get("user_id") for a in (authorizations or [])
+                if not a.get("is_bot", False) and a.get("user_id") != sender_slack_id
+            ]
+            receiver_info = ""
+            for rid in receiver_ids:
+                rname = await _cached_slack_user_name(slack_service, rid)
+                receiver_info += f", receiver={rid} ({rname})"
+            logger.info(
+                f"[FOCUS DEBUG] No bot auth, returning early. "
+                f"sender={sender_slack_id} ({sender_name}), "
+                f"channel={channel_id} ({channel_name})"
+                f"{receiver_info}"
+            )
             return
-
-    # --- Step 3: Check @mentions for focus mode (bot-token events) ---
-    mentioned_user_ids = _extract_mentioned_user_ids(original_text)
-    logger.info(f"Message from {sender_slack_id}, mentions: {mentioned_user_ids}")
-    if auto_reply_enabled:
-        for mentioned_slack_id in mentioned_user_ids:
-            # Skip if the sender mentioned themselves
-            if mentioned_slack_id == sender_slack_id:
-                continue
-
-            mentioned_user = await user_repo.get_by_slack_id(mentioned_slack_id)
-            if not mentioned_user:
-                continue
-
-            # Check if the mentioned user is in focus mode
-            if await focus_service.is_in_focus_mode(mentioned_user.id):
-                # Check if sender is VIP for this user
-                if not await focus_service.is_vip(mentioned_user.id, sender_slack_id):
-                    # Send auto-reply for the mentioned user
-                    # DM the sender directly (bot may not be in the channel)
-                    custom_message = await focus_service.get_custom_message(mentioned_user.id)
-                    await send_focus_mode_reply(
-                        slack_service,
-                        sender_slack_id,  # DM the sender
-                        None,  # No thread for DM
-                        mentioned_user.id,
-                        sender_slack_id,
-                        custom_message,
-                        recipient_slack_id=mentioned_slack_id,
-                    )
-                    # Continue checking other mentions (don't return)
 
     # Only continue processing if this is a DM or bot mention
     # For channel messages where only a user was mentioned, we're done
