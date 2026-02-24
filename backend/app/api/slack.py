@@ -79,7 +79,8 @@ async def _cached_slack_channel_name(
             name = f"DM({ch.get('user', channel_id)})"
         else:
             name = f"#{ch.get('name', channel_id)}"
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Could not resolve channel name for {channel_id}: {e}")
         name = channel_id
     await redis_client.set(cache_key, name, ex=SLACK_NAME_CACHE_TTL)
     return name
@@ -405,15 +406,17 @@ async def handle_message_event(
         if not has_bot_authorization:
             sender_name = await _cached_slack_user_name(slack_service, sender_slack_id)
             channel_name = await _cached_slack_channel_name(slack_service, channel_id)
-            # Find the Alfred user from authorizations (non-bot, non-sender)
-            receiver_ids = [
+            # Find authorized Alfred users (non-bot, non-sender).
+            # In DMs this is the recipient; in channels it's just the
+            # user whose app installation granted event visibility.
+            auth_user_ids = [
                 a.get("user_id") for a in (authorizations or [])
                 if not a.get("is_bot", False) and a.get("user_id") != sender_slack_id
             ]
             receiver_info = ""
-            for rid in receiver_ids:
+            for rid in auth_user_ids:
                 rname = await _cached_slack_user_name(slack_service, rid)
-                receiver_info += f", receiver={rid} ({rname})"
+                receiver_info += f", authorized_user={rid} ({rname})"
             logger.info(
                 f"[FOCUS DEBUG] No bot auth, returning early. "
                 f"sender={sender_slack_id} ({sender_name}), "
