@@ -243,10 +243,15 @@ async def handle_message_event(
 
     # Only handle message events (not bot messages, message changes, etc.)
     if event_type not in ("message", "app_mention"):
+        logger.info(f"[DROP] Unsupported event type={event_type}, channel={event.get('channel')}")
         return
 
     # Ignore bot messages to prevent loops
     if event.get("bot_id") or event.get("subtype") == "bot_message":
+        logger.info(
+            f"[DROP] Bot/automated message. channel={event.get('channel')}, "
+            f"bot_id={event.get('bot_id')}, subtype={event.get('subtype')}"
+        )
         return
 
     sender_slack_id = event.get("user")
@@ -256,6 +261,18 @@ async def handle_message_event(
     message_ts = event.get("ts")
 
     if not sender_slack_id or not channel_id or not original_text:
+        missing = []
+        if not sender_slack_id:
+            missing.append("user")
+        if not channel_id:
+            missing.append("channel")
+        if not original_text:
+            missing.append("text")
+        logger.info(
+            f"[DROP] Missing required fields: {', '.join(missing)}. "
+            f"channel={channel_id}, user={sender_slack_id}, "
+            f"subtype={event.get('subtype')}"
+        )
         return
 
     slack_service = get_slack_service()
