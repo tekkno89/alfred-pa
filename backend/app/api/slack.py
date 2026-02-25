@@ -281,7 +281,22 @@ async def handle_message_event(
     if is_bot_dm:
         # This is a message to Alfred — skip filtering and fall through to the
         # Alfred agent processing at the bottom of this function (line ~296+).
-        logger.info(f"Bot DM from {sender_slack_id} in channel {channel_id}")
+        sender_name = await _cached_slack_user_name(slack_service, sender_slack_id)
+        logger.info(
+            f"[ALFRED DM] Message to Alfred from sender={sender_slack_id} ({sender_name}) "
+            f"in channel={channel_id}. Routing to agent."
+        )
+    elif not channel_id.startswith("D") and not _extract_mentioned_user_ids(original_text):
+        # Channel message with no @mentions — nothing for focus mode to act on.
+        # Skip processing to avoid unnecessary DB lookups on every channel message.
+        sender_name = await _cached_slack_user_name(slack_service, sender_slack_id)
+        channel_name = await _cached_slack_channel_name(slack_service, channel_id)
+        logger.info(
+            f"[SKIP] Channel message with no mentions. "
+            f"sender={sender_slack_id} ({sender_name}), "
+            f"channel={channel_id} ({channel_name})"
+        )
+        return
     else:
         # --- Step 2: Check focus mode for all authorized recipients ---
         # Iterate all authorizations to find non-sender users who may have
@@ -306,9 +321,11 @@ async def handle_message_event(
                         # Dedup: skip if we already replied to this sender this session
                         started_at = await focus_service.get_started_at(recipient_user.id)
                         if started_at and await _has_already_replied(recipient_user.id, started_at, sender_slack_id):
+                            sender_name = await _cached_slack_user_name(slack_service, sender_slack_id)
+                            receiver_name = await _cached_slack_user_name(slack_service, auth_user_id)
                             logger.info(
-                                f"[FOCUS DEDUP Step2] Already replied to sender={sender_slack_id} "
-                                f"for user={recipient_user.id} this session, skipping"
+                                f"[FOCUS DEDUP Step2] Already replied to sender={sender_slack_id} ({sender_name}) "
+                                f"about recipient={auth_user_id} ({receiver_name}) this session, skipping"
                             )
                             continue
 
@@ -316,12 +333,13 @@ async def handle_message_event(
                         sender_name = await _cached_slack_user_name(slack_service, sender_slack_id)
                         receiver_name = await _cached_slack_user_name(slack_service, auth_user_id)
                         channel_name = await _cached_slack_channel_name(slack_service, channel_id)
+                        custom_message = await focus_service.get_custom_message(recipient_user.id)
                         logger.info(
                             f"[FOCUS DRY-RUN Step2] "
-                            f"sender={sender_slack_id} ({sender_name}), "
-                            f"channel={channel_id} ({channel_name}), "
-                            f"is_mention=False, "
-                            f"receiver={auth_user_id} ({receiver_name})"
+                            f"Would DM sender={sender_slack_id} ({sender_name}) "
+                            f"that recipient={auth_user_id} ({receiver_name}) is in focus mode. "
+                            f"Triggered by DM in channel={channel_id} ({channel_name}). "
+                            f"custom_message={custom_message!r}"
                         )
 
                         # Mark this sender as replied for dedup
@@ -365,9 +383,11 @@ async def handle_message_event(
                         # Dedup: skip if we already replied to this sender this session
                         started_at = await focus_service.get_started_at(mentioned_user.id)
                         if started_at and await _has_already_replied(mentioned_user.id, started_at, sender_slack_id):
+                            sender_name = await _cached_slack_user_name(slack_service, sender_slack_id)
+                            receiver_name = await _cached_slack_user_name(slack_service, mentioned_slack_id)
                             logger.info(
-                                f"[FOCUS DEDUP Step3] Already replied to sender={sender_slack_id} "
-                                f"for user={mentioned_user.id} this session, skipping"
+                                f"[FOCUS DEDUP Step3] Already replied to sender={sender_slack_id} ({sender_name}) "
+                                f"about mentioned={mentioned_slack_id} ({receiver_name}) this session, skipping"
                             )
                             continue
 
@@ -375,12 +395,13 @@ async def handle_message_event(
                         sender_name = await _cached_slack_user_name(slack_service, sender_slack_id)
                         receiver_name = await _cached_slack_user_name(slack_service, mentioned_slack_id)
                         channel_name = await _cached_slack_channel_name(slack_service, channel_id)
+                        custom_message = await focus_service.get_custom_message(mentioned_user.id)
                         logger.info(
                             f"[FOCUS DRY-RUN Step3] "
-                            f"sender={sender_slack_id} ({sender_name}), "
-                            f"channel={channel_id} ({channel_name}), "
-                            f"is_mention=True, "
-                            f"receiver={mentioned_slack_id} ({receiver_name})"
+                            f"Would DM sender={sender_slack_id} ({sender_name}) "
+                            f"that mentioned={mentioned_slack_id} ({receiver_name}) is in focus mode. "
+                            f"Triggered by @mention in channel={channel_id} ({channel_name}). "
+                            f"custom_message={custom_message!r}"
                         )
 
                         # Mark this sender as replied for dedup
