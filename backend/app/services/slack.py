@@ -22,26 +22,6 @@ class SlackService:
         settings = get_settings()
         self.client = AsyncWebClient(token=settings.slack_bot_token)
         self.signing_secret = settings.slack_signing_secret
-        # Cache of channel IDs confirmed as bot DM channels
-        self._bot_dm_channels: set[str] = set()
-
-    async def is_bot_dm_channel(self, channel_id: str) -> bool:
-        """
-        Check if a DM channel is between the bot and a user (cached).
-
-        Uses conversations.info — the bot can only see DM channels it
-        participates in. If the call succeeds, this is a bot DM.
-        If it fails, it's a user-to-user DM the bot has no access to.
-        """
-        if channel_id in self._bot_dm_channels:
-            return True
-
-        try:
-            await self.client.conversations_info(channel=channel_id)
-            self._bot_dm_channels.add(channel_id)
-            return True
-        except SlackApiError:
-            return False
 
     async def verify_signature(
         self,
