@@ -287,13 +287,16 @@ async def handle_message_event(
     )
 
     # --- Step 1: Check if this is a DM to the Alfred bot ---
-    # A bot DM is a D-prefixed channel where the bot token granted event
-    # visibility (is_bot=True in authorizations). User-to-user DMs only
-    # have user-token authorizations.
+    # Check authorizations first (no API call). If the event was delivered
+    # via user-token only (no bot auth), fall back to conversations.info
+    # to check if the bot is actually in this DM channel.
     has_bot_authorization = authorizations and any(
         a.get("is_bot", False) for a in authorizations
     )
-    is_bot_dm = channel_id.startswith("D") and has_bot_authorization
+    if channel_id.startswith("D") and not has_bot_authorization:
+        is_bot_dm = await slack_service.is_bot_dm_channel(channel_id)
+    else:
+        is_bot_dm = channel_id.startswith("D") and has_bot_authorization
 
     if is_bot_dm:
         # This is a message to Alfred — skip filtering and fall through to the
