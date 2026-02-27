@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     slack_client_id: str = ""
     slack_client_secret: str = ""
     slack_oauth_redirect_uri: str = ""
+    slack_debug: bool = False
 
     # Frontend URL (for OAuth callback redirects)
     frontend_url: str = "http://localhost:3000"

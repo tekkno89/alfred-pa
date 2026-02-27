@@ -25,6 +25,10 @@ class _SuppressPollingFilter(logging.Filter):
 
 logging.getLogger("uvicorn.access").addFilter(_SuppressPollingFilter())
 
+# Set Slack event handler log level based on SLACK_DEBUG env var
+if settings.slack_debug:
+    logging.getLogger("app.api.slack").setLevel(logging.DEBUG)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
