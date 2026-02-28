@@ -29,8 +29,11 @@ export function useEnableFocus() {
   return useMutation({
     mutationFn: (data: FocusEnableRequest) =>
       apiPost<FocusStatusResponse>('/focus/enable', data),
+    onMutate: async () => {
+      // Cancel in-flight refetches so stale responses don't overwrite mutation data
+      await queryClient.cancelQueries({ queryKey: ['focus-status'] })
+    },
     onSuccess: (data) => {
-      // Update cache immediately with the response
       queryClient.setQueryData(['focus-status'], data)
     },
   })
@@ -41,8 +44,10 @@ export function useDisableFocus() {
 
   return useMutation({
     mutationFn: () => apiPost<FocusStatusResponse>('/focus/disable'),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ['focus-status'] })
+    },
     onSuccess: (data) => {
-      // Update cache immediately with the response
       queryClient.setQueryData(['focus-status'], data)
     },
   })
@@ -54,11 +59,11 @@ export function useStartPomodoro() {
   return useMutation({
     mutationFn: (request: PomodoroStartRequest = {}) =>
       apiPost<FocusStatusResponse>('/focus/pomodoro/start', request),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ['focus-status'] })
+    },
     onSuccess: (data) => {
-      // Update cache immediately with the response
       queryClient.setQueryData(['focus-status'], data)
-      // Also trigger a refetch to ensure consistency
-      queryClient.invalidateQueries({ queryKey: ['focus-status'] })
     },
   })
 }
@@ -68,8 +73,10 @@ export function useSkipPomodoroPhase() {
 
   return useMutation({
     mutationFn: () => apiPost<FocusStatusResponse>('/focus/pomodoro/skip'),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ['focus-status'] })
+    },
     onSuccess: (data) => {
-      // Update cache immediately with the response
       queryClient.setQueryData(['focus-status'], data)
     },
   })

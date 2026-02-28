@@ -5,7 +5,7 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 
 from app.db.session import async_session_maker
-from app.db.repositories import FocusModeStateRepository
+from app.db.repositories import FocusModeStateRepository, FocusSettingsRepository
 from app.services.focus import FocusModeService
 from app.services.slack_user import SlackUserService
 from app.services.notifications import NotificationService
@@ -171,13 +171,15 @@ async def transition_pomodoro(ctx: dict, user_id: str) -> dict:
             )
             return {"status": "complete", "user_id": user_id}
 
-        # Update Slack status for new phase
+        # Update Slack status for new phase (use custom status from settings)
+        settings_repo = FocusSettingsRepository(db)
+        settings = await settings_repo.get_or_create(user_id)
         try:
             if new_phase == "work":
                 await slack_user_service.set_status(
                     user_id,
-                    text="Pomodoro - Focus time",
-                    emoji=":tomato:",
+                    text=settings.pomodoro_work_status_text or "Pomodoro - Focus time",
+                    emoji=settings.pomodoro_work_status_emoji or ":tomato:",
                 )
                 await notification_service.publish(
                     user_id,
@@ -187,8 +189,8 @@ async def transition_pomodoro(ctx: dict, user_id: str) -> dict:
             else:
                 await slack_user_service.set_status(
                     user_id,
-                    text="Pomodoro - Break time",
-                    emoji=":coffee:",
+                    text=settings.pomodoro_break_status_text or "Pomodoro - Break time",
+                    emoji=settings.pomodoro_break_status_emoji or ":coffee:",
                 )
                 await notification_service.publish(
                     user_id,

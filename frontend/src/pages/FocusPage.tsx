@@ -166,6 +166,7 @@ export function FocusPage() {
   }
 
   return (
+    <div className="h-full overflow-y-auto">
     <div className="container max-w-4xl py-8">
       <h1 className="text-3xl font-bold mb-6">Focus Mode</h1>
 
@@ -370,6 +371,7 @@ export function FocusPage() {
           </CardContent>
         </Card>
       </div>
+    </div>
     </div>
   )
 }

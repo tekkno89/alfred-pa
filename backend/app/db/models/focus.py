@@ -49,6 +49,14 @@ class FocusSettings(Base, UUIDMixin, TimestampMixin):
     pomodoro_break_minutes: Mapped[int] = mapped_column(Integer, default=5)
     bypass_notification_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
+    # Slack status customization
+    slack_status_text: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    slack_status_emoji: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    pomodoro_work_status_text: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    pomodoro_work_status_emoji: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    pomodoro_break_status_text: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    pomodoro_break_status_emoji: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="focus_settings")
 

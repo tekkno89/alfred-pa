@@ -57,12 +57,13 @@ async def enable_focus_mode(
         previous_slack_status=previous_status,
     )
 
-    # Set Slack status to focus mode
-    focus_message = data.custom_message or "In focus mode"
+    # Set Slack status to focus mode (use custom status from settings)
+    settings_repo = FocusSettingsRepository(db)
+    settings = await settings_repo.get_or_create(current_user.id)
     await slack_user_service.set_status(
         current_user.id,
-        text=focus_message,
-        emoji=":no_bell:",
+        text=settings.slack_status_text or "In focus mode",
+        emoji=settings.slack_status_emoji or ":no_bell:",
     )
 
     # Enable Slack DND to prevent notifications
@@ -202,11 +203,13 @@ async def start_pomodoro(
         total_sessions=data.total_sessions,
     )
 
-    # Set Slack status for pomodoro
+    # Set Slack status for pomodoro (use custom status from settings)
+    settings_repo = FocusSettingsRepository(db)
+    settings = await settings_repo.get_or_create(current_user.id)
     await slack_user_service.set_status(
         current_user.id,
-        text="Pomodoro - Focus time",
-        emoji=":tomato:",
+        text=settings.pomodoro_work_status_text or "Pomodoro - Focus time",
+        emoji=settings.pomodoro_work_status_emoji or ":tomato:",
     )
 
     # Enable Slack DND during pomodoro work phase
@@ -273,12 +276,14 @@ async def skip_pomodoro_phase(
 
         return result
 
-    # Update Slack status based on new phase
+    # Update Slack status based on new phase (use custom status from settings)
+    settings_repo = FocusSettingsRepository(db)
+    settings = await settings_repo.get_or_create(current_user.id)
     if result.pomodoro_phase == "work":
         await slack_user_service.set_status(
             current_user.id,
-            text="Pomodoro - Focus time",
-            emoji=":tomato:",
+            text=settings.pomodoro_work_status_text or "Pomodoro - Focus time",
+            emoji=settings.pomodoro_work_status_emoji or ":tomato:",
         )
         await notification_service.publish(
             current_user.id,
@@ -288,8 +293,8 @@ async def skip_pomodoro_phase(
     else:
         await slack_user_service.set_status(
             current_user.id,
-            text="Pomodoro - Break time",
-            emoji=":coffee:",
+            text=settings.pomodoro_break_status_text or "Pomodoro - Break time",
+            emoji=settings.pomodoro_break_status_emoji or ":coffee:",
         )
         await notification_service.publish(
             current_user.id,

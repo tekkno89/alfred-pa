@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Annotated
 
-from pydantic import BaseModel, Field, PlainSerializer
+from pydantic import BaseModel, Field, PlainSerializer, field_validator
 
 
 # Custom serializer to ensure datetimes are serialized as UTC with Z suffix
@@ -93,6 +93,22 @@ class FocusSettingsUpdate(BaseModel):
     pomodoro_work_minutes: int | None = Field(None, ge=1, le=120)
     pomodoro_break_minutes: int | None = Field(None, ge=1, le=60)
     bypass_notification_config: BypassNotificationConfig | None = None
+    slack_status_text: str | None = Field(None, max_length=100)
+    slack_status_emoji: str | None = Field(None, max_length=50)
+    pomodoro_work_status_text: str | None = Field(None, max_length=100)
+    pomodoro_work_status_emoji: str | None = Field(None, max_length=50)
+    pomodoro_break_status_text: str | None = Field(None, max_length=100)
+    pomodoro_break_status_emoji: str | None = Field(None, max_length=50)
+
+
+_SLACK_STATUS_DEFAULTS: dict[str, str] = {
+    "slack_status_text": "In focus mode",
+    "slack_status_emoji": ":no_bell:",
+    "pomodoro_work_status_text": "Pomodoro - Focus time",
+    "pomodoro_work_status_emoji": ":tomato:",
+    "pomodoro_break_status_text": "Pomodoro - Break time",
+    "pomodoro_break_status_emoji": ":coffee:",
+}
 
 
 class FocusSettingsResponse(BaseModel):
@@ -104,6 +120,24 @@ class FocusSettingsResponse(BaseModel):
     pomodoro_work_minutes: int = 25
     pomodoro_break_minutes: int = 5
     bypass_notification_config: BypassNotificationConfig | None = None
+    slack_status_text: str = "In focus mode"
+    slack_status_emoji: str = ":no_bell:"
+    pomodoro_work_status_text: str = "Pomodoro - Focus time"
+    pomodoro_work_status_emoji: str = ":tomato:"
+    pomodoro_break_status_text: str = "Pomodoro - Break time"
+    pomodoro_break_status_emoji: str = ":coffee:"
+
+    @field_validator(
+        "slack_status_text", "slack_status_emoji",
+        "pomodoro_work_status_text", "pomodoro_work_status_emoji",
+        "pomodoro_break_status_text", "pomodoro_break_status_emoji",
+        mode="before",
+    )
+    @classmethod
+    def use_default_for_none(cls, v: str | None, info) -> str:
+        if v is None:
+            return _SLACK_STATUS_DEFAULTS[info.field_name]
+        return v
 
 
 # VIP List

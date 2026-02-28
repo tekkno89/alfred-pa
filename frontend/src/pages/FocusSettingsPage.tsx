@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Settings, Save, Bell, Volume2, Play } from 'lucide-react'
+import { Settings, Save, Bell, Volume2, Play, MessageSquare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -47,11 +47,26 @@ export function FocusSettingsPage() {
   const [hasMessageChanges, setHasMessageChanges] = useState(false)
   const [hasNotifyChanges, setHasNotifyChanges] = useState(false)
 
+  // Slack status customization
+  const [slackStatusText, setSlackStatusText] = useState('In focus mode')
+  const [slackStatusEmoji, setSlackStatusEmoji] = useState(':no_bell:')
+  const [pomodoroWorkText, setPomodoroWorkText] = useState('Pomodoro - Focus time')
+  const [pomodoroWorkEmoji, setPomodoroWorkEmoji] = useState(':tomato:')
+  const [pomodoroBreakText, setPomodoroBreakText] = useState('Pomodoro - Break time')
+  const [pomodoroBreakEmoji, setPomodoroBreakEmoji] = useState(':coffee:')
+  const [hasSlackStatusChanges, setHasSlackStatusChanges] = useState(false)
+
   // Load settings into form
   useEffect(() => {
     if (settings) {
       setDefaultMessage(settings.default_message || '')
       setNotifyConfig(settings.bypass_notification_config ?? DEFAULT_CONFIG)
+      setSlackStatusText(settings.slack_status_text)
+      setSlackStatusEmoji(settings.slack_status_emoji)
+      setPomodoroWorkText(settings.pomodoro_work_status_text)
+      setPomodoroWorkEmoji(settings.pomodoro_work_status_emoji)
+      setPomodoroBreakText(settings.pomodoro_break_status_text)
+      setPomodoroBreakEmoji(settings.pomodoro_break_status_emoji)
     }
   }, [settings])
 
@@ -68,6 +83,19 @@ export function FocusSettingsPage() {
     setHasNotifyChanges(JSON.stringify(notifyConfig) !== JSON.stringify(saved))
   }, [notifyConfig, settings])
 
+  // Track slack status changes
+  useEffect(() => {
+    if (!settings) return
+    setHasSlackStatusChanges(
+      slackStatusText !== settings.slack_status_text ||
+      slackStatusEmoji !== settings.slack_status_emoji ||
+      pomodoroWorkText !== settings.pomodoro_work_status_text ||
+      pomodoroWorkEmoji !== settings.pomodoro_work_status_emoji ||
+      pomodoroBreakText !== settings.pomodoro_break_status_text ||
+      pomodoroBreakEmoji !== settings.pomodoro_break_status_emoji
+    )
+  }, [slackStatusText, slackStatusEmoji, pomodoroWorkText, pomodoroWorkEmoji, pomodoroBreakText, pomodoroBreakEmoji, settings])
+
   const handleSaveMessage = async () => {
     await updateMutation.mutateAsync({
       default_message: defaultMessage || null,
@@ -80,6 +108,18 @@ export function FocusSettingsPage() {
       bypass_notification_config: notifyConfig,
     })
     setHasNotifyChanges(false)
+  }
+
+  const handleSaveSlackStatus = async () => {
+    await updateMutation.mutateAsync({
+      slack_status_text: slackStatusText || null,
+      slack_status_emoji: slackStatusEmoji || null,
+      pomodoro_work_status_text: pomodoroWorkText || null,
+      pomodoro_work_status_emoji: pomodoroWorkEmoji || null,
+      pomodoro_break_status_text: pomodoroBreakText || null,
+      pomodoro_break_status_emoji: pomodoroBreakEmoji || null,
+    })
+    setHasSlackStatusChanges(false)
   }
 
   const updateConfig = (updates: Partial<BypassNotificationConfig>) => {
@@ -95,6 +135,7 @@ export function FocusSettingsPage() {
   }
 
   return (
+    <div className="h-full overflow-y-auto">
     <div className="container max-w-2xl py-8">
       <h1 className="text-3xl font-bold mb-6">Focus Mode Settings</h1>
 
@@ -126,6 +167,119 @@ export function FocusSettingsPage() {
             {hasMessageChanges && (
               <div className="flex justify-end">
                 <Button onClick={handleSaveMessage} disabled={updateMutation.isPending}>
+                  <Save className="h-4 w-4 mr-2" />
+                  {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Slack Status */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <MessageSquare className="h-5 w-5" />
+              Slack Status
+            </CardTitle>
+            <CardDescription>
+              Customize the status text and emoji shown on your Slack profile during focus mode.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <p className="text-sm text-muted-foreground">
+              Use Slack emoji codes like <code className="bg-muted px-1 rounded">:no_bell:</code> — not Unicode emojis from the system emoji picker.
+            </p>
+
+            {/* Simple Focus Mode */}
+            <div className="space-y-3">
+              <Label className="text-base">Focus Mode</Label>
+              <div className="grid grid-cols-[1fr_120px] gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="slackStatusText" className="text-xs text-muted-foreground">Status text</Label>
+                  <Input
+                    id="slackStatusText"
+                    placeholder="In focus mode"
+                    value={slackStatusText}
+                    onChange={(e) => setSlackStatusText(e.target.value)}
+                    maxLength={100}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="slackStatusEmoji" className="text-xs text-muted-foreground">Emoji</Label>
+                  <Input
+                    id="slackStatusEmoji"
+                    placeholder=":no_bell:"
+                    value={slackStatusEmoji}
+                    onChange={(e) => setSlackStatusEmoji(e.target.value)}
+                    maxLength={50}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t pt-4" />
+
+            {/* Pomodoro Work */}
+            <div className="space-y-3">
+              <Label className="text-base">Pomodoro - Work</Label>
+              <div className="grid grid-cols-[1fr_120px] gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="pomodoroWorkText" className="text-xs text-muted-foreground">Status text</Label>
+                  <Input
+                    id="pomodoroWorkText"
+                    placeholder="Pomodoro - Focus time"
+                    value={pomodoroWorkText}
+                    onChange={(e) => setPomodoroWorkText(e.target.value)}
+                    maxLength={100}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="pomodoroWorkEmoji" className="text-xs text-muted-foreground">Emoji</Label>
+                  <Input
+                    id="pomodoroWorkEmoji"
+                    placeholder=":tomato:"
+                    value={pomodoroWorkEmoji}
+                    onChange={(e) => setPomodoroWorkEmoji(e.target.value)}
+                    maxLength={50}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t pt-4" />
+
+            {/* Pomodoro Break */}
+            <div className="space-y-3">
+              <Label className="text-base">Pomodoro - Break</Label>
+              <div className="grid grid-cols-[1fr_120px] gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="pomodoroBreakText" className="text-xs text-muted-foreground">Status text</Label>
+                  <Input
+                    id="pomodoroBreakText"
+                    placeholder="Pomodoro - Break time"
+                    value={pomodoroBreakText}
+                    onChange={(e) => setPomodoroBreakText(e.target.value)}
+                    maxLength={100}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="pomodoroBreakEmoji" className="text-xs text-muted-foreground">Emoji</Label>
+                  <Input
+                    id="pomodoroBreakEmoji"
+                    placeholder=":coffee:"
+                    value={pomodoroBreakEmoji}
+                    onChange={(e) => setPomodoroBreakEmoji(e.target.value)}
+                    maxLength={50}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Save button */}
+            {hasSlackStatusChanges && (
+              <div className="flex justify-end pt-2">
+                <Button onClick={handleSaveSlackStatus} disabled={updateMutation.isPending}>
                   <Save className="h-4 w-4 mr-2" />
                   {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
                 </Button>
@@ -316,6 +470,7 @@ export function FocusSettingsPage() {
         {/* VIP List */}
         <VipList />
       </div>
+    </div>
     </div>
   )
 }

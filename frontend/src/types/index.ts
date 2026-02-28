@@ -217,6 +217,12 @@ export interface FocusSettingsResponse {
   pomodoro_work_minutes: number
   pomodoro_break_minutes: number
   bypass_notification_config?: BypassNotificationConfig | null
+  slack_status_text: string
+  slack_status_emoji: string
+  pomodoro_work_status_text: string
+  pomodoro_work_status_emoji: string
+  pomodoro_break_status_text: string
+  pomodoro_break_status_emoji: string
 }
 
 export interface FocusSettingsUpdate {
@@ -224,6 +230,12 @@ export interface FocusSettingsUpdate {
   pomodoro_work_minutes?: number | null
   pomodoro_break_minutes?: number | null
   bypass_notification_config?: BypassNotificationConfig | null
+  slack_status_text?: string | null
+  slack_status_emoji?: string | null
+  pomodoro_work_status_text?: string | null
+  pomodoro_work_status_emoji?: string | null
+  pomodoro_break_status_text?: string | null
+  pomodoro_break_status_emoji?: string | null
 }
 
 export interface VIPResponse {
