@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Star, Eye, EyeOff, Archive, Trash2, Save, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
@@ -17,7 +17,17 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useNote, useCreateNote, useUpdateNote, useArchiveNote, useDeleteNote } from '@/hooks/useNotes'
+import { useLocalDraft, clearDraftForNote } from '@/hooks/useLocalDraft'
+import { useSaveOnFocusLoss } from '@/hooks/useSaveOnFocusLoss'
 import { cn } from '@/lib/utils'
 
 export function NoteEditorPage() {
@@ -45,6 +55,34 @@ export function NoteEditorPage() {
   const noteIdRef = useRef(noteId)
   noteIdRef.current = noteId
 
+  // Snapshot of last-saved state for unsaved change detection
+  const lastSavedSnapshot = useRef<{ title: string; body: string; tags: string[]; isFavorited: boolean } | null>(null)
+
+  // Local draft persistence
+  const {
+    saveDraft,
+    saveDraftNow,
+    clearDraft,
+    hasStaleDraft,
+    recoveredDraft,
+    dismissRecovery,
+    acceptRecovery,
+  } = useLocalDraft(noteId, existingNote?.updated_at, existingNote ? {
+    title: existingNote.title,
+    body: existingNote.body,
+    tags: existingNote.tags || [],
+    isFavorited: existingNote.is_favorited,
+  } : null)
+
+  // Compute whether there are unsaved changes
+  const hasUnsavedChanges = (() => {
+    const snap = lastSavedSnapshot.current
+    if (!snap) return isNew && (!!title || !!body)
+    return snap.title !== title || snap.body !== body ||
+      snap.isFavorited !== isFavorited ||
+      JSON.stringify(snap.tags) !== JSON.stringify(tags)
+  })()
+
   // Load existing note data
   useEffect(() => {
     if (existingNote && !initialized) {
@@ -52,6 +90,12 @@ export function NoteEditorPage() {
       setBody(existingNote.body)
       setTags(existingNote.tags || [])
       setIsFavorited(existingNote.is_favorited)
+      lastSavedSnapshot.current = {
+        title: existingNote.title,
+        body: existingNote.body,
+        tags: existingNote.tags || [],
+        isFavorited: existingNote.is_favorited,
+      }
       setInitialized(true)
     }
   }, [existingNote, initialized])
@@ -68,12 +112,23 @@ export function NoteEditorPage() {
   doSaveRef.current = () => {
     const id = noteIdRef.current
     if (!id || isSaving.current) return
+    // Skip if nothing changed since last save (prevents wasteful initial save on load)
+    const snap = lastSavedSnapshot.current
+    if (snap && snap.title === title && snap.body === body &&
+      snap.isFavorited === isFavorited &&
+      JSON.stringify(snap.tags) === JSON.stringify(tags)) return
     isSaving.current = true
     setSaveStatus('saving')
+    const snapshot = { title, body, isFavorited, tags: [...tags] }
     updateNote.mutate(
       { id, data: { title, body, is_favorited: isFavorited, tags } },
       {
-        onSuccess: () => { isSaving.current = false; setSaveStatus('saved') },
+        onSuccess: () => {
+          isSaving.current = false
+          setSaveStatus('saved')
+          lastSavedSnapshot.current = snapshot
+          clearDraft()
+        },
         onError: () => { isSaving.current = false; setSaveStatus('idle') },
       }
     )
@@ -84,12 +139,16 @@ export function NoteEditorPage() {
     if (isSaving.current) return
     isSaving.current = true
     setSaveStatus('saving')
+    const snapshot = { title, body, isFavorited, tags: [...tags] }
     createNote.mutate(
       { title, body, is_favorited: isFavorited, tags },
       {
         onSuccess: (note) => {
           isSaving.current = false
           setSaveStatus('saved')
+          lastSavedSnapshot.current = snapshot
+          clearDraft()
+          clearDraftForNote('new')
           navigate(`/notes/${note.id}`, { replace: true })
         },
         onError: () => { isSaving.current = false; setSaveStatus('idle') },
@@ -97,7 +156,20 @@ export function NoteEditorPage() {
     )
   }
 
-  // Debounced auto-save: triggers 2s after last change to title/body/favorite
+  // Write to localStorage draft on every change (300ms debounce inside the hook)
+  // Skip when state matches the last-saved snapshot (e.g. on initial load)
+  useEffect(() => {
+    if (!initialized) return
+    const snap = lastSavedSnapshot.current
+    if (snap && snap.title === title && snap.body === body &&
+      snap.isFavorited === isFavorited &&
+      JSON.stringify(snap.tags) === JSON.stringify(tags)) return
+    // For new notes, skip if nothing has been typed yet
+    if (!snap && !title && !body) return
+    saveDraft({ title, body, tags, isFavorited })
+  }, [title, body, isFavorited, tags, initialized, saveDraft])
+
+  // Debounced auto-save: triggers 750ms after last change to title/body/favorite
   useEffect(() => {
     if (!initialized) return
 
@@ -133,14 +205,39 @@ export function NoteEditorPage() {
     return () => window.removeEventListener('keydown', handler)
   }, [])
 
+  // Flush save on tab switch / alt-tab / close
+  const flushSave = useCallback(() => {
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
+    // Only flush if there are actual unsaved changes
+    const snap = lastSavedSnapshot.current
+    const changed = snap
+      ? (snap.title !== title || snap.body !== body ||
+         snap.isFavorited !== isFavorited ||
+         JSON.stringify(snap.tags) !== JSON.stringify(tags))
+      : (!!title || !!body)
+    if (!changed) return
+    saveDraftNow({ title, body, tags, isFavorited })
+    if (!isSaving.current) {
+      if (noteIdRef.current) {
+        doSaveRef.current()
+      } else if (title || body) {
+        doCreateRef.current()
+      }
+    }
+  }, [title, body, tags, isFavorited, saveDraftNow])
+
+  useSaveOnFocusLoss({ hasUnsavedChanges, onFlushSave: flushSave })
+
   const handleArchive = async () => {
     if (!noteId) return
+    clearDraft()
     await archiveNote.mutateAsync(noteId)
     navigate('/notes')
   }
 
   const handleDelete = async () => {
     if (!noteId) return
+    clearDraft()
     await deleteNote.mutateAsync(noteId)
     navigate('/notes')
   }
@@ -164,7 +261,7 @@ export function NoteEditorPage() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => navigate('/notes')}
+          onClick={() => { flushSave(); navigate('/notes') }}
           className="h-8 w-8 p-0"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -355,6 +452,64 @@ export function NoteEditorPage() {
           </div>
         )}
       </div>
+
+      {/* Draft recovery dialog */}
+      <Dialog open={hasStaleDraft} onOpenChange={(open) => { if (!open) dismissRecovery() }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {isNew ? 'Restore unsaved draft?' : 'Recover local draft?'}
+            </DialogTitle>
+            <DialogDescription>
+              {isNew
+                ? 'An unsaved draft was found from a previous session.'
+                : 'A local draft was found that is newer than the server version.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {recoveredDraft && (
+            <div className="grid gap-3 max-h-60 overflow-y-auto">
+              {!isNew && (
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">Server version</p>
+                  <div className="rounded border p-2 text-sm bg-muted/30">
+                    <p className="font-medium">{existingNote?.title || 'Untitled'}</p>
+                    <p className="text-muted-foreground text-xs line-clamp-3 mt-1">
+                      {existingNote?.body || '(empty)'}
+                    </p>
+                  </div>
+                </div>
+              )}
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">Local draft</p>
+                <div className="rounded border p-2 text-sm bg-muted/30">
+                  <p className="font-medium">{recoveredDraft.title || 'Untitled'}</p>
+                  <p className="text-muted-foreground text-xs line-clamp-3 mt-1">
+                    {recoveredDraft.body || '(empty)'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={dismissRecovery}>
+              {isNew ? 'Discard' : 'Use Server Version'}
+            </Button>
+            <Button onClick={() => {
+              const draft = acceptRecovery()
+              if (draft) {
+                setTitle(draft.title)
+                setBody(draft.body)
+                setTags(draft.tags)
+                setIsFavorited(draft.isFavorited)
+              }
+            }}>
+              Restore Local Draft
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

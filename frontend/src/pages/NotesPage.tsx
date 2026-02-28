@@ -14,6 +14,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { useNotes, useUpdateNote, useRestoreNote, useDeleteNote } from '@/hooks/useNotes'
+import { clearDraftForNote } from '@/hooks/useLocalDraft'
 import { cn } from '@/lib/utils'
 
 function formatDate(dateStr: string): string {
@@ -186,7 +187,7 @@ export function NotesPage() {
                         <AlertDialogFooter>
                           <AlertDialogCancel>Cancel</AlertDialogCancel>
                           <AlertDialogAction
-                            onClick={() => deleteNote.mutate(note.id)}
+                            onClick={() => { clearDraftForNote(note.id); deleteNote.mutate(note.id) }}
                             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                           >
                             Delete

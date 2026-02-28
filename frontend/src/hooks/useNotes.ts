@@ -51,8 +51,16 @@ export function useUpdateNote() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: NoteUpdate }) =>
       apiPut<Note>(`/notes/${id}`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['notes'] })
+    onSuccess: (updatedNote, { id }) => {
+      queryClient.setQueryData(['notes', id], updatedNote)
+      // Invalidate list/recent queries so they reflect the change,
+      // but skip the individual note query — setQueryData already set
+      // the authoritative data and a background refetch can race with
+      // the browser HTTP cache and overwrite it with stale data.
+      queryClient.invalidateQueries({
+        queryKey: ['notes'],
+        predicate: (query) => query.queryKey[1] !== id,
+      })
     },
   })
 }
