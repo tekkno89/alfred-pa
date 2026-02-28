@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { Train, RefreshCw } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { useBartDepartures } from '@/hooks/useDashboard'
@@ -85,28 +85,14 @@ interface BartCardProps {
   stations: BartStationPreference[]
 }
 
-function formatUpdatedTime(dataUpdatedAt: number): string {
-  const seconds = Math.floor((Date.now() - dataUpdatedAt) / 1000)
-  if (seconds < 10) return 'just now'
-  if (seconds < 60) return `${seconds}s ago`
-  const minutes = Math.floor(seconds / 60)
-  return `${minutes}m ago`
-}
-
 export function BartCard({ stations }: BartCardProps) {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const firstStation = stations[0]
   const { dataUpdatedAt } = useBartDepartures(
     firstStation?.abbr ?? '',
     firstStation?.platform
   )
-
-  // Re-render every 10s so the "Updated Xs ago" text stays current
-  const [, setTick] = useState(0)
-  useEffect(() => {
-    const interval = setInterval(() => setTick((t) => t + 1), 10000)
-    return () => clearInterval(interval)
-  }, [])
 
   return (
     <Card
@@ -120,11 +106,19 @@ export function BartCard({ stations }: BartCardProps) {
             BART Departures
             {dataUpdatedAt > 0 && (
               <div className="text-[10px] font-normal text-muted-foreground">
-                Updated {formatUpdatedTime(dataUpdatedAt)}
+                Updated {new Date(dataUpdatedAt).toLocaleTimeString()}
               </div>
             )}
           </div>
-          <RefreshCw className="h-3 w-3 ml-auto text-muted-foreground" />
+          <button
+            className="ml-auto p-1 rounded hover:bg-muted transition-colors"
+            onClick={(e) => {
+              e.stopPropagation()
+              queryClient.invalidateQueries({ queryKey: ['bart-departures'] })
+            }}
+          >
+            <RefreshCw className="h-3 w-3 text-muted-foreground" />
+          </button>
         </CardTitle>
       </CardHeader>
       <CardContent>
