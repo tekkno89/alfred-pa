@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Star, Eye, EyeOff, Archive, Trash2, Save, X } from 'lucide-react'
+import { ArrowLeft, Star, Eye, EyeOff, Archive, Trash2, Save, X, RefreshCw, AlertCircle, WifiOff } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button } from '@/components/ui/button'
@@ -28,6 +28,8 @@ import {
 import { useNote, useCreateNote, useUpdateNote, useArchiveNote, useDeleteNote } from '@/hooks/useNotes'
 import { useLocalDraft, clearDraftForNote } from '@/hooks/useLocalDraft'
 import { useSaveOnFocusLoss } from '@/hooks/useSaveOnFocusLoss'
+import { useOnlineStatus } from '@/hooks/useOnlineStatus'
+import { ApiRequestError } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 export function NoteEditorPage() {
@@ -47,13 +49,20 @@ export function NoteEditorPage() {
   const [tagInput, setTagInput] = useState('')
   const [isFavorited, setIsFavorited] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error' | 'offline' | 'retrying'>('idle')
   const [initialized, setInitialized] = useState(false)
 
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isSaving = useRef(false)
   const noteIdRef = useRef(noteId)
   noteIdRef.current = noteId
+
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const retryCount = useRef(0)
+  const MAX_RETRIES = 3
+  const RETRY_DELAYS = [2000, 5000, 10000]
+
+  const isOnline = useOnlineStatus()
 
   // Snapshot of last-saved state for unsaved change detection
   const lastSavedSnapshot = useRef<{ title: string; body: string; tags: string[]; isFavorited: boolean } | null>(null)
@@ -110,6 +119,10 @@ export function NoteEditorPage() {
   // Stable save function via ref — avoids re-triggering the debounce effect
   const doSaveRef = useRef<() => void>(() => {})
   doSaveRef.current = () => {
+    if (!navigator.onLine) {
+      setSaveStatus('offline')
+      return
+    }
     const id = noteIdRef.current
     if (!id || isSaving.current) return
     // Skip if nothing changed since last save (prevents wasteful initial save on load)
@@ -125,17 +138,49 @@ export function NoteEditorPage() {
       {
         onSuccess: () => {
           isSaving.current = false
+          retryCount.current = 0
           setSaveStatus('saved')
           lastSavedSnapshot.current = snapshot
           clearDraft()
         },
-        onError: () => { isSaving.current = false; setSaveStatus('idle') },
+        onError: (error) => {
+          isSaving.current = false
+          const isRetryable =
+            !navigator.onLine ||
+            error instanceof TypeError ||
+            (error instanceof ApiRequestError && error.status >= 500)
+
+          if (!isRetryable) {
+            setSaveStatus('error')
+            return
+          }
+          if (!navigator.onLine) {
+            setSaveStatus('offline')
+            return
+          }
+          if (retryCount.current < MAX_RETRIES) {
+            const delay = RETRY_DELAYS[retryCount.current] ?? 10000
+            retryCount.current++
+            setSaveStatus('retrying')
+            retryTimer.current = setTimeout(() => {
+              if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
+              doSaveRef.current()
+            }, delay)
+          } else {
+            retryCount.current = 0
+            setSaveStatus('error')
+          }
+        },
       }
     )
   }
 
   const doCreateRef = useRef<() => void>(() => {})
   doCreateRef.current = () => {
+    if (!navigator.onLine) {
+      setSaveStatus('offline')
+      return
+    }
     if (isSaving.current) return
     isSaving.current = true
     setSaveStatus('saving')
@@ -145,13 +190,41 @@ export function NoteEditorPage() {
       {
         onSuccess: (note) => {
           isSaving.current = false
+          retryCount.current = 0
           setSaveStatus('saved')
           lastSavedSnapshot.current = snapshot
           clearDraft()
           clearDraftForNote('new')
           navigate(`/notes/${note.id}`, { replace: true })
         },
-        onError: () => { isSaving.current = false; setSaveStatus('idle') },
+        onError: (error) => {
+          isSaving.current = false
+          const isRetryable =
+            !navigator.onLine ||
+            error instanceof TypeError ||
+            (error instanceof ApiRequestError && error.status >= 500)
+
+          if (!isRetryable) {
+            setSaveStatus('error')
+            return
+          }
+          if (!navigator.onLine) {
+            setSaveStatus('offline')
+            return
+          }
+          if (retryCount.current < MAX_RETRIES) {
+            const delay = RETRY_DELAYS[retryCount.current] ?? 10000
+            retryCount.current++
+            setSaveStatus('retrying')
+            retryTimer.current = setTimeout(() => {
+              if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
+              doCreateRef.current()
+            }, delay)
+          } else {
+            retryCount.current = 0
+            setSaveStatus('error')
+          }
+        },
       }
     )
   }
@@ -175,6 +248,12 @@ export function NoteEditorPage() {
 
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
     autoSaveTimer.current = setTimeout(() => {
+      // New edits supersede pending retries — the fresh save includes all content
+      if (retryTimer.current) {
+        clearTimeout(retryTimer.current)
+        retryTimer.current = null
+        retryCount.current = 0
+      }
       if (noteIdRef.current) {
         doSaveRef.current()
       } else if (title || body) {
@@ -187,6 +266,27 @@ export function NoteEditorPage() {
       if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
     }
   }, [title, body, isFavorited, tags, initialized])
+
+  // Flush save when coming back online after offline status
+  useEffect(() => {
+    if (isOnline && saveStatus === 'offline') {
+      const timer = setTimeout(() => {
+        if (noteIdRef.current) {
+          doSaveRef.current()
+        } else if (title || body) {
+          doCreateRef.current()
+        }
+      }, 500) // small delay for network to stabilize
+      return () => clearTimeout(timer)
+    }
+  }, [isOnline, saveStatus])
+
+  // Cleanup retry timer on unmount
+  useEffect(() => {
+    return () => {
+      if (retryTimer.current) clearTimeout(retryTimer.current)
+    }
+  }, [])
 
   // Cmd/Ctrl+S for immediate save
   useEffect(() => {
@@ -274,9 +374,28 @@ export function NoteEditorPage() {
         <div className="flex-1" />
 
         {/* Save status */}
-        {saveStatus !== 'idle' && (
-          <span className="text-xs text-muted-foreground">
-            {saveStatus === 'saving' ? 'Saving...' : 'Saved'}
+        {saveStatus === 'saving' && (
+          <span className="text-xs text-muted-foreground">Saving...</span>
+        )}
+        {saveStatus === 'saved' && (
+          <span className="text-xs text-muted-foreground">Saved</span>
+        )}
+        {saveStatus === 'retrying' && (
+          <span className="text-xs text-yellow-600 dark:text-yellow-400 flex items-center gap-1">
+            <RefreshCw className="h-3 w-3 animate-spin" />
+            Retrying...
+          </span>
+        )}
+        {saveStatus === 'error' && (
+          <span className="text-xs text-destructive flex items-center gap-1">
+            <AlertCircle className="h-3 w-3" />
+            Save failed
+          </span>
+        )}
+        {saveStatus === 'offline' && (
+          <span className="text-xs text-yellow-600 dark:text-yellow-400 flex items-center gap-1">
+            <WifiOff className="h-3 w-3" />
+            Offline
           </span>
         )}
 
