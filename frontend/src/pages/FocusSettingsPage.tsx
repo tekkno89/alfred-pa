@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { VipList } from '@/components/focus/VipList'
+import { EmojiPickerField } from '@/components/focus/EmojiPickerField'
 import { useFocusSettings, useUpdateFocusSettings } from '@/hooks/useFocusMode'
 import { useAlertSound } from '@/hooks/useAlertSound'
 import type { BypassNotificationConfig } from '@/types'
@@ -187,14 +188,10 @@ export function FocusSettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <p className="text-sm text-muted-foreground">
-              Use Slack emoji codes like <code className="bg-muted px-1 rounded">:no_bell:</code> — not Unicode emojis from the system emoji picker.
-            </p>
-
             {/* Simple Focus Mode */}
             <div className="space-y-3">
               <Label className="text-base">Focus Mode</Label>
-              <div className="grid grid-cols-[1fr_120px] gap-3">
+              <div className="grid grid-cols-[1fr_160px] items-end gap-3">
                 <div className="space-y-1">
                   <Label htmlFor="slackStatusText" className="text-xs text-muted-foreground">Status text</Label>
                   <Input
@@ -207,12 +204,10 @@ export function FocusSettingsPage() {
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="slackStatusEmoji" className="text-xs text-muted-foreground">Emoji</Label>
-                  <Input
+                  <EmojiPickerField
                     id="slackStatusEmoji"
-                    placeholder=":no_bell:"
                     value={slackStatusEmoji}
-                    onChange={(e) => setSlackStatusEmoji(e.target.value)}
-                    maxLength={50}
+                    onChange={setSlackStatusEmoji}
                   />
                 </div>
               </div>
@@ -223,7 +218,7 @@ export function FocusSettingsPage() {
             {/* Pomodoro Work */}
             <div className="space-y-3">
               <Label className="text-base">Pomodoro - Work</Label>
-              <div className="grid grid-cols-[1fr_120px] gap-3">
+              <div className="grid grid-cols-[1fr_160px] items-end gap-3">
                 <div className="space-y-1">
                   <Label htmlFor="pomodoroWorkText" className="text-xs text-muted-foreground">Status text</Label>
                   <Input
@@ -236,12 +231,10 @@ export function FocusSettingsPage() {
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="pomodoroWorkEmoji" className="text-xs text-muted-foreground">Emoji</Label>
-                  <Input
+                  <EmojiPickerField
                     id="pomodoroWorkEmoji"
-                    placeholder=":tomato:"
                     value={pomodoroWorkEmoji}
-                    onChange={(e) => setPomodoroWorkEmoji(e.target.value)}
-                    maxLength={50}
+                    onChange={setPomodoroWorkEmoji}
                   />
                 </div>
               </div>
@@ -252,7 +245,7 @@ export function FocusSettingsPage() {
             {/* Pomodoro Break */}
             <div className="space-y-3">
               <Label className="text-base">Pomodoro - Break</Label>
-              <div className="grid grid-cols-[1fr_120px] gap-3">
+              <div className="grid grid-cols-[1fr_160px] items-end gap-3">
                 <div className="space-y-1">
                   <Label htmlFor="pomodoroBreakText" className="text-xs text-muted-foreground">Status text</Label>
                   <Input
@@ -265,12 +258,10 @@ export function FocusSettingsPage() {
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="pomodoroBreakEmoji" className="text-xs text-muted-foreground">Emoji</Label>
-                  <Input
+                  <EmojiPickerField
                     id="pomodoroBreakEmoji"
-                    placeholder=":coffee:"
                     value={pomodoroBreakEmoji}
-                    onChange={(e) => setPomodoroBreakEmoji(e.target.value)}
-                    maxLength={50}
+                    onChange={setPomodoroBreakEmoji}
                   />
                 </div>
               </div>
