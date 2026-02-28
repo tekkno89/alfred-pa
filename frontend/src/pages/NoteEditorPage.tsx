@@ -29,6 +29,7 @@ import { useNote, useCreateNote, useUpdateNote, useArchiveNote, useDeleteNote } 
 import { useLocalDraft, clearDraftForNote } from '@/hooks/useLocalDraft'
 import { useSaveOnFocusLoss } from '@/hooks/useSaveOnFocusLoss'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
+import { useMarkdownEditor } from '@/hooks/useMarkdownEditor'
 import { ApiRequestError } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -63,6 +64,7 @@ export function NoteEditorPage() {
   const RETRY_DELAYS = [2000, 5000, 10000]
 
   const isOnline = useOnlineStatus()
+  const { textareaRef, onKeyDown: handleEditorKeyDown } = useMarkdownEditor(body, setBody)
 
   // Snapshot of last-saved state for unsaved change detection
   const lastSavedSnapshot = useRef<{ title: string; body: string; tags: string[]; isFavorited: boolean } | null>(null)
@@ -544,8 +546,10 @@ export function NoteEditorPage() {
         {/* Editor */}
         <div className={cn('flex-1 px-4 pb-4', showPreview && 'w-1/2')}>
           <Textarea
+            ref={textareaRef}
             value={body}
             onChange={(e) => setBody(e.target.value)}
+            onKeyDown={handleEditorKeyDown}
             placeholder="Write your note... (supports Markdown)"
             className="h-full resize-none border-0 shadow-none focus-visible:ring-0 font-mono text-sm"
           />
@@ -557,7 +561,10 @@ export function NoteEditorPage() {
             <div
               className={cn(
                 'prose prose-sm dark:prose-invert max-w-none pt-2',
-                'prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1',
+                'prose-p:my-1 prose-headings:my-2',
+                'prose-ul:my-1 prose-ul:list-disc prose-ul:pl-6',
+                'prose-ol:my-1 prose-ol:list-decimal prose-ol:pl-6',
+                '[&_ol_ol]:list-[lower-alpha] [&_ol_ol_ol]:list-[lower-roman]',
                 'prose-pre:bg-slate-800 prose-pre:text-slate-100 prose-pre:border prose-pre:border-slate-700 prose-pre:overflow-x-auto',
                 'prose-code:bg-slate-800 prose-code:text-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs'
               )}
