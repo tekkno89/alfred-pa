@@ -30,20 +30,25 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       </Avatar>
       <div
         className={cn(
-          'rounded-lg px-4 py-2 max-w-[80%]',
+          'rounded-lg px-4 py-2 max-w-[80%] overflow-hidden',
           isUser
             ? 'bg-primary text-primary-foreground'
             : 'bg-muted',
-          'prose prose-sm dark:prose-invert max-w-none',
-          'prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1',
-          'prose-pre:bg-slate-800 prose-pre:text-slate-100 prose-pre:border prose-pre:border-slate-700 prose-pre:overflow-x-auto',
-          'prose-code:bg-slate-800 prose-code:text-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs',
-          isUser && 'prose-invert'
         )}
       >
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-          {message.content}
-        </ReactMarkdown>
+        <div
+          className={cn(
+            'prose prose-sm dark:prose-invert max-w-none break-words',
+            'prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1',
+            'prose-pre:bg-slate-800 prose-pre:text-slate-100 prose-pre:border prose-pre:border-slate-700 prose-pre:overflow-x-auto',
+            'prose-code:bg-slate-800 prose-code:text-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs',
+            isUser && 'prose-invert'
+          )}
+        >
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {message.content}
+          </ReactMarkdown>
+        </div>
       </div>
     </div>
   )
@@ -62,18 +67,21 @@ export function StreamingBubble({ content }: StreamingBubbleProps) {
         </AvatarFallback>
       </Avatar>
       <div
-        className={cn(
-          'rounded-lg px-4 py-2 max-w-[80%] bg-muted',
-          'prose prose-sm dark:prose-invert max-w-none',
-          'prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1',
-          'prose-pre:bg-slate-800 prose-pre:text-slate-100 prose-pre:border prose-pre:border-slate-700 prose-pre:overflow-x-auto',
-          'prose-code:bg-slate-800 prose-code:text-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs'
-        )}
+        className="rounded-lg px-4 py-2 max-w-[80%] overflow-hidden bg-muted"
       >
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-          {content}
-        </ReactMarkdown>
-        <span className="inline-block w-2 h-4 ml-1 bg-foreground/50 animate-pulse" />
+        <div
+          className={cn(
+            'prose prose-sm dark:prose-invert max-w-none break-words',
+            'prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1',
+            'prose-pre:bg-slate-800 prose-pre:text-slate-100 prose-pre:border prose-pre:border-slate-700 prose-pre:overflow-x-auto',
+            'prose-code:bg-slate-800 prose-code:text-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs'
+          )}
+        >
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {content}
+          </ReactMarkdown>
+          <span className="inline-block w-2 h-4 ml-1 bg-foreground/50 animate-pulse" />
+        </div>
       </div>
     </div>
   )
