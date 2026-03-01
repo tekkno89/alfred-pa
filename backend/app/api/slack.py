@@ -120,10 +120,13 @@ async def _generate_thinking_message() -> str:
     ]
 
     try:
-        return await provider.generate(messages, temperature=0.9, max_tokens=30)
+        result = await provider.generate(messages, temperature=0.9, max_tokens=30)
+        if result and result.strip():
+            return result.strip()
+        return "One moment please..."
     except Exception as e:
         logger.warning(f"Failed to generate thinking message: {e}")
-        return "Working on it..."
+        return "One moment please..."
 
 
 class SlackChallenge(BaseModel):
