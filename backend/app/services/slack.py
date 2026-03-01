@@ -116,6 +116,54 @@ class SlackService:
             logger.error(f"Error sending Slack message: {e.response['error']}")
             raise
 
+    async def add_reaction(
+        self,
+        channel: str,
+        timestamp: str,
+        name: str = "thinking_face",
+    ) -> bool:
+        """
+        Add an emoji reaction to a message.
+
+        Returns True on success (or if already reacted), False on failure.
+        Never raises — callers should not fail if reactions fail.
+        """
+        try:
+            await self.client.reactions_add(
+                channel=channel, timestamp=timestamp, name=name
+            )
+            return True
+        except SlackApiError as e:
+            error = e.response.get("error", "")
+            if error == "already_reacted":
+                return True
+            logger.warning(f"Could not add reaction '{name}': {error}")
+            return False
+
+    async def remove_reaction(
+        self,
+        channel: str,
+        timestamp: str,
+        name: str = "thinking_face",
+    ) -> bool:
+        """
+        Remove an emoji reaction from a message.
+
+        Returns True on success (or if no reaction existed), False on failure.
+        Never raises — callers should not fail if reactions fail.
+        """
+        try:
+            await self.client.reactions_remove(
+                channel=channel, timestamp=timestamp, name=name
+            )
+            return True
+        except SlackApiError as e:
+            error = e.response.get("error", "")
+            if error == "no_reaction":
+                return True
+            logger.warning(f"Could not remove reaction '{name}': {error}")
+            return False
+
     async def get_user_info(self, slack_user_id: str) -> dict[str, Any]:
         """
         Get Slack user profile info.

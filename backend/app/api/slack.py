@@ -101,6 +101,31 @@ async def _mark_replied(user_id: str, started_at: datetime, sender_slack_id: str
     await redis_client.expire(key, FOCUS_REPLY_DEDUP_TTL)
 
 
+async def _generate_thinking_message() -> str:
+    """Generate a short, varied 'working on it' message using a fast LLM."""
+    from app.core.llm import LLMMessage, get_llm_provider
+
+    settings = get_settings()
+    provider = get_llm_provider(settings.web_search_synthesis_model)
+
+    messages = [
+        LLMMessage(
+            role="user",
+            content=(
+                "Generate a single brief friendly message (under 10 words) "
+                "indicating you're working on a response. Vary it each time. "
+                "No emojis. Just the message text, nothing else."
+            ),
+        )
+    ]
+
+    try:
+        return await provider.generate(messages, temperature=0.9, max_tokens=30)
+    except Exception as e:
+        logger.warning(f"Failed to generate thinking message: {e}")
+        return "Working on it..."
+
+
 class SlackChallenge(BaseModel):
     """Schema for Slack URL verification challenge."""
 
@@ -518,6 +543,15 @@ async def handle_message_event(
             slack_thread_ts=thread_ts,
         )
 
+    # Add thinking reaction to show Alfred is processing
+    reaction_added = await slack_service.add_reaction(channel_id, message_ts)
+    if not reaction_added:
+        try:
+            thinking_msg = await _generate_thinking_message()
+            await slack_service.send_message(channel_id, thinking_msg, thread_ts)
+        except Exception as e:
+            logger.warning(f"Could not send thinking message fallback: {e}")
+
     # Process message through Alfred agent
     try:
         agent = AlfredAgent(db=db)
@@ -540,6 +574,9 @@ async def handle_message_event(
             text="I'm sorry, I encountered an error processing your message. Please try again.",
             thread_ts=thread_ts,
         )
+    finally:
+        if reaction_added:
+            await slack_service.remove_reaction(channel_id, message_ts)
 
 
 async def send_focus_mode_reply(

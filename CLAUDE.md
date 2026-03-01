@@ -241,6 +241,10 @@ BART_API_KEY=MW9S-E7SL-26DU-VV8V  # public demo key, register at api.bart.gov fo
 SLACK_BOT_TOKEN=xoxb-...
 SLACK_SIGNING_SECRET=...
 JWT_SECRET=...
+# Required Slack Bot Scopes: reactions:write (for thinking reaction indicator).
+# Add under OAuth & Permissions > Bot Token Scopes at https://api.slack.com/apps,
+# then reinstall the app. Without this scope, Alfred falls back to a text
+# "working on it" message instead of a reaction.
 ```
 
 ### Frontend

@@ -44,10 +44,15 @@ sequenceDiagram
         B->>S: Return 200 OK immediately
         B->>B: Background task starts
         B->>DB: Find/create session by thread
+        B->>S: Add thinking_face reaction to message
+        alt Reaction failed (missing scope)
+            B->>S: Send "working on it" text to thread
+        end
         B->>A: Process message
         A->>A: Generate response
         B->>DB: Save messages
         B->>S: Post response to thread
+        B->>S: Remove thinking_face reaction
     end
 ```
 
@@ -82,7 +87,7 @@ sequenceDiagram
 - `POST /api/auth/unlink-slack` - Unlink account
 
 ### Services
-- **SlackService** - Signature verification, send messages, get user info
+- **SlackService** - Signature verification, send messages, get user info, reaction management (add/remove emoji reactions)
 - **LinkingService** - Generate/validate linking codes in Redis
 
 ### Event Deduplication
