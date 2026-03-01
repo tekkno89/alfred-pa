@@ -1,7 +1,7 @@
 import logging
 from typing import Any
 
-from app.tools.base import BaseTool
+from app.tools.base import BaseTool, ToolContext
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ class WebSearchTool(BaseTool):
         "required": ["query"],
     }
 
-    async def execute(self, **kwargs: Any) -> str:
+    async def execute(self, *, context: ToolContext | None = None, **kwargs: Any) -> str:
         """Execute a web search and return a synthesized summary."""
         query = kwargs.get("query", "")
         if not query:

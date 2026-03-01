@@ -1,7 +1,8 @@
-import { Search, Loader2 } from 'lucide-react'
+import { Search, Loader2, BellOff } from 'lucide-react'
 
 const TOOL_DISPLAY: Record<string, { label: string; icon: typeof Search }> = {
   web_search: { label: 'Searching the web...', icon: Search },
+  focus_mode: { label: 'Managing focus mode...', icon: BellOff },
 }
 
 interface ToolStatusIndicatorProps {

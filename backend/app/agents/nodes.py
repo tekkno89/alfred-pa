@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.core.embeddings import get_embedding_provider
 from app.core.llm import LLMMessage, LLMProvider, LLMResponse, ToolCall, get_llm_provider
 from app.db.repositories import MemoryRepository, MessageRepository
+from app.tools.base import ToolContext
 from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -122,7 +123,9 @@ def build_prompt_messages(state: AgentState) -> list[LLMMessage]:
     system_content = SYSTEM_PROMPT
     system_content += f"\n\nToday's date is {today}."
     system_content += (
-        "\n\n**Tool usage:** You have access to tools like web search. "
+        "\n\n**Tool usage:** You have access to tools like web search and focus mode management. "
+        "When the user asks to enable/disable focus mode, start a pomodoro, check focus status, "
+        "or skip a pomodoro phase, use the focus_mode tool. "
         "When you use a tool, review the results carefully and then respond to the user. "
         "Don't repeat the exact same query, but do refine and search again when needed — "
         "multiple searches help for complex multi-faceted questions, when initial results "
@@ -521,6 +524,12 @@ async def tool_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]
     tool_iteration = state.get("tool_iteration", 0)
     tool_results_metadata = list(state.get("tool_results_metadata") or [])
 
+    # Build tool context from authenticated session state (never from LLM output)
+    tool_context = ToolContext(
+        db=configurable["db"],
+        user_id=state["user_id"],
+    )
+
     if streaming:
         writer = get_stream_writer()
 
@@ -532,7 +541,7 @@ async def tool_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]
         if tool:
             logger.info(f"Executing tool '{tc.name}' with args: {tc.arguments}")
             try:
-                result = await tool.execute(**tc.arguments)
+                result = await tool.execute(context=tool_context, **tc.arguments)
                 logger.info(f"Tool '{tc.name}' returned {len(result)} chars")
             except Exception as e:
                 logger.error(f"Tool '{tc.name}' execution error: {e}")

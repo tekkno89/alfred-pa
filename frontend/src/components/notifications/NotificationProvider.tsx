@@ -8,6 +8,14 @@ import type { NotificationEvent, FocusSettingsResponse, BypassNotificationConfig
 
 const SOUND_LOOP_INTERVAL_MS = 5000
 
+const FOCUS_EVENT_TYPES = [
+  'focus_started',
+  'focus_ended',
+  'pomodoro_work_started',
+  'pomodoro_break_started',
+  'pomodoro_complete',
+]
+
 interface NotificationContextValue {
   isConnected: boolean
   lastEvent: NotificationEvent | null
@@ -79,6 +87,12 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     if (event.type === 'connected') return
 
     setNotifications((prev) => [...prev, event])
+
+    // Invalidate focus status cache on any focus-related event so the UI
+    // updates immediately (e.g. when focus is toggled via the LLM tool)
+    if (FOCUS_EVENT_TYPES.includes(event.type)) {
+      queryClient.invalidateQueries({ queryKey: ['focus-status'] })
+    }
 
     // Stop alerts when focus mode ends
     if (event.type === 'focus_ended') {

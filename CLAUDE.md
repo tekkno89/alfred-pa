@@ -37,8 +37,6 @@ uv add --dev <package>          # Add a dev dependency
 uv remove <package>             # Remove a dependency
 
 # Run commands in the virtual environment
-uv run pytest                   # Run tests
-uv run pytest --cov             # Run tests with coverage
 uv run ruff check .             # Run linter
 uv run mypy app                 # Run type checker
 
@@ -55,6 +53,34 @@ uv run python -m app.db.seed           # Seed dev database
 docker-compose -f docker-compose.dev.yml exec backend pytest
 docker-compose -f docker-compose.dev.yml exec backend alembic upgrade head
 ```
+
+### Running Tests
+
+**IMPORTANT: Before running tests, determine whether the dev environment is running inside Docker or locally.** Check by running `docker-compose -f docker-compose.dev.yml ps` — if the `backend` container is running, use the Docker commands. If not (or if you're developing outside Docker), use the local commands with the required env vars.
+
+The app requires `JWT_SECRET` to be set even for unit tests (the conftest imports the app which triggers settings validation). The test database defaults to hostname `postgres` (Docker), so set `TEST_DB_HOST=localhost` when running outside Docker.
+
+**Inside Docker (recommended — runs all tests including integration):**
+```bash
+docker-compose -f docker-compose.dev.yml exec backend pytest
+docker-compose -f docker-compose.dev.yml exec backend pytest tests/test_tools.py -v  # specific file
+```
+
+**Outside Docker (unit tests only — no Postgres/Redis required):**
+```bash
+cd backend
+JWT_SECRET=test-secret DATABASE_URL=postgresql+asyncpg://alfred:alfred@localhost:5432/alfred uv run pytest tests/test_tools.py tests/test_agent.py tests/test_focus_orchestrator.py tests/services/ tests/api/test_slack.py -v
+```
+
+**Outside Docker (full suite — requires Docker stack running for Postgres):**
+```bash
+cd backend
+JWT_SECRET=test-secret DATABASE_URL=postgresql+asyncpg://alfred:alfred@localhost:5432/alfred TEST_DB_HOST=localhost uv run pytest
+```
+
+**Test categories:**
+- **Unit tests** (no DB): `tests/test_tools.py`, `tests/test_agent.py`, `tests/test_focus_orchestrator.py`, `tests/services/`, `tests/api/test_slack.py`
+- **Integration tests** (need Postgres): `tests/integration/`, other `tests/api/` files
 
 ### Frontend
 ```bash

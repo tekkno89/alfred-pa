@@ -46,3 +46,8 @@ def _register_default_tools(registry: ToolRegistry) -> None:
         from app.tools.web_search import WebSearchTool
 
         registry.register(WebSearchTool())
+
+    # Focus mode tool — no external API key dependency
+    from app.tools.focus_mode import FocusModeTool
+
+    registry.register(FocusModeTool())

@@ -1,7 +1,8 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.tools.base import BaseTool
+from app.tools.base import BaseTool, ToolContext
+from app.tools.focus_mode import FocusModeTool
 from app.tools.registry import ToolRegistry
 from app.tools.web_search import WebSearchTool
 
@@ -231,3 +232,251 @@ class TestFormatResults:
         assert "Relevance Score:" not in formatted.split("---")[0]
         assert "Published:" not in formatted
         assert "Relevance Score: 0.80" in formatted
+
+
+# =========================================================================
+# FocusModeTool tests
+# =========================================================================
+
+
+class TestFocusModeToolDefinition:
+    """Tests for FocusModeTool schema and definition."""
+
+    def test_to_definition(self):
+        """Should produce a valid ToolDefinition."""
+        tool = FocusModeTool()
+        defn = tool.to_definition()
+
+        assert defn.name == "focus_mode"
+        assert "focus" in defn.description.lower()
+        assert defn.parameters["type"] == "object"
+        assert "action" in defn.parameters["properties"]
+        assert "action" in defn.parameters["required"]
+
+    def test_user_id_not_in_schema(self):
+        """user_id must never appear in the tool's parameter schema."""
+        tool = FocusModeTool()
+        props = tool.parameters_schema["properties"]
+        assert "user_id" not in props
+        # Also check required list
+        assert "user_id" not in tool.parameters_schema.get("required", [])
+
+    def test_action_enum_values(self):
+        """Action should have exactly the expected enum values."""
+        tool = FocusModeTool()
+        action_prop = tool.parameters_schema["properties"]["action"]
+        assert set(action_prop["enum"]) == {
+            "enable",
+            "disable",
+            "status",
+            "start_pomodoro",
+            "skip_phase",
+        }
+
+    def test_optional_parameters(self):
+        """Optional parameters should exist but not be required."""
+        tool = FocusModeTool()
+        props = tool.parameters_schema["properties"]
+        assert "duration_minutes" in props
+        assert "custom_message" in props
+        assert "work_minutes" in props
+        assert "break_minutes" in props
+        assert "total_sessions" in props
+        # Only action is required
+        assert tool.parameters_schema["required"] == ["action"]
+
+
+class TestFocusModeToolExecute:
+    """Tests for FocusModeTool.execute() with mocked orchestrator."""
+
+    @pytest.fixture
+    def tool(self):
+        return FocusModeTool()
+
+    @pytest.fixture
+    def context(self):
+        return ToolContext(db=AsyncMock(), user_id="user-123")
+
+    async def test_execute_enable(self, tool, context):
+        """Should call orchestrator.enable and return human-readable result."""
+        from app.schemas.focus import FocusStatusResponse
+
+        mock_result = FocusStatusResponse(
+            is_active=True, mode="simple", ends_at=None
+        )
+
+        with patch(
+            "app.services.focus_orchestrator.FocusModeOrchestrator"
+        ) as MockOrch:
+            mock_orch = AsyncMock()
+            mock_orch.enable.return_value = mock_result
+            MockOrch.return_value = mock_orch
+
+            result = await tool.execute(
+                context=context, action="enable", duration_minutes=30
+            )
+
+            mock_orch.enable.assert_called_once_with(
+                user_id="user-123",
+                duration_minutes=30,
+                custom_message=None,
+            )
+            assert "enabled" in result.lower()
+
+    async def test_execute_disable(self, tool, context):
+        """Should call orchestrator.disable."""
+        from app.schemas.focus import FocusStatusResponse
+
+        with patch(
+            "app.services.focus_orchestrator.FocusModeOrchestrator"
+        ) as MockOrch:
+            mock_orch = AsyncMock()
+            mock_orch.disable.return_value = FocusStatusResponse(is_active=False)
+            MockOrch.return_value = mock_orch
+
+            result = await tool.execute(context=context, action="disable")
+
+            mock_orch.disable.assert_called_once_with(user_id="user-123")
+            assert "disabled" in result.lower()
+
+    async def test_execute_status_active(self, tool, context):
+        """Should return active status description."""
+        from app.schemas.focus import FocusStatusResponse
+
+        with patch(
+            "app.services.focus_orchestrator.FocusModeOrchestrator"
+        ) as MockOrch:
+            mock_orch = AsyncMock()
+            mock_orch.get_status.return_value = FocusStatusResponse(
+                is_active=True,
+                mode="simple",
+                time_remaining_seconds=1800,
+            )
+            MockOrch.return_value = mock_orch
+
+            result = await tool.execute(context=context, action="status")
+
+            assert "active" in result.lower()
+            assert "30 minutes" in result
+
+    async def test_execute_status_inactive(self, tool, context):
+        """Should report focus mode as off."""
+        from app.schemas.focus import FocusStatusResponse
+
+        with patch(
+            "app.services.focus_orchestrator.FocusModeOrchestrator"
+        ) as MockOrch:
+            mock_orch = AsyncMock()
+            mock_orch.get_status.return_value = FocusStatusResponse(is_active=False)
+            MockOrch.return_value = mock_orch
+
+            result = await tool.execute(context=context, action="status")
+
+            assert "off" in result.lower()
+
+    async def test_execute_start_pomodoro(self, tool, context):
+        """Should call orchestrator.start_pomodoro."""
+        from app.schemas.focus import FocusStatusResponse
+
+        with patch(
+            "app.services.focus_orchestrator.FocusModeOrchestrator"
+        ) as MockOrch:
+            mock_orch = AsyncMock()
+            mock_orch.start_pomodoro.return_value = FocusStatusResponse(
+                is_active=True,
+                mode="pomodoro",
+                pomodoro_phase="work",
+                pomodoro_session_count=1,
+                pomodoro_total_sessions=4,
+                pomodoro_work_minutes=25,
+                pomodoro_break_minutes=5,
+            )
+            MockOrch.return_value = mock_orch
+
+            result = await tool.execute(
+                context=context,
+                action="start_pomodoro",
+                work_minutes=25,
+                total_sessions=4,
+            )
+
+            mock_orch.start_pomodoro.assert_called_once_with(
+                user_id="user-123",
+                custom_message=None,
+                work_minutes=25,
+                break_minutes=None,
+                total_sessions=4,
+            )
+            assert "pomodoro" in result.lower()
+
+    async def test_execute_skip_phase(self, tool, context):
+        """Should call orchestrator.skip_pomodoro_phase."""
+        from app.schemas.focus import FocusStatusResponse
+
+        with patch(
+            "app.services.focus_orchestrator.FocusModeOrchestrator"
+        ) as MockOrch:
+            mock_orch = AsyncMock()
+            mock_orch.skip_pomodoro_phase.return_value = FocusStatusResponse(
+                is_active=True,
+                mode="pomodoro",
+                pomodoro_phase="break",
+                pomodoro_session_count=1,
+            )
+            MockOrch.return_value = mock_orch
+
+            result = await tool.execute(context=context, action="skip_phase")
+
+            mock_orch.skip_pomodoro_phase.assert_called_once_with(user_id="user-123")
+            assert "break" in result.lower()
+
+    async def test_execute_unknown_action(self, tool, context):
+        """Should return error for unknown action."""
+        result = await tool.execute(context=context, action="invalid")
+        assert "error" in result.lower()
+        assert "unknown action" in result.lower()
+
+    async def test_execute_missing_context(self, tool):
+        """Should return error when context is missing."""
+        result = await tool.execute(context=None, action="status")
+        assert "error" in result.lower()
+        assert "authenticated" in result.lower()
+
+    async def test_execute_missing_user_id_in_context(self, tool):
+        """Should return error when user_id is missing from context."""
+        ctx = ToolContext(db=AsyncMock())
+        result = await tool.execute(context=ctx, action="status")
+        assert "error" in result.lower()
+
+    async def test_execute_uses_context_user_id_not_kwargs(self, tool, context):
+        """Security test: tool must use context user_id, ignoring any user_id in kwargs."""
+        from app.schemas.focus import FocusStatusResponse
+
+        with patch(
+            "app.services.focus_orchestrator.FocusModeOrchestrator"
+        ) as MockOrch:
+            mock_orch = AsyncMock()
+            mock_orch.get_status.return_value = FocusStatusResponse(is_active=False)
+            MockOrch.return_value = mock_orch
+
+            # Pass a different user_id in kwargs (simulating prompt injection)
+            await tool.execute(
+                context=context, action="status", user_id="attacker-id"
+            )
+
+            # Orchestrator should have been called with the context user_id
+            mock_orch.get_status.assert_called_once_with(user_id="user-123")
+
+    async def test_execute_handles_orchestrator_exception(self, tool, context):
+        """Should catch exceptions and return error string."""
+        with patch(
+            "app.services.focus_orchestrator.FocusModeOrchestrator"
+        ) as MockOrch:
+            mock_orch = AsyncMock()
+            mock_orch.enable.side_effect = Exception("Database connection failed")
+            MockOrch.return_value = mock_orch
+
+            result = await tool.execute(context=context, action="enable")
+
+            assert "error" in result.lower()
+            assert "Database connection failed" in result
