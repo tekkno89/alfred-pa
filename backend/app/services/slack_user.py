@@ -9,6 +9,7 @@ from slack_sdk.errors import SlackApiError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.repositories import OAuthTokenRepository
+from app.services.token_encryption import TokenEncryptionService
 
 logger = logging.getLogger(__name__)
 
@@ -19,13 +20,15 @@ class SlackUserService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.token_repo = OAuthTokenRepository(db)
+        self.token_encryption = TokenEncryptionService(db)
 
     async def _get_user_client(self, user_id: str) -> AsyncWebClient | None:
         """Get a Slack client using the user's OAuth token."""
         token = await self.token_repo.get_by_user_and_provider(user_id, "slack")
         if not token:
             return None
-        return AsyncWebClient(token=token.access_token)
+        access_token = await self.token_encryption.get_decrypted_access_token(token)
+        return AsyncWebClient(token=access_token)
 
     async def has_oauth_token(self, user_id: str) -> bool:
         """Check if user has a Slack OAuth token."""
@@ -174,8 +177,8 @@ class SlackUserService:
         scope: str | None = None,
         expires_at: datetime | None = None,
     ) -> None:
-        """Store a Slack OAuth token for a user."""
-        await self.token_repo.upsert(
+        """Store a Slack OAuth token for a user (encrypted)."""
+        await self.token_encryption.store_encrypted_token(
             user_id=user_id,
             provider="slack",
             access_token=access_token,
@@ -191,7 +194,8 @@ class SlackUserService:
             return False
 
         # Try to revoke the token with Slack
-        client = AsyncWebClient(token=token.access_token)
+        access_token = await self.token_encryption.get_decrypted_access_token(token)
+        client = AsyncWebClient(token=access_token)
         try:
             await client.auth_revoke()
         except SlackApiError as e:

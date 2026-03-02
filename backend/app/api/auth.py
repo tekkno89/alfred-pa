@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from app.api.deps import CurrentUser, DbSession
 from app.core.config import get_settings
+from app.core.oauth_state import consume_oauth_state, store_oauth_state
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db.repositories import UserRepository, OAuthTokenRepository
 from app.schemas.auth import (
@@ -174,9 +175,6 @@ async def unlink_slack_account(
 # Linking connects a Slack user ID to an Alfred account.
 # OAuth grants Alfred permission to act on behalf of the user (set status, etc.)
 
-# Store OAuth state tokens in memory (in production, use Redis)
-_oauth_states: dict[str, str] = {}
-
 
 class SlackOAuthUrlResponse(BaseModel):
     """Response containing the Slack OAuth URL."""
@@ -200,7 +198,7 @@ async def get_slack_oauth_url(current_user: CurrentUser) -> SlackOAuthUrlRespons
 
     # Generate state token for CSRF protection
     state = secrets.token_urlsafe(32)
-    _oauth_states[state] = current_user.id
+    store_oauth_state(state, current_user.id)
 
     # Slack OAuth scopes for user token
     # user_scope is for user token permissions, scope is for bot token
@@ -234,12 +232,13 @@ async def slack_oauth_callback(
     settings = get_settings()
 
     # Validate state
-    user_id = _oauth_states.pop(state, None)
-    if not user_id:
+    state_data = consume_oauth_state(state)
+    if not state_data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired OAuth state",
         )
+    user_id = state_data["user_id"]
 
     # Exchange code for token
     async with httpx.AsyncClient() as client:
@@ -274,7 +273,7 @@ async def slack_oauth_callback(
             detail="No user access token received",
         )
 
-    # Store the token
+    # Store the token (encrypted)
     slack_user_service = SlackUserService(db)
     await slack_user_service.store_token(
         user_id=user_id,

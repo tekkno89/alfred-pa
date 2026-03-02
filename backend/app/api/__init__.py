@@ -10,6 +10,7 @@ from app.api.webhooks import router as webhooks_router
 from app.api.notes import router as notes_router
 from app.api.dashboard import router as dashboard_router
 from app.api.admin import router as admin_router
+from app.api.github import router as github_router
 
 router = APIRouter()
 
@@ -31,3 +32,4 @@ router.include_router(webhooks_router, prefix="/webhooks", tags=["webhooks"])
 router.include_router(notes_router, prefix="/notes", tags=["notes"])
 router.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
 router.include_router(admin_router, prefix="/admin", tags=["admin"])
+router.include_router(github_router, prefix="/github", tags=["github"])

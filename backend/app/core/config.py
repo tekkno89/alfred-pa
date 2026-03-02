@@ -69,6 +69,22 @@ class Settings(BaseSettings):
     # Embeddings
     embedding_model: str = "BAAI/bge-base-en-v1.5"
 
+    # Encryption (envelope encryption for token storage)
+    encryption_kek_provider: str = "local"  # "local" | "gcp_kms" | "aws_kms"
+    encryption_kek_local_key: str = ""  # base64-encoded Fernet key
+    encryption_kek_local_key_file: str = ""  # alternative: path to key file
+    encryption_gcp_kms_key_name: str = ""
+    encryption_aws_kms_key_id: str = ""
+
+    # GitHub App
+    github_app_id: str = ""
+    github_app_private_key: str = ""
+    github_app_private_key_file: str = ""
+    github_client_id: str = ""
+    github_client_secret: str = ""
+    github_webhook_secret: str = ""
+    github_oauth_redirect_uri: str = ""
+
     # Memory
     memory_retrieval_limit: int = 5
     memory_similarity_threshold: float = 0.7  # for deduplication

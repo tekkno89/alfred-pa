@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from app.db.models.focus import FocusModeState, FocusSettings, FocusVIPList
     from app.db.models.webhook import WebhookSubscription
     from app.db.models.oauth_token import UserOAuthToken
+    from app.db.models.github_app_config import GitHubAppConfig
     from app.db.models.dashboard import UserDashboardPreference, UserFeatureAccess
 
 
@@ -51,6 +52,9 @@ class User(Base, UUIDMixin, TimestampMixin):
     )
     oauth_tokens: Mapped[list["UserOAuthToken"]] = relationship(
         "UserOAuthToken", back_populates="user", cascade="all, delete-orphan"
+    )
+    github_app_configs: Mapped[list["GitHubAppConfig"]] = relationship(
+        "GitHubAppConfig", back_populates="user", cascade="all, delete-orphan"
     )
     dashboard_preferences: Mapped[list["UserDashboardPreference"]] = relationship(
         "UserDashboardPreference", back_populates="user", cascade="all, delete-orphan"

@@ -13,6 +13,7 @@ import { BartPage } from '@/pages/BartPage'
 import { NotesPage } from '@/pages/NotesPage'
 import { NoteEditorPage } from '@/pages/NoteEditorPage'
 import { AdminPage } from '@/pages/AdminPage'
+import { IntegrationsPage } from '@/pages/IntegrationsPage'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { AuthGuard } from '@/components/auth/AuthGuard'
 import { NotificationProvider } from '@/components/notifications/NotificationProvider'
@@ -44,6 +45,7 @@ function App() {
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/focus" element={<FocusPage />} />
           <Route path="/settings/focus" element={<FocusSettingsPage />} />
+          <Route path="/settings/integrations" element={<IntegrationsPage />} />
           <Route path="/settings/webhooks" element={<WebhooksPage />} />
           <Route path="/notes" element={<NotesPage />} />
           <Route path="/notes/new" element={<NoteEditorPage />} />

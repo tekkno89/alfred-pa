@@ -12,8 +12,9 @@
 | Phase 6: Slack Integration | ✅ Complete | Slack app, webhooks, cross-channel sync |
 | Phase 7: Focus Mode | ✅ Complete | Focus mode, pomodoro, VIP bypass, notifications |
 | Phase 8: Web Search & Tools | ✅ Complete | Tool-calling ReAct loop, Tavily web search |
-| Phase 9: Observability | 🔲 Not Started | Prometheus metrics, Loki logging, dashboards |
-| Phase 10: CI/CD | 🔲 Not Started | GitHub Actions, Cloud Run deployment |
+| Phase 9: GitHub & Token Encryption | ✅ Complete | GitHub App integration, envelope encryption, integrations page |
+| Phase 10: Observability | 🔲 Not Started | Prometheus metrics, Loki logging, dashboards |
+| Phase 11: CI/CD | 🔲 Not Started | GitHub Actions, Cloud Run deployment |
 
 ---
 
@@ -166,7 +167,31 @@ Completed items:
 
 ---
 
-## Phase 9: Observability 🔲
+## Phase 9: GitHub & Token Encryption ✅
+
+**Status:** Complete
+
+Completed items:
+- [x] Envelope encryption (DEK/KEK) for all OAuth tokens
+- [x] KEK provider interface (local Fernet, GCP KMS, AWS KMS)
+- [x] EncryptionService with DEK generation, caching (5 min TTL)
+- [x] TokenEncryptionService wrapping token storage/retrieval
+- [x] Database: encryption_keys table, multi-account columns on user_oauth_tokens
+- [x] Data migration for existing plaintext Slack tokens
+- [x] GitHub App OAuth flow (code exchange, token refresh)
+- [x] GitHub PAT support with validation
+- [x] Multi-account support (account_label per provider)
+- [x] GitHub API endpoints (OAuth URL, callback, connections CRUD)
+- [x] Frontend integrations page (/settings/integrations)
+- [x] GitHubConnectionCard with OAuth + PAT buttons
+- [x] AddPATModal dialog
+- [x] Shared OAuth state store (Slack + GitHub)
+- [x] Updated SlackUserService to use encrypted tokens
+- [x] 31 new tests (encryption, GitHub service, GitHub API)
+
+---
+
+## Phase 10: Observability 🔲
 
 **Status:** Not Started
 
@@ -177,7 +202,7 @@ Key deliverables:
 
 ---
 
-## Phase 10: CI/CD 🔲
+## Phase 11: CI/CD 🔲
 
 **Status:** Not Started
 

@@ -20,8 +20,9 @@ dependencies = [
     "langchain>=0.1.0",
     "langchain-google-vertexai>=0.0.6",
     "google-cloud-aiplatform>=1.38.0",
-    # Authentication
+    # Authentication & Encryption
     "python-jose[cryptography]>=3.3.0",
+    "cryptography>=41.0.0",
     "passlib[bcrypt]>=1.7.4",
     "bcrypt>=4.1.0",
     # HTTP Client

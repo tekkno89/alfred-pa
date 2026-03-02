@@ -30,7 +30,13 @@ graph TD
     MainContent --> AdminPage[AdminPage]
     MainContent --> FocusPage[FocusPage]
     MainContent --> FocusSettingsPage[FocusSettingsPage]
+    MainContent --> IntegrationsPage[IntegrationsPage]
     MainContent --> WebhooksPage[WebhooksPage]
+
+    IntegrationsPage --> GitHubConnectionCard[GitHubConnectionCard]
+    GitHubConnectionCard --> ConnectGitHubModal[ConnectGitHubModal]
+    GitHubConnectionCard --> AddPATModal[AddPATModal]
+    GitHubConnectionCard --> AddGitHubAppModal[AddGitHubAppModal]
 
     HomePage --> BartCard[BartCard]
     BartPage --> BartStationPicker[BartStationPicker]
@@ -92,6 +98,9 @@ flowchart TD
         Dashboard --> DashboardPrefs[Dashboard Preferences]
         FocusQueries --> FocusStatus[Focus Status]
         FocusQueries --> FocusSettings[Focus Settings]
+        GitHubQueries[GitHub Queries]
+        GitHubQueries --> GitHubConnections[GitHub Connections]
+        GitHubQueries --> GitHubAppConfigs[GitHub App Configs]
     end
 
     subgraph "Local State"
@@ -133,8 +142,8 @@ sequenceDiagram
 |----------|-------|
 | **Entry** | `main.tsx`, `App.tsx` |
 | **Lib** | `lib/api.ts`, `lib/auth.ts`, `lib/sse.ts` |
-| **Hooks** | `hooks/useSessions.ts`, `hooks/useChat.ts`, `hooks/useMemories.ts`, `hooks/useDashboard.ts`, `hooks/useAdmin.ts`, `hooks/useFocusMode.ts`, `hooks/useNotifications.ts`, `hooks/useAlertSound.ts`, `hooks/useTitleFlash.ts` |
-| **Pages** | `pages/LoginPage.tsx`, `pages/ChatPage.tsx`, `pages/MemoriesPage.tsx`, `pages/BartPage.tsx`, `pages/AdminPage.tsx`, `pages/FocusPage.tsx`, `pages/FocusSettingsPage.tsx`, `pages/WebhooksPage.tsx` |
+| **Hooks** | `hooks/useSessions.ts`, `hooks/useChat.ts`, `hooks/useMemories.ts`, `hooks/useDashboard.ts`, `hooks/useAdmin.ts`, `hooks/useFocusMode.ts`, `hooks/useNotifications.ts`, `hooks/useAlertSound.ts`, `hooks/useTitleFlash.ts`, `hooks/useGitHub.ts` |
+| **Pages** | `pages/LoginPage.tsx`, `pages/ChatPage.tsx`, `pages/MemoriesPage.tsx`, `pages/BartPage.tsx`, `pages/AdminPage.tsx`, `pages/FocusPage.tsx`, `pages/FocusSettingsPage.tsx`, `pages/WebhooksPage.tsx`, `pages/IntegrationsPage.tsx` |
 | **Dashboard** | `components/dashboard/BartCard.tsx`, `BartStationPicker.tsx`, `sortEstimates.ts` |
 | **Layout** | `components/layout/AppLayout.tsx`, `Sidebar.tsx`, `Header.tsx` |
 | **Focus** | `components/focus/FocusToggle.tsx`, `PomodoroTimer.tsx`, `VipList.tsx` |

@@ -10,8 +10,12 @@ graph TD
     B --> E[Auth API]
     B --> S[Slack API]
     B --> DA[Dashboard API]
+    B --> GH[GitHub API]
     B --> AD[Admin API]
     DA --> BART[BART API]
+    GH --> GHA[GitHub API<br/>github.com]
+    GH --> ENC[Encryption Service]
+    S --> ENC
     D --> F[AlfredAgent]
     S --> F
     F --> G[ReAct Loop]
@@ -44,6 +48,8 @@ graph TD
 - **LLM Providers**: Gemini, Claude, or OpenRouter models
 - **PostgreSQL**: Primary database with vector search
 - **Dashboard API**: Dashboard preferences, feature access, BART proxy endpoints
+- **GitHub API**: OAuth flow, PAT management, GitHub connection CRUD
 - **Admin API**: User role management, feature access control (admin-only)
+- **Encryption Service**: Envelope encryption (DEK/KEK) for all OAuth tokens — supports local Fernet, GCP KMS, AWS KMS
 - **BART API**: Real-time train departure data from `api.bart.gov`, cached in Redis (30s departures, 24h stations)
 - **Redis**: Event deduplication, linking codes (TTL-based), BART API cache

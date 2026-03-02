@@ -406,3 +406,45 @@ export interface SystemSetting {
 export interface SystemSettingUpdate {
   value: string
 }
+
+// GitHub Integration
+export interface GitHubConnection {
+  id: string
+  provider: string
+  account_label: string
+  external_account_id: string | null
+  token_type: string
+  scope: string | null
+  expires_at: string | null
+  created_at: string
+  app_config_id: string | null
+  app_config_label: string | null
+}
+
+export interface GitHubConnectionList {
+  connections: GitHubConnection[]
+}
+
+export interface GitHubPATRequest {
+  token: string
+  account_label: string
+}
+
+export interface GitHubAppConfig {
+  id: string
+  label: string
+  client_id: string
+  github_app_id: string | null
+  created_at: string
+}
+
+export interface GitHubAppConfigList {
+  configs: GitHubAppConfig[]
+}
+
+export interface GitHubAppConfigCreateRequest {
+  label: string
+  client_id: string
+  client_secret: string
+  github_app_id?: string | null
+}

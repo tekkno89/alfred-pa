@@ -169,6 +169,8 @@ graph TD
 - `streaming-flow.md` - SSE streaming flow with tool_use events
 - `tool-system.md` - Tool registry, web search, and adding new tools
 - `slack-flow.md` - Slack integration flow
+- `encryption-flow.md` - Envelope encryption (DEK/KEK) for token storage
+- `github-flow.md` - GitHub App OAuth + PAT integration flow
 - `frontend-architecture.md` - Frontend component architecture
 
 ### When to Update Documentation
@@ -221,6 +223,22 @@ graph TD
 - Cross-channel sync enabled
 - Responses from webapp mirror to Slack
 
+### Token Encryption
+- Envelope encryption: DEK encrypts data, KEK encrypts the DEK
+- KEK providers: local Fernet key (default), GCP KMS, AWS KMS
+- DEK cached in-memory with 5-minute TTL
+- All new tokens stored encrypted; legacy plaintext tokens read via fallback
+- See `.claude/diagrams/encryption-flow.md` for full architecture
+- **Known limitation**: Switching KEK providers requires manual re-encryption migration
+
+### GitHub Integration
+- GitHub App model (not OAuth App) for fine-grained repo permissions
+- OAuth flow + manual PAT entry supported
+- Multi-account support via `account_label` field (e.g., "personal", "work")
+- All tokens encrypted via TokenEncryptionService
+- Frontend: `/settings/integrations` page with connection management
+- See `.claude/diagrams/github-flow.md` for flow details
+
 ### Focus Mode Vocabulary
 - **Alfred user**: The Alfred user who has focus mode enabled
 - **Sender**: The Slack user who DMs or @mentions the Alfred user, triggering an auto-reply
@@ -245,6 +263,19 @@ JWT_SECRET=...
 # Add under OAuth & Permissions > Bot Token Scopes at https://api.slack.com/apps,
 # then reinstall the app. Without this scope, Alfred falls back to a text
 # "working on it" message instead of a reaction.
+
+# Token Encryption (see "Encryption Setup" section below)
+ENCRYPTION_KEK_PROVIDER=local           # "local" | "gcp_kms" | "aws_kms"
+ENCRYPTION_KEK_LOCAL_KEY=               # base64-encoded Fernet key (required for production)
+ENCRYPTION_KEK_LOCAL_KEY_FILE=          # alternative: path to key file
+ENCRYPTION_GCP_KMS_KEY_NAME=           # for gcp_kms provider
+ENCRYPTION_AWS_KMS_KEY_ID=             # for aws_kms provider
+
+# GitHub App (optional — needed for GitHub integration)
+GITHUB_APP_ID=
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+GITHUB_OAUTH_REDIRECT_URI=http://localhost:8000/api/github/oauth/callback
 ```
 
 ### Frontend

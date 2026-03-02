@@ -81,10 +81,10 @@ alfred-pa/
 │   ├── app/
 │   │   ├── agents/        # LangGraph agent (Alfred) and ReAct loop
 │   │   ├── api/           # FastAPI route handlers
-│   │   ├── core/          # Config, LLM providers, embeddings
+│   │   ├── core/          # Config, LLM providers, embeddings, encryption
 │   │   ├── db/            # SQLAlchemy models, repositories, migrations
 │   │   ├── schemas/       # Pydantic request/response models
-│   │   ├── services/      # Slack service, notification service
+│   │   ├── services/      # Slack, GitHub, encryption, notification services
 │   │   ├── tools/         # Tool system (web search, registry)
 │   │   └── worker/        # ARQ background tasks
 │   ├── tests/
@@ -257,6 +257,113 @@ SLACK_OAUTH_REDIRECT_URI=https://yourdomain.com/api/auth/slack/oauth/callback
 
 Users connect via the Settings page in the web UI.
 
+### Token Encryption
+
+Alfred uses envelope encryption (DEK/KEK) to protect all stored OAuth tokens (Slack and GitHub). A Data Encryption Key (DEK) encrypts the tokens, and a Key Encryption Key (KEK) encrypts the DEK. The DEK is cached in memory (5-minute TTL) to avoid repeated decryption overhead.
+
+#### How It Works
+
+1. A DEK is generated once and stored encrypted in the `encryption_keys` database table
+2. When storing a token, Alfred encrypts it with the DEK (Fernet symmetric encryption)
+3. The DEK itself is encrypted by a KEK, which can be a local key, GCP KMS, or AWS KMS
+4. On retrieval, the DEK is decrypted (cached for 5 minutes), then used to decrypt the token
+
+#### Option 1: Local Key (Development / Simple Deployments)
+
+Generate a Fernet key and set it in `.env`:
+
+```bash
+# Generate a key
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+# Add to .env
+ENCRYPTION_KEK_PROVIDER=local
+ENCRYPTION_KEK_LOCAL_KEY=<paste-the-generated-key>
+```
+
+Alternatively, store the key in a file:
+
+```bash
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" > /path/to/kek.key
+ENCRYPTION_KEK_PROVIDER=local
+ENCRYPTION_KEK_LOCAL_KEY_FILE=/path/to/kek.key
+```
+
+#### Option 2: GCP Cloud KMS (Production)
+
+```bash
+ENCRYPTION_KEK_PROVIDER=gcp_kms
+ENCRYPTION_GCP_KMS_KEY_NAME=projects/PROJECT/locations/LOCATION/keyRings/RING/cryptoKeys/KEY
+```
+
+Requires the `google-cloud-kms` package and appropriate IAM permissions (`roles/cloudkms.cryptoKeyEncrypterDecrypter`).
+
+#### Option 3: AWS KMS (Production)
+
+```bash
+ENCRYPTION_KEK_PROVIDER=aws_kms
+ENCRYPTION_AWS_KMS_KEY_ID=arn:aws:kms:region:account:key/key-id
+```
+
+Requires the `boto3` package and appropriate IAM permissions (`kms:Encrypt`, `kms:Decrypt`).
+
+#### Development Without a Key
+
+If no `ENCRYPTION_KEK_LOCAL_KEY` is set and the provider is `local`, Alfred auto-generates an ephemeral key on startup with a warning. This is convenient for development but **tokens will not survive application restarts** — you'll need to re-authenticate integrations each time. For any persistent environment, set a key.
+
+#### Migrating Existing Tokens
+
+When you run `alembic upgrade head`, migration `014_encrypt_existing_tokens` will attempt to encrypt any existing plaintext tokens. If encryption is not configured at migration time, it skips silently. Existing tokens remain readable through a plaintext fallback until they are re-encrypted.
+
+#### Important: Switching KEK Providers
+
+There is **no automatic re-encryption** when switching KEK providers. If you change from `local` to `gcp_kms`, existing DEKs (encrypted with the local key) become undecryptable. To switch providers:
+
+1. Decrypt all tokens with the current provider
+2. Switch the provider configuration
+3. Re-encrypt all tokens with the new provider
+4. Or: have users re-authenticate their integrations
+
+### GitHub Integration
+
+Alfred can connect to users' GitHub accounts for future features like repo access and code review. Users can connect via GitHub App OAuth or by adding a Personal Access Token (PAT). Multiple GitHub accounts per user are supported (e.g., work + personal).
+
+#### 1. Create a GitHub App
+
+Go to [github.com/settings/apps](https://github.com/settings/apps) and create a new GitHub App:
+
+- **Homepage URL:** Your Alfred frontend URL
+- **Callback URL:** `https://yourdomain.com/api/github/oauth/callback`
+- **Webhook:** Disable (not needed yet)
+- **Permissions:** Configure based on features you want (e.g., `Contents: Read` for repo access)
+
+#### 2. Configure
+
+After creating the app, add to `.env`:
+
+```bash
+GITHUB_CLIENT_ID=Iv1.xxxxxxxxxxxx       # From the GitHub App settings page
+GITHUB_CLIENT_SECRET=...                # Generate a client secret on the app page
+GITHUB_OAUTH_REDIRECT_URI=https://yourdomain.com/api/github/oauth/callback
+```
+
+Optional (for GitHub App installation features):
+
+```bash
+GITHUB_APP_ID=123456
+GITHUB_APP_PRIVATE_KEY=<base64-encoded-PEM>  # Or use the file option:
+GITHUB_APP_PRIVATE_KEY_FILE=/path/to/private-key.pem
+```
+
+#### 3. Connect
+
+Users connect their GitHub accounts from the **Settings > Integrations** page in the web UI. They can:
+
+- **OAuth:** Click "Connect with GitHub" for the full OAuth flow
+- **PAT:** Click "Add Personal Access Token" and paste a token generated from [github.com/settings/tokens](https://github.com/settings/tokens)
+
+GitHub App OAuth tokens expire every 8 hours. Alfred auto-refreshes them using the stored refresh token. PATs do not expire automatically.
+
 ### Authentication
 
 Alfred uses email/password authentication with JWT tokens.
@@ -319,6 +426,10 @@ Block distractions with timed focus sessions:
 - **Bypass notifications:** When someone clicks "Urgent - Notify Them" in Slack, you get a looping alert sound, flashing browser tab, browser notification, and a red banner — all configurable per-user
 - **Notification settings:** Choose your alert sound (chime, urgent, gentle, ping), toggle title flash, and configure future email/SMS delivery
 - **Webhooks:** Get notified of focus events via HTTP webhooks
+
+### GitHub Integration
+
+Connect GitHub accounts to Alfred from the **Settings > Integrations** page. Supports both OAuth (via GitHub App) and Personal Access Tokens, with multi-account support (e.g., separate work and personal accounts). See [GitHub Integration](#github-integration) under Configuration for setup instructions.
 
 ### Webhooks
 
@@ -498,11 +609,14 @@ CREATE EXTENSION IF NOT EXISTS vector;
 |-------------|-------|
 | `alfred-db-password` | PostgreSQL password |
 | `alfred-jwt-secret` | Random string for JWT signing (`openssl rand -base64 32`) |
+| `alfred-encryption-kek-local-key` | Fernet key for token encryption (see [Token Encryption](#token-encryption)) |
 | `alfred-cloudflare-api-token` | Cloudflare API token (DNS edit permission) |
 | `alfred-slack-bot-token` | Slack bot token (`xoxb-...`) |
 | `alfred-slack-signing-secret` | Slack signing secret |
 | `alfred-slack-app-token` | Slack app-level token (`xapp-...`) |
 | `alfred-slack-client-secret` | Slack client secret (for OAuth) |
+| `alfred-github-client-id` | GitHub App client ID (optional) |
+| `alfred-github-client-secret` | GitHub App client secret (optional) |
 | `alfred-tailscale-authkey` | Tailscale auth key |
 | `alfred-openrouter-api-key` | OpenRouter API key (optional) |
 | `alfred-google-client-secret` | Google OAuth secret (optional) |
@@ -690,6 +804,7 @@ docker compose -f docker-compose.prod.yml up -d --force-recreate backend worker
 | Memories | `/api/memories` | Memory CRUD with semantic search |
 | Focus | `/api/focus` | Focus mode, Pomodoro, VIP list |
 | Slack | `/api/slack` | Event handling, slash commands |
+| GitHub | `/api/github` | GitHub OAuth, PAT management, connections |
 | Webhooks | `/api/webhooks` | Webhook subscriptions |
 | Notifications | `/api/notifications` | SSE event stream |
 
