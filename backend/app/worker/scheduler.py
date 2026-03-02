@@ -147,6 +147,108 @@ async def schedule_pomodoro_transition(user_id: str, transition_at: datetime) ->
         return None
 
 
+def _todo_reminder_job_key(todo_id: str) -> str:
+    """Redis key for storing the current todo reminder job ID."""
+    return f"todo_reminder_job:{todo_id}"
+
+
+async def schedule_todo_reminder(
+    todo_id: str, user_id: str, due_at: datetime
+) -> str | None:
+    """
+    Schedule a job to send a todo reminder at the due time.
+
+    Args:
+        todo_id: The todo's ID
+        user_id: The user's ID
+        due_at: When the todo is due (reminder fires at this time)
+
+    Returns:
+        Job ID if scheduled successfully, None otherwise
+    """
+    try:
+        pool = await get_redis_pool()
+
+        # Cancel any existing reminder for this todo
+        await cancel_todo_reminder(todo_id)
+
+        job_id = f"todo_reminder_{todo_id}_{uuid.uuid4().hex[:8]}"
+
+        now = datetime.utcnow()
+        # Handle timezone-aware datetimes
+        if due_at.tzinfo is not None:
+            from datetime import UTC
+            now = datetime.now(UTC)
+
+        if due_at <= now:
+            delay_seconds = 0
+        else:
+            delay_seconds = (due_at - now).total_seconds()
+
+        job = await pool.enqueue_job(
+            "send_todo_reminder",
+            todo_id,
+            user_id,
+            _defer_by=delay_seconds,
+            _job_id=job_id,
+        )
+
+        if job is None:
+            logger.warning(f"Could not schedule todo reminder for todo {todo_id}")
+            return None
+
+        # Store the job ID so we can cancel it later
+        await pool.set(_todo_reminder_job_key(todo_id), job_id, ex=86400 * 7)  # 7 day TTL
+
+        logger.info(
+            f"Scheduled todo reminder for todo {todo_id} "
+            f"in {delay_seconds:.0f} seconds (job_id={job.job_id})"
+        )
+        return job.job_id
+
+    except Exception as e:
+        logger.error(f"Failed to schedule todo reminder: {e}")
+        return None
+
+
+async def cancel_todo_reminder(todo_id: str) -> bool:
+    """
+    Cancel a scheduled todo reminder job.
+
+    Args:
+        todo_id: The todo's ID
+
+    Returns:
+        True if cancelled successfully, False otherwise
+    """
+    try:
+        pool = await get_redis_pool()
+
+        job_id = await pool.get(_todo_reminder_job_key(todo_id))
+        if not job_id:
+            return True
+
+        if isinstance(job_id, bytes):
+            job_id = job_id.decode()
+
+        queue_name = pool.default_queue_name
+        removed = await pool.zrem(queue_name, job_id)
+
+        await pool.delete(f"arq:job:{job_id}")
+        await pool.delete(_todo_reminder_job_key(todo_id))
+
+        if removed:
+            logger.info(f"Cancelled todo reminder job {job_id} for todo {todo_id}")
+        else:
+            logger.info(f"Todo reminder job {job_id} for todo {todo_id} was not in queue")
+
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to cancel todo reminder: {e}")
+        return False
+
+
 async def cancel_pomodoro_transition(user_id: str) -> bool:
     """
     Cancel a scheduled pomodoro transition job by removing it from the queue.

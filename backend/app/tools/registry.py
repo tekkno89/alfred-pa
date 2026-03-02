@@ -51,3 +51,8 @@ def _register_default_tools(registry: ToolRegistry) -> None:
     from app.tools.focus_mode import FocusModeTool
 
     registry.register(FocusModeTool())
+
+    # Todo management tool — no external API key dependency
+    from app.tools.todos import ManageTodosTool
+
+    registry.register(ManageTodosTool())

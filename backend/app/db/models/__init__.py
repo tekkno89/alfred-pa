@@ -9,6 +9,7 @@ from app.db.models.oauth_token import UserOAuthToken
 from app.db.models.encryption_key import EncryptionKey
 from app.db.models.github_app_config import GitHubAppConfig
 from app.db.models.note import Note
+from app.db.models.todo import Todo
 from app.db.models.dashboard import UserDashboardPreference, UserFeatureAccess
 from app.db.models.system_settings import SystemSetting
 
@@ -26,6 +27,7 @@ __all__ = [
     "EncryptionKey",
     "GitHubAppConfig",
     "Note",
+    "Todo",
     "UserDashboardPreference",
     "UserFeatureAccess",
     "SystemSetting",

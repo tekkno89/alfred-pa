@@ -123,9 +123,13 @@ def build_prompt_messages(state: AgentState) -> list[LLMMessage]:
     system_content = SYSTEM_PROMPT
     system_content += f"\n\nToday's date is {today}."
     system_content += (
-        "\n\n**Tool usage:** You have access to tools like web search and focus mode management. "
+        "\n\n**Tool usage:** You have access to tools like web search, focus mode management, and todo management. "
         "When the user asks to enable/disable focus mode, start a pomodoro, check focus status, "
         "or skip a pomodoro phase, use the focus_mode tool. "
+        "When the user asks to create, list, update, complete, or delete todos/tasks, use the manage_todos tool. "
+        "For todo due dates, always convert to ISO 8601 format (e.g. 2026-03-15T09:00:00Z). "
+        "For recurring todos, convert natural language recurrence to RFC 5545 RRULE strings "
+        "(e.g. 'every day' -> 'FREQ=DAILY;INTERVAL=1', 'every weekday' -> 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR'). "
         "When you use a tool, review the results carefully and then respond to the user. "
         "Don't repeat the exact same query, but do refine and search again when needed — "
         "multiple searches help for complex multi-faceted questions, when initial results "

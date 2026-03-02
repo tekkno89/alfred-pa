@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from app.db.models.session import Session
     from app.db.models.memory import Memory
     from app.db.models.note import Note
+    from app.db.models.todo import Todo
     from app.db.models.focus import FocusModeState, FocusSettings, FocusVIPList
     from app.db.models.webhook import WebhookSubscription
     from app.db.models.oauth_token import UserOAuthToken
@@ -37,6 +38,10 @@ class User(Base, UUIDMixin, TimestampMixin):
     )
     notes: Mapped[list["Note"]] = relationship(
         "Note", back_populates="user", cascade="all, delete-orphan"
+    )
+    todos: Mapped[list["Todo"]] = relationship(
+        "Todo", back_populates="user", cascade="all, delete-orphan",
+        foreign_keys="Todo.user_id",
     )
     focus_state: Mapped["FocusModeState | None"] = relationship(
         "FocusModeState", back_populates="user", uselist=False, cascade="all, delete-orphan"

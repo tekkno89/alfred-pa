@@ -6,7 +6,7 @@ import hmac
 import json
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs
 
@@ -942,6 +942,28 @@ async def handle_slack_interactive(
                 "text": ":rotating_light: Urgent notification sent!",
             }
 
+        if action_id == "todo_complete":
+            background_tasks.add_task(
+                process_todo_action_background,
+                "complete",
+                action.get("value", ""),
+                payload.get("user", {}).get("id", ""),
+                payload.get("channel", {}).get("id", ""),
+                payload.get("message", {}).get("ts", ""),
+            )
+            return {"ok": True}
+
+        if action_id and action_id.startswith("todo_snooze_"):
+            background_tasks.add_task(
+                process_todo_action_background,
+                action_id,
+                action.get("value", ""),
+                payload.get("user", {}).get("id", ""),
+                payload.get("channel", {}).get("id", ""),
+                payload.get("message", {}).get("ts", ""),
+            )
+            return {"ok": True}
+
     return {"ok": True}
 
 
@@ -956,6 +978,166 @@ async def process_bypass_background(
             await handle_focus_bypass(signed_payload, sender_slack_id, channel_id, db)
         except Exception as e:
             logger.error(f"Error processing focus bypass: {e}")
+
+
+async def process_todo_action_background(
+    action_type: str,
+    signed_payload: str,
+    sender_slack_id: str,
+    channel_id: str,
+    message_ts: str,
+) -> None:
+    """Process todo button clicks (complete/snooze) in background."""
+    async for db in get_db():
+        try:
+            await handle_todo_action(
+                action_type, signed_payload, sender_slack_id,
+                channel_id, message_ts, db,
+            )
+        except Exception as e:
+            logger.error(f"Error processing todo action: {e}", exc_info=True)
+
+
+async def handle_todo_action(
+    action_type: str,
+    signed_payload: str,
+    sender_slack_id: str,
+    channel_id: str,
+    message_ts: str,
+    db,
+) -> None:
+    """Handle todo interactive button clicks (complete and snooze)."""
+    settings = get_settings()
+    slack_service = get_slack_service()
+
+    # Validate signed payload: todo_id:timestamp:signature
+    try:
+        parts = signed_payload.split(":")
+        if len(parts) != 3:
+            logger.warning("Invalid todo payload format")
+            return
+
+        todo_id, timestamp_str, signature = parts
+
+        payload_str = f"{todo_id}:{timestamp_str}"
+        expected_sig = hmac.new(
+            settings.jwt_secret.encode(),
+            payload_str.encode(),
+            hashlib.sha256,
+        ).hexdigest()[:16]
+
+        if not hmac.compare_digest(signature, expected_sig):
+            logger.warning("Invalid todo action signature")
+            return
+
+        # Check timestamp (24 hour expiry)
+        timestamp_val = int(timestamp_str)
+        if abs(time.time() - timestamp_val) > 86400:
+            logger.warning("Expired todo action payload")
+            return
+
+    except (ValueError, IndexError) as e:
+        logger.warning(f"Error parsing todo payload: {e}")
+        return
+
+    from app.db.repositories.todo import TodoRepository
+
+    todo_repo = TodoRepository(db)
+    todo = await todo_repo.get(todo_id)
+
+    if not todo:
+        logger.warning(f"Todo {todo_id} not found for action")
+        return
+
+    if action_type == "complete":
+        todo = await todo_repo.complete_todo(todo)
+
+        # Cancel pending reminder
+        try:
+            from app.worker.scheduler import cancel_todo_reminder
+            await cancel_todo_reminder(todo.id)
+        except Exception:
+            pass
+
+        # Handle recurrence
+        next_info = ""
+        if todo.recurrence_rule:
+            from app.services.recurrence import RecurrenceService
+            new_todo = await RecurrenceService.create_next_occurrence(db, todo)
+            if new_todo and new_todo.due_at:
+                next_info = f"\nNext occurrence: {new_todo.due_at.strftime('%b %d at %I:%M %p')}"
+
+        await db.commit()
+
+        # Update the Slack message
+        try:
+            await slack_service.client.chat_update(
+                channel=channel_id,
+                ts=message_ts,
+                text=f":white_check_mark: *{todo.title}* — Completed!{next_info}",
+                blocks=[
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f":white_check_mark: ~{todo.title}~ — Completed!{next_info}",
+                        },
+                    }
+                ],
+            )
+        except Exception as e:
+            logger.warning(f"Could not update Slack message: {e}")
+
+    elif action_type.startswith("todo_snooze_"):
+        from app.worker.scheduler import schedule_todo_reminder
+
+        # Determine snooze duration
+        now = datetime.utcnow()
+        if action_type == "todo_snooze_1h":
+            snooze_until = now + timedelta(hours=1)
+            snooze_label = "1 hour"
+        elif action_type == "todo_snooze_3h":
+            snooze_until = now + timedelta(hours=3)
+            snooze_label = "3 hours"
+        elif action_type == "todo_snooze_tomorrow":
+            # Tomorrow at 9 AM
+            tomorrow = now + timedelta(days=1)
+            snooze_until = tomorrow.replace(hour=9, minute=0, second=0, microsecond=0)
+            snooze_label = "tomorrow morning"
+        else:
+            return
+
+        # Reset reminder state and schedule new reminder
+        await todo_repo.update_todo(todo, reminder_sent_at=None)
+        try:
+            from datetime import UTC
+            snooze_until_tz = snooze_until.replace(tzinfo=UTC)
+            job_id = await schedule_todo_reminder(todo.id, todo.user_id, snooze_until_tz)
+            if job_id:
+                await todo_repo.update_todo(todo, reminder_job_id=job_id)
+        except Exception as e:
+            logger.warning(f"Failed to schedule snoozed reminder: {e}")
+
+        await db.commit()
+
+        # Update the Slack message
+        try:
+            await slack_service.client.chat_update(
+                channel=channel_id,
+                ts=message_ts,
+                text=f":clock3: *{todo.title}* — Snoozed for {snooze_label}",
+                blocks=[
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f":clock3: *{todo.title}* — Snoozed for {snooze_label}",
+                        },
+                    }
+                ],
+            )
+        except Exception as e:
+            logger.warning(f"Could not update Slack message: {e}")
 
 
 async def handle_focus_bypass(

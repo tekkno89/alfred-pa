@@ -12,6 +12,7 @@ import { WebhooksPage } from '@/pages/WebhooksPage'
 import { BartPage } from '@/pages/BartPage'
 import { NotesPage } from '@/pages/NotesPage'
 import { NoteEditorPage } from '@/pages/NoteEditorPage'
+import { TodosPage } from '@/pages/TodosPage'
 import { AdminPage } from '@/pages/AdminPage'
 import { IntegrationsPage } from '@/pages/IntegrationsPage'
 import { AppLayout } from '@/components/layout/AppLayout'
@@ -47,6 +48,7 @@ function App() {
           <Route path="/settings/focus" element={<FocusSettingsPage />} />
           <Route path="/settings/integrations" element={<IntegrationsPage />} />
           <Route path="/settings/webhooks" element={<WebhooksPage />} />
+          <Route path="/todos" element={<TodosPage />} />
           <Route path="/notes" element={<NotesPage />} />
           <Route path="/notes/new" element={<NoteEditorPage />} />
           <Route path="/notes/:noteId" element={<NoteEditorPage />} />

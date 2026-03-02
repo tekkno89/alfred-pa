@@ -13,6 +13,7 @@ from app.db.repositories.oauth_token import OAuthTokenRepository
 from app.db.repositories.encryption_key import EncryptionKeyRepository
 from app.db.repositories.github_app_config import GitHubAppConfigRepository
 from app.db.repositories.note import NoteRepository
+from app.db.repositories.todo import TodoRepository
 from app.db.repositories.dashboard import (
     DashboardPreferenceRepository,
     FeatureAccessRepository,
@@ -33,6 +34,7 @@ __all__ = [
     "EncryptionKeyRepository",
     "GitHubAppConfigRepository",
     "NoteRepository",
+    "TodoRepository",
     "DashboardPreferenceRepository",
     "FeatureAccessRepository",
     "SystemSettingsRepository",

@@ -66,6 +66,8 @@ async def get_available_cards(
         cards.append("bart")
     if await repo.is_enabled(user.id, "card:notes"):
         cards.append("notes")
+    if await repo.is_enabled(user.id, "card:todos"):
+        cards.append("todos")
     return cards
 
 

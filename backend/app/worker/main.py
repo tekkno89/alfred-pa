@@ -6,7 +6,12 @@ from arq import cron
 from arq.connections import RedisSettings
 
 from app.core.config import get_settings
-from app.worker.tasks import expire_focus_session, transition_pomodoro
+from app.worker.tasks import (
+    check_due_todo_reminders,
+    expire_focus_session,
+    send_todo_reminder,
+    transition_pomodoro,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +53,7 @@ class WorkerSettings:
     functions = [
         expire_focus_session,
         transition_pomodoro,
+        send_todo_reminder,
     ]
 
     # Cron jobs (optional - for periodic cleanup as backup)
@@ -56,6 +62,10 @@ class WorkerSettings:
             expire_focus_session,
             minute={0, 15, 30, 45},  # Run every 15 minutes as backup
             run_at_startup=True,
+        ),
+        cron(
+            check_due_todo_reminders,
+            minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},  # Every 5 minutes
         ),
     ]
 

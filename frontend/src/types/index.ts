@@ -165,6 +165,58 @@ export interface NoteList {
   size: number
 }
 
+// Todos
+export interface TodoCreate {
+  title: string
+  description?: string | null
+  priority?: number
+  due_at?: string | null
+  is_starred?: boolean
+  tags?: string[]
+  recurrence_rule?: string | null
+}
+
+export interface TodoUpdate {
+  title?: string | null
+  description?: string | null
+  priority?: number | null
+  due_at?: string | null
+  is_starred?: boolean | null
+  tags?: string[] | null
+  recurrence_rule?: string | null
+  status?: string | null
+}
+
+export interface Todo {
+  id: string
+  title: string
+  description: string | null
+  priority: number
+  status: string
+  due_at: string | null
+  completed_at: string | null
+  is_starred: boolean
+  tags: string[]
+  recurrence_rule: string | null
+  recurrence_parent_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface TodoList {
+  items: Todo[]
+  total: number
+  page: number
+  size: number
+}
+
+export interface TodoSummary {
+  overdue: number
+  due_today: number
+  due_this_week: number
+  total_open: number
+}
+
 // Common
 export interface DeleteResponse {
   success: boolean

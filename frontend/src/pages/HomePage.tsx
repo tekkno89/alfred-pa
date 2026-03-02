@@ -8,6 +8,7 @@ import { useCreateSession } from '@/hooks/useSessions'
 import { useAvailableCards, useDashboardPreferences } from '@/hooks/useDashboard'
 import { BartCard } from '@/components/dashboard/BartCard'
 import { NotesCard } from '@/components/dashboard/NotesCard'
+import { TodosCard } from '@/components/dashboard/TodosCard'
 import type { BartStationPreference } from '@/types'
 
 export function HomePage() {
@@ -64,6 +65,7 @@ export function HomePage() {
 
   const showBart = availableCards?.includes('bart') ?? false
   const showNotes = availableCards?.includes('notes') ?? false
+  const showTodos = availableCards?.includes('todos') ?? false
   const bartPref = prefs?.items.find((p) => p.card_type === 'bart')
   const bartStations: BartStationPreference[] =
     (bartPref?.preferences?.stations as BartStationPreference[]) || []
@@ -72,9 +74,10 @@ export function HomePage() {
     <div className="h-full flex flex-col">
       {/* Dashboard area (scrollable) */}
       <div className="flex-1 overflow-y-auto p-4">
-        {showBart || showNotes ? (
+        {showBart || showNotes || showTodos ? (
           <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {showBart && <BartCard stations={bartStations} />}
+            {showTodos && <TodosCard />}
             {showNotes && <NotesCard />}
           </div>
         ) : (
