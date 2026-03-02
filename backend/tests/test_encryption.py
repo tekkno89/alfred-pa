@@ -50,14 +50,10 @@ class TestLocalKEKProvider:
         decrypted = provider.decrypt_dek(encrypted)
         assert decrypted == dek
 
-    def test_no_key_generates_ephemeral(self) -> None:
-        """Provider should auto-generate an ephemeral key when none provided."""
-        provider = LocalKEKProvider()
-        # Should work - encrypts with auto-generated key
-        dek = Fernet.generate_key()
-        encrypted = provider.encrypt_dek(dek)
-        decrypted = provider.decrypt_dek(encrypted)
-        assert decrypted == dek
+    def test_no_key_raises_error(self) -> None:
+        """Provider should raise ValueError when no key is provided."""
+        with pytest.raises(ValueError, match="ENCRYPTION_KEK_LOCAL_KEY"):
+            LocalKEKProvider()
 
 
 class TestEncryptionService:

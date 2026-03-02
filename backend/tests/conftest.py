@@ -1,5 +1,12 @@
 import asyncio
+import os
 from collections.abc import AsyncGenerator, Generator
+
+# Set test encryption key before importing app (which triggers Settings validation)
+if not os.environ.get("ENCRYPTION_KEK_LOCAL_KEY"):
+    os.environ["ENCRYPTION_KEK_LOCAL_KEY"] = (
+        "e-eGGHBywZ7ADN6FBV50Ce21BFnd15ThmABmPPdMPoQ="  # test-only Fernet key
+    )
 
 import pytest
 import pytest_asyncio
@@ -19,7 +26,6 @@ from app.main import app
 
 # Test database URL (use a separate test database)
 # Use 'postgres' hostname when running in Docker, 'localhost' otherwise
-import os
 _db_host = os.getenv("TEST_DB_HOST", "postgres")  # Default to postgres for Docker
 TEST_DATABASE_URL = f"postgresql+asyncpg://alfred:alfred@{_db_host}:5432/alfred_test"
 

@@ -37,15 +37,10 @@ class LocalKEKProvider(KEKProvider):
             key_data = Path(key_file).read_text().strip()
             self._fernet = Fernet(key_data.encode())
         else:
-            # Auto-generate an ephemeral key for development
-            # Tokens encrypted with this key won't survive process restarts
-            logger.warning(
-                "No ENCRYPTION_KEK_LOCAL_KEY configured. "
-                "Using auto-generated ephemeral key. "
-                "Encrypted tokens will NOT survive restarts. "
-                "Set ENCRYPTION_KEK_LOCAL_KEY for production use."
+            raise ValueError(
+                "ENCRYPTION_KEK_LOCAL_KEY or ENCRYPTION_KEK_LOCAL_KEY_FILE must be set. "
+                "Generate a key with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
             )
-            self._fernet = Fernet(Fernet.generate_key())
 
     def encrypt_dek(self, plaintext_dek: bytes) -> bytes:
         """Encrypt a DEK using the local Fernet key."""

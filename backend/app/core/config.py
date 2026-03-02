@@ -1,4 +1,4 @@
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
@@ -75,6 +75,28 @@ class Settings(BaseSettings):
     encryption_kek_local_key_file: str = ""  # alternative: path to key file
     encryption_gcp_kms_key_name: str = ""
     encryption_aws_kms_key_id: str = ""
+
+    @model_validator(mode="after")
+    def validate_encryption_config(self) -> "Settings":
+        provider = self.encryption_kek_provider
+        if provider == "local":
+            if not self.encryption_kek_local_key and not self.encryption_kek_local_key_file:
+                raise ValueError(
+                    "ENCRYPTION_KEK_LOCAL_KEY or ENCRYPTION_KEK_LOCAL_KEY_FILE must be set "
+                    "when using the 'local' encryption provider. "
+                    "Generate a key with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+                )
+        elif provider == "gcp_kms":
+            if not self.encryption_gcp_kms_key_name:
+                raise ValueError(
+                    "ENCRYPTION_GCP_KMS_KEY_NAME must be set when using the 'gcp_kms' encryption provider."
+                )
+        elif provider == "aws_kms":
+            if not self.encryption_aws_kms_key_id:
+                raise ValueError(
+                    "ENCRYPTION_AWS_KMS_KEY_ID must be set when using the 'aws_kms' encryption provider."
+                )
+        return self
 
     # GitHub App
     github_app_id: str = ""
