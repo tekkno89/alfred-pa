@@ -53,6 +53,7 @@ SLACK_BOT_TOKEN=$(fetch_secret alfred-slack-bot-token)
 SLACK_SIGNING_SECRET=$(fetch_secret alfred-slack-signing-secret)
 SLACK_APP_TOKEN=$(fetch_secret alfred-slack-app-token)
 SLACK_CLIENT_SECRET=$(fetch_secret alfred-slack-client-secret)
+ENCRYPTION_KEK_LOCAL_KEY=$(fetch_secret alfred-encryption-kek)
 TS_AUTHKEY=$(fetch_secret alfred-tailscale-authkey)
 # --- END SECRETS ---
 EOF
