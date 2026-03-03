@@ -532,6 +532,7 @@ async def tool_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]
     tool_context = ToolContext(
         db=configurable["db"],
         user_id=state["user_id"],
+        timezone=configurable.get("timezone"),
     )
 
     if streaming:

@@ -28,6 +28,7 @@ export function useTodos(
   return useQuery({
     queryKey: ['todos', page, size, sortBy, sortOrder, status, priority, starred, dueBefore, dueAfter],
     queryFn: () => apiGet<TodoList>(`/todos?${params.toString()}`),
+    refetchInterval: 60_000,
   })
 }
 
@@ -35,6 +36,7 @@ export function useTodoSummary() {
   return useQuery({
     queryKey: ['todos', 'summary'],
     queryFn: () => apiGet<TodoSummary>('/todos/summary'),
+    refetchInterval: 60_000,
   })
 }
 
@@ -42,6 +44,7 @@ export function useTodoDashboard() {
   return useQuery({
     queryKey: ['todos', 'dashboard'],
     queryFn: () => apiGet<Todo[]>('/todos/dashboard'),
+    refetchInterval: 60_000,
   })
 }
 

@@ -3,12 +3,38 @@
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.tools.base import BaseTool, ToolContext
 
 logger = logging.getLogger(__name__)
 
 PRIORITY_LABELS = {0: "Urgent", 1: "High", 2: "Medium", 3: "Low"}
+
+
+def _format_due_date(due_at: datetime, user_timezone: str | None, fmt: str = "long") -> str:
+    """Format a UTC due date in the user's timezone.
+
+    Args:
+        due_at: UTC datetime
+        user_timezone: IANA timezone string (e.g. "America/Los_Angeles"), or None for UTC
+        fmt: "long" for full display, "short" for compact list display
+    """
+    try:
+        if user_timezone:
+            tz = ZoneInfo(user_timezone)
+            local_dt = due_at.astimezone(tz)
+            tz_label = local_dt.strftime("%Z")  # e.g. "PST", "PDT"
+        else:
+            local_dt = due_at
+            tz_label = "UTC"
+    except (KeyError, ValueError):
+        local_dt = due_at
+        tz_label = "UTC"
+
+    if fmt == "short":
+        return f"{local_dt.strftime('%b %d, %I:%M %p')} {tz_label}"
+    return f"{local_dt.strftime('%B %d, %Y at %I:%M %p')} {tz_label}"
 
 
 class ManageTodosTool(BaseTool):
@@ -98,17 +124,18 @@ class ManageTodosTool(BaseTool):
 
         user_id = context["user_id"]
         db = context["db"]
+        user_timezone = context.get("timezone")
         action = kwargs.get("action", "")
 
         try:
             if action == "create":
-                result = await self._handle_create(db, user_id, kwargs)
+                result = await self._handle_create(db, user_id, kwargs, user_timezone)
             elif action == "list":
-                result = await self._handle_list(db, user_id, kwargs)
+                result = await self._handle_list(db, user_id, kwargs, user_timezone)
             elif action == "update":
-                result = await self._handle_update(db, user_id, kwargs)
+                result = await self._handle_update(db, user_id, kwargs, user_timezone)
             elif action == "complete":
-                result = await self._handle_complete(db, user_id, kwargs)
+                result = await self._handle_complete(db, user_id, kwargs, user_timezone)
             elif action == "delete":
                 result = await self._handle_delete(db, user_id, kwargs)
             else:
@@ -119,18 +146,22 @@ class ManageTodosTool(BaseTool):
             if action != "list" and not result.startswith("Error"):
                 try:
                     await db.commit()
+                except Exception as e:
+                    logger.error(f"Todo commit failed (action={action}): {e}", exc_info=True)
+                    return f"Error: Failed to save changes — please try again."
+                try:
                     from app.services.notifications import NotificationService
                     ns = NotificationService(db)
                     await ns.publish(user_id, "todos_changed", {"action": action})
                 except Exception:
-                    pass
+                    pass  # notification failure is non-critical
 
             return result
         except Exception as e:
             logger.error(f"Todo tool error (action={action}): {e}", exc_info=True)
             return f"Error performing todo action: {str(e)}"
 
-    async def _handle_create(self, db, user_id: str, kwargs: dict) -> str:
+    async def _handle_create(self, db, user_id: str, kwargs: dict, user_timezone: str | None = None) -> str:
         from app.db.repositories.todo import TodoRepository
 
         title = kwargs.get("title")
@@ -179,7 +210,7 @@ class ManageTodosTool(BaseTool):
         priority_label = PRIORITY_LABELS.get(todo.priority, "Medium")
         parts = [f'Todo created: "{todo.title}" (Priority: {priority_label})']
         if todo.due_at:
-            parts.append(f"Due: {todo.due_at.strftime('%B %d, %Y at %I:%M %p %Z')}")
+            parts.append(f"Due: {_format_due_date(todo.due_at, user_timezone)}")
         if todo.recurrence_rule:
             from app.services.recurrence import RecurrenceService
 
@@ -189,7 +220,7 @@ class ManageTodosTool(BaseTool):
         parts.append(f"ID: {todo.id}")
         return "\n".join(parts)
 
-    async def _handle_list(self, db, user_id: str, kwargs: dict) -> str:
+    async def _handle_list(self, db, user_id: str, kwargs: dict, user_timezone: str | None = None) -> str:
         from app.db.repositories.todo import TodoRepository
 
         repo = TodoRepository(db)
@@ -218,14 +249,14 @@ class ManageTodosTool(BaseTool):
                 if todo.due_at < now:
                     due = " [OVERDUE]"
                 else:
-                    due = f" (due {todo.due_at.strftime('%b %d, %I:%M %p')})"
+                    due = f" (due {_format_due_date(todo.due_at, user_timezone, fmt='short')})"
             lines.append(
                 f"{i}. [{priority_label}]{star} {todo.title}{due} — ID: {todo.id}"
             )
 
         return "\n".join(lines)
 
-    async def _handle_update(self, db, user_id: str, kwargs: dict) -> str:
+    async def _handle_update(self, db, user_id: str, kwargs: dict, user_timezone: str | None = None) -> str:
         from app.db.repositories.todo import TodoRepository
 
         todo_id = kwargs.get("todo_id")
@@ -300,9 +331,12 @@ class ManageTodosTool(BaseTool):
             except Exception:
                 pass
 
-        return f'Todo updated: "{todo.title}" (ID: {todo.id})'
+        result = f'Todo updated: "{todo.title}" (ID: {todo.id})'
+        if todo.due_at:
+            result += f"\nDue: {_format_due_date(todo.due_at, user_timezone)}"
+        return result
 
-    async def _handle_complete(self, db, user_id: str, kwargs: dict) -> str:
+    async def _handle_complete(self, db, user_id: str, kwargs: dict, user_timezone: str | None = None) -> str:
         from app.db.repositories.todo import TodoRepository
 
         todo_id = kwargs.get("todo_id")
@@ -347,7 +381,7 @@ class ManageTodosTool(BaseTool):
             if new_todo:
                 due_str = ""
                 if new_todo.due_at:
-                    due_str = f" (due {new_todo.due_at.strftime('%b %d, %I:%M %p')})"
+                    due_str = f" (due {_format_due_date(new_todo.due_at, user_timezone, fmt='short')})"
                 result += f"\nNext occurrence created{due_str} — ID: {new_todo.id}"
 
         return result

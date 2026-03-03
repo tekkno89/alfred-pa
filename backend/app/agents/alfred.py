@@ -26,10 +26,12 @@ class AlfredAgent:
         db: AsyncSession,
         llm_provider: LLMProvider | None = None,
         tool_registry: ToolRegistry | None = None,
+        timezone: str | None = None,
     ):
         self.db = db
         self.llm_provider = llm_provider or get_llm_provider()
         self.tool_registry = tool_registry or get_tool_registry()
+        self.timezone = timezone
         self.graph = create_agent_graph()
 
     def _initial_state(self, session_id: str, user_id: str, message: str) -> AgentState:
@@ -60,6 +62,7 @@ class AlfredAgent:
                 "llm_provider": self.llm_provider,
                 "tool_registry": self.tool_registry,
                 "streaming": streaming,
+                "timezone": self.timezone,
             },
             "recursion_limit": 25,
         }

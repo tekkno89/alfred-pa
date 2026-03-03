@@ -31,6 +31,8 @@ from app.services.slack import get_slack_service
 EVENT_DEDUP_TTL = 300
 # Cache TTL for Slack name lookups (1 day)
 SLACK_NAME_CACHE_TTL = 86400
+# Cache TTL for Slack timezone lookups (1 hour)
+SLACK_TZ_CACHE_TTL = 3600
 # TTL for focus auto-reply dedup keys (24 hours)
 FOCUS_REPLY_DEDUP_TTL = 86400
 
@@ -60,6 +62,25 @@ async def _cached_slack_user_name(
         name = slack_user_id
     await redis_client.set(cache_key, name, ex=SLACK_NAME_CACHE_TTL)
     return name
+
+
+async def _cached_slack_user_timezone(
+    slack_service, slack_user_id: str
+) -> str | None:
+    """Look up a Slack user's timezone, caching in Redis for 1 hour."""
+    cache_key = f"slack:user_tz:{slack_user_id}"
+    redis_client = await get_redis()
+    cached = await redis_client.get(cache_key)
+    if cached:
+        return cached
+    try:
+        user_info = await slack_service.get_user_info(slack_user_id)
+        tz = user_info.get("tz")
+    except Exception:
+        tz = None
+    if tz:
+        await redis_client.set(cache_key, tz, ex=SLACK_TZ_CACHE_TTL)
+    return tz
 
 
 async def _cached_slack_channel_name(
@@ -283,6 +304,21 @@ async def handle_message_event(
     original_text = event.get("text", "").strip()
     thread_ts = event.get("thread_ts") or event.get("ts")
     message_ts = event.get("ts")
+
+    # Deduplicate by message timestamp — Slack may deliver the same message
+    # via multiple subscriptions (bot + user token), each with a different
+    # event_id.  The outer event_id dedup won't catch these; channel+ts is
+    # unique per actual message.
+    if channel_id and message_ts:
+        redis = await get_redis()
+        msg_dedup_key = f"slack_msg:{channel_id}:{message_ts}"
+        was_set = await redis.set(msg_dedup_key, "1", nx=True, ex=EVENT_DEDUP_TTL)
+        if not was_set:
+            logger.debug(
+                f"[DEDUP] Skipping duplicate message delivery: "
+                f"channel={channel_id}, ts={message_ts}"
+            )
+            return
 
     if not sender_slack_id or not channel_id or not original_text:
         missing = []
@@ -555,9 +591,12 @@ async def handle_message_event(
         except Exception as e:
             logger.warning(f"Could not send thinking message fallback: {e}")
 
+    # Resolve sender's timezone for tool formatting
+    user_timezone = await _cached_slack_user_timezone(slack_service, sender_slack_id)
+
     # Process message through Alfred agent
     try:
-        agent = AlfredAgent(db=db)
+        agent = AlfredAgent(db=db, timezone=user_timezone)
         response = await agent.run(
             session_id=session.id,
             user_id=user.id,
