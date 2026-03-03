@@ -218,6 +218,9 @@ class ManageTodosTool(BaseTool):
         if todo.tags:
             parts.append(f"Tags: {', '.join(todo.tags)}")
         parts.append(f"ID: {todo.id}")
+
+        self.last_execution_metadata = {"todo_id": str(todo.id), "title": todo.title}
+
         return "\n".join(parts)
 
     async def _handle_list(self, db, user_id: str, kwargs: dict, user_timezone: str | None = None) -> str:
@@ -331,6 +334,8 @@ class ManageTodosTool(BaseTool):
             except Exception:
                 pass
 
+        self.last_execution_metadata = {"todo_id": str(todo.id), "title": todo.title}
+
         result = f'Todo updated: "{todo.title}" (ID: {todo.id})'
         if todo.due_at:
             result += f"\nDue: {_format_due_date(todo.due_at, user_timezone)}"
@@ -362,6 +367,8 @@ class ManageTodosTool(BaseTool):
             return "Error: Not authorized to complete this todo."
 
         todo = await repo.complete_todo(todo)
+
+        self.last_execution_metadata = {"todo_id": str(todo.id), "title": todo.title}
 
         # Cancel any pending reminder
         try:

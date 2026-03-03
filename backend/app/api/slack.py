@@ -594,14 +594,45 @@ async def handle_message_event(
     # Resolve sender's timezone for tool formatting
     user_timezone = await _cached_slack_user_timezone(slack_service, sender_slack_id)
 
+    # Resolve thread→todo context from Redis (if replying in a todo thread)
+    todo_context = None
+    if thread_ts:
+        try:
+            redis = await get_redis()
+            thread_todo_key = f"thread_todo:{channel_id}:{thread_ts}"
+            raw = await redis.get(thread_todo_key)
+            if raw:
+                import json as _json
+                todo_context = _json.loads(raw)
+                logger.debug(f"Resolved thread todo context: {todo_context}")
+        except Exception as e:
+            logger.warning(f"Failed to resolve thread todo context: {e}")
+
     # Process message through Alfred agent
     try:
-        agent = AlfredAgent(db=db, timezone=user_timezone)
+        agent = AlfredAgent(db=db, timezone=user_timezone, todo_context=todo_context)
         response = await agent.run(
             session_id=session.id,
             user_id=user.id,
             message=text,
         )
+
+        # Store thread→todo mapping if the agent used manage_todos
+        if thread_ts and agent.last_tool_results:
+            for result in agent.last_tool_results:
+                if result.get("tool_name") == "manage_todos" and result.get("todo_id"):
+                    try:
+                        redis = await get_redis()
+                        import json as _json
+                        thread_todo_key = f"thread_todo:{channel_id}:{thread_ts}"
+                        await redis.set(
+                            thread_todo_key,
+                            _json.dumps({"todo_id": result["todo_id"], "title": result.get("title", "")}),
+                            ex=7 * 86400,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to store thread→todo mapping: {e}")
+                    break  # one mapping per thread
 
         # Strip any raw tool-call XML leaked by the LLM
         import re

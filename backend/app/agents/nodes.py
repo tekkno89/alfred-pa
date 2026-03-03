@@ -134,13 +134,29 @@ def build_prompt_messages(state: AgentState) -> list[LLMMessage]:
         "Don't repeat the exact same query, but do refine and search again when needed — "
         "multiple searches help for complex multi-faceted questions, when initial results "
         "are incomplete or conflicting, or when comparing different topics. "
-        "You have up to 3 tool iterations, so be strategic with your searches."
+        "You have up to 3 tool iterations, so be strategic with your searches.\n\n"
+        "When operating on todos:\n"
+        "- Only operate on open/active todos unless the user explicitly asks about completed ones.\n"
+        "- If a user asks to modify a todo and there are multiple open todos with the same or similar title, "
+        "list them with their IDs and ask which one they mean before making changes.\n"
+        "- If the conversation context includes a specific todo ID, always use that ID — do not create a new todo."
     )
     if state.get("memories"):
         memory_context = "\n\nRelevant context about the user:\n" + "\n".join(
             f"- {m}" for m in state["memories"]
         )
         system_content += memory_context
+
+    todo_context = state.get("todo_context")
+    if todo_context:
+        todo_title = todo_context.get("title", "")
+        todo_id = todo_context.get("todo_id", "")
+        system_content += (
+            f'\n\n**Active todo context:** This conversation is about todo "{todo_title}" (ID: {todo_id}). '
+            f"When the user asks to modify, update, complete, snooze, or set a due date for this task, "
+            f'use the manage_todos tool with action="update" or action="complete" and todo_id="{todo_id}". '
+            f"Do NOT create a new todo unless the user explicitly asks to create one."
+        )
 
     messages.append(LLMMessage(role="system", content=system_content))
 

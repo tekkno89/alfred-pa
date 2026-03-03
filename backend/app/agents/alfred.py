@@ -27,11 +27,14 @@ class AlfredAgent:
         llm_provider: LLMProvider | None = None,
         tool_registry: ToolRegistry | None = None,
         timezone: str | None = None,
+        todo_context: dict | None = None,
     ):
         self.db = db
         self.llm_provider = llm_provider or get_llm_provider()
         self.tool_registry = tool_registry or get_tool_registry()
         self.timezone = timezone
+        self.todo_context = todo_context
+        self.last_tool_results: list[dict] | None = None
         self.graph = create_agent_graph()
 
     def _initial_state(self, session_id: str, user_id: str, message: str) -> AgentState:
@@ -49,6 +52,7 @@ class AlfredAgent:
             "tool_calls": None,
             "tool_iteration": 0,
             "tool_results_metadata": None,
+            "todo_context": self.todo_context,
             "user_message_id": "",
             "assistant_message_id": "",
             "error": None,
@@ -88,6 +92,8 @@ class AlfredAgent:
         config = self._config(streaming=False)
 
         final_state = await self.graph.ainvoke(state, config)
+
+        self.last_tool_results = final_state.get("tool_results_metadata")
 
         if final_state.get("error"):
             raise ValueError(final_state["error"])

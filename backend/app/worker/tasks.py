@@ -177,6 +177,10 @@ async def send_todo_reminder(ctx: dict, todo_id: str, user_id: str) -> dict:
                 channel=user.slack_user_id,
                 text=fallback_text,
                 blocks=main_blocks,
+                metadata={
+                    "event_type": "alfred_todo_reminder",
+                    "event_payload": {"todo_id": str(todo.id)},
+                },
             )
             main_ts = main_resp["ts"]
             dm_channel = main_resp["channel"]
@@ -221,6 +225,20 @@ async def send_todo_reminder(ctx: dict, todo_id: str, user_id: str) -> dict:
                 blocks=action_blocks,
                 thread_ts=main_ts,
             )
+
+            # --- Store thread→todo mapping in Redis ---
+            try:
+                from app.core.redis import get_redis
+                redis_client = await get_redis()
+                import json as _json
+                thread_todo_key = f"thread_todo:{dm_channel}:{main_ts}"
+                await redis_client.set(
+                    thread_todo_key,
+                    _json.dumps({"todo_id": str(todo.id), "title": todo.title}),
+                    ex=7 * 86400,  # 7 days TTL
+                )
+            except Exception as e:
+                logger.warning(f"Failed to store thread→todo mapping: {e}")
 
             # --- Create a session so natural-language thread replies work ---
             session_repo = SessionRepository(db)

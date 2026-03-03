@@ -30,6 +30,9 @@ class AgentState(TypedDict):
     # Tool results metadata for persisting with assistant message
     tool_results_metadata: list[dict] | None
 
+    # Thread-specific todo context (injected from Slack thread → todo mapping)
+    todo_context: dict | None
+
     # Generated message IDs
     user_message_id: str
     assistant_message_id: str
