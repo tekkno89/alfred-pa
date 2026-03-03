@@ -109,8 +109,7 @@ async def send_todo_reminder(ctx: dict, todo_id: str, user_id: str) -> dict:
     the thread to snooze/complete via natural language.
     """
     async with get_db_session() as db:
-        from app.db.repositories import SessionRepository, UserRepository
-        from app.db.repositories.message import MessageRepository
+        from app.db.repositories import UserRepository
         from app.db.repositories.todo import TodoRepository
 
         todo_repo = TodoRepository(db)
@@ -239,39 +238,6 @@ async def send_todo_reminder(ctx: dict, todo_id: str, user_id: str) -> dict:
                 )
             except Exception as e:
                 logger.warning(f"Failed to store thread→todo mapping: {e}")
-
-            # --- Create a session so natural-language thread replies work ---
-            session_repo = SessionRepository(db)
-            message_repo = MessageRepository(db)
-
-            session = await session_repo.create_session(
-                user_id=user_id,
-                title=f"Reminder: {todo.title}",
-                source="slack",
-                slack_channel_id=dm_channel,
-                slack_thread_ts=main_ts,
-            )
-
-            # Seed a context message so Alfred knows what todo this thread
-            # is about. Uses "assistant" role because the prompt builder only
-            # includes user/assistant messages in the LLM context.
-            context = (
-                f"I just sent you a reminder about this todo:\n"
-                f"- ID: {todo.id}\n"
-                f"- Title: {todo.title}\n"
-                f"- Priority: {p_label}\n"
-            )
-            if todo.description:
-                context += f"- Description: {todo.description}\n"
-            context += (
-                f"\nJust let me know if you'd like to mark it done, snooze it, "
-                f"reschedule it, or anything else — I can take care of it."
-            )
-            await message_repo.create_message(
-                session_id=session.id,
-                role="assistant",
-                content=context,
-            )
 
             # Mark reminder as sent
             await todo_repo.update_todo(todo, reminder_sent_at=datetime.utcnow())
