@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { CheckSquare, Plus, Star, AlertTriangle, Clock, Calendar } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
-import { useTodoSummary, useTodoDashboard } from '@/hooks/useTodos'
+import { useTodoSummary, useTodoDashboard, useOverdueTick } from '@/hooks/useTodos'
 
 const PRIORITY_COLORS: Record<number, string> = {
   0: 'bg-red-500',
@@ -28,6 +28,7 @@ export function TodosCard() {
   const navigate = useNavigate()
   const { data: summary, isLoading: summaryLoading } = useTodoSummary()
   const { data: items, isLoading: itemsLoading } = useTodoDashboard()
+  useOverdueTick(items)
   const isLoading = summaryLoading || itemsLoading
 
   return (

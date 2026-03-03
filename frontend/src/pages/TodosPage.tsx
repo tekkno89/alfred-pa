@@ -44,6 +44,7 @@ import {
   useUpdateTodo,
   useCompleteTodo,
   useDeleteTodo,
+  useOverdueTick,
 } from '@/hooks/useTodos'
 import { cn } from '@/lib/utils'
 import type { Todo, TodoCreate, TodoUpdate } from '@/types'
@@ -96,6 +97,7 @@ export function TodosPage() {
     priorityFilter,
     starredFilter,
   )
+  useOverdueTick(data?.items)
   const createTodo = useCreateTodo()
   const updateTodo = useUpdateTodo()
   const completeTodo = useCompleteTodo()
