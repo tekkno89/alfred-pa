@@ -96,7 +96,7 @@ export function BartCard({ stations }: BartCardProps) {
 
   return (
     <Card
-      className="cursor-pointer hover:shadow-md transition-shadow"
+      className="cursor-pointer hover:shadow-md transition-shadow h-full flex flex-col"
       onClick={() => navigate('/dashboard/bart')}
     >
       <CardHeader className="pb-2">
@@ -121,7 +121,7 @@ export function BartCard({ stations }: BartCardProps) {
           </button>
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex-1 overflow-y-auto">
         {stations.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Click to configure stations

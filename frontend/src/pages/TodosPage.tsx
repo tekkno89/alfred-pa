@@ -1,12 +1,19 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  CheckSquare, Plus, ArrowLeft, Star, Trash2, Check, Pencil,
+  CheckSquare, Plus, ArrowLeft, Star, Trash2, Check, Pencil, CalendarIcon, X,
 } from 'lucide-react'
+import { format } from 'date-fns'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Calendar } from '@/components/ui/calendar'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import {
   Dialog,
   DialogContent,
@@ -100,7 +107,8 @@ export function TodosPage() {
   const [formTitle, setFormTitle] = useState('')
   const [formDescription, setFormDescription] = useState('')
   const [formPriority, setFormPriority] = useState(2)
-  const [formDueAt, setFormDueAt] = useState('')
+  const [formDueDate, setFormDueDate] = useState<Date | undefined>(undefined)
+  const [formDueTime, setFormDueTime] = useState('09:00')
   const [formStarred, setFormStarred] = useState(false)
   const [formTags, setFormTags] = useState('')
   const [formRecurrence, setFormRecurrence] = useState('')
@@ -118,7 +126,8 @@ export function TodosPage() {
     setFormTitle('')
     setFormDescription('')
     setFormPriority(2)
-    setFormDueAt('')
+    setFormDueDate(undefined)
+    setFormDueTime('09:00')
     setFormStarred(false)
     setFormTags('')
     setFormRecurrence('')
@@ -130,11 +139,29 @@ export function TodosPage() {
     setFormTitle(todo.title)
     setFormDescription(todo.description || '')
     setFormPriority(todo.priority)
-    setFormDueAt(todo.due_at ? todo.due_at.slice(0, 16) : '')
+    if (todo.due_at) {
+      const utcStr = todo.due_at.endsWith('Z') || todo.due_at.includes('+') ? todo.due_at : todo.due_at + 'Z'
+      const d = new Date(utcStr)
+      setFormDueDate(d)
+      setFormDueTime(
+        `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+      )
+    } else {
+      setFormDueDate(undefined)
+      setFormDueTime('09:00')
+    }
     setFormStarred(todo.is_starred)
     setFormTags(todo.tags.join(', '))
     setFormRecurrence(todo.recurrence_rule || '')
     setDialogOpen(true)
+  }
+
+  const buildDueAt = (): string | null | undefined => {
+    if (!formDueDate) return editingTodo ? null : undefined
+    const [hours, minutes] = formDueTime.split(':').map(Number)
+    const d = new Date(formDueDate)
+    d.setHours(hours || 0, minutes || 0, 0, 0)
+    return d.toISOString()
   }
 
   const handleSave = async () => {
@@ -145,12 +172,14 @@ export function TodosPage() {
       .map((t) => t.trim())
       .filter(Boolean)
 
+    const dueAt = buildDueAt()
+
     if (editingTodo) {
       const updates: TodoUpdate = {
         title: formTitle.trim(),
         description: formDescription.trim() || null,
         priority: formPriority,
-        due_at: formDueAt ? new Date(formDueAt).toISOString() : null,
+        due_at: dueAt,
         is_starred: formStarred,
         tags,
         recurrence_rule: formRecurrence.trim() || null,
@@ -161,7 +190,7 @@ export function TodosPage() {
         title: formTitle.trim(),
         description: formDescription.trim() || undefined,
         priority: formPriority,
-        due_at: formDueAt ? new Date(formDueAt).toISOString() : undefined,
+        due_at: dueAt ?? undefined,
         is_starred: formStarred,
         tags,
         recurrence_rule: formRecurrence.trim() || undefined,
@@ -465,15 +494,55 @@ export function TodosPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="due_at">Due Date</Label>
-                <Input
-                  id="due_at"
-                  type="datetime-local"
-                  value={formDueAt}
-                  onChange={(e) => setFormDueAt(e.target.value)}
-                />
+                <Label>Due Date</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        'w-full justify-start text-left font-normal',
+                        !formDueDate && 'text-muted-foreground'
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {formDueDate ? format(formDueDate, 'MMM d, yyyy') : 'Pick a date'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={formDueDate}
+                      onSelect={setFormDueDate}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
+
+            {/* Time picker + clear — only show when a date is selected */}
+            {formDueDate && (
+              <div className="flex items-center gap-2">
+                <div className="space-y-2 flex-1">
+                  <Label htmlFor="due_time">Time</Label>
+                  <Input
+                    id="due_time"
+                    type="time"
+                    value={formDueTime}
+                    onChange={(e) => setFormDueTime(e.target.value)}
+                  />
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-7 text-muted-foreground"
+                  onClick={() => { setFormDueDate(undefined); setFormDueTime('09:00') }}
+                >
+                  <X className="h-4 w-4 mr-1" />
+                  Clear
+                </Button>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="tags">Tags (comma-separated)</Label>

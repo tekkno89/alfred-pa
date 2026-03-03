@@ -124,6 +124,11 @@ export function useChat({ sessionId, onError }: UseChatOptions): UseChatReturn {
               }
             )
 
+            // Auto-refresh todo queries when the manage_todos tool was used
+            if (toolResults.some(r => r.toolName === 'manage_todos')) {
+              queryClient.invalidateQueries({ queryKey: ['todos'] })
+            }
+
             setStreamingContent('')
             streamingContentRef.current = ''
             setIsStreaming(false)

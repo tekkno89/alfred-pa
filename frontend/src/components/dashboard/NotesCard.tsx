@@ -19,7 +19,7 @@ export function NotesCard() {
 
   return (
     <Card
-      className="cursor-pointer hover:shadow-md transition-shadow relative"
+      className="cursor-pointer hover:shadow-md transition-shadow relative h-full flex flex-col"
       onClick={() => navigate('/notes')}
     >
       <CardHeader className="pb-2">
@@ -28,7 +28,7 @@ export function NotesCard() {
           Notes
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex-1 overflow-y-auto">
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading...</p>
         ) : !notes || notes.length === 0 ? (

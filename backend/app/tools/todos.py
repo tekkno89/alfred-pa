@@ -1,7 +1,7 @@
 """Todo management tool for the LLM agent."""
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.tools.base import BaseTool, ToolContext
@@ -23,6 +23,8 @@ class ManageTodosTool(BaseTool):
         '"complete" marks a todo as done, '
         '"delete" removes a todo. '
         "For due dates, use ISO 8601 format (e.g. 2026-03-15T09:00:00Z). "
+        "For relative reminders like 'in 5 minutes' or 'in 2 hours', "
+        "use snooze_minutes instead of due_at (e.g. snooze_minutes=5). "
         "For recurrence, convert to RFC 5545 RRULE "
         '(e.g. "FREQ=DAILY;INTERVAL=1", "FREQ=WEEKLY;BYDAY=MO,WE,FR").'
     )
@@ -65,6 +67,11 @@ class ManageTodosTool(BaseTool):
                 "type": "string",
                 "description": "RFC 5545 RRULE for recurring todos.",
             },
+            "snooze_minutes": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Set due date to this many minutes from now. Use instead of due_at for relative times like 'in 5 minutes' or 'in 2 hours' (=120).",
+            },
             "todo_id": {
                 "type": "string",
                 "description": "Todo ID (required for update/complete/delete).",
@@ -95,17 +102,30 @@ class ManageTodosTool(BaseTool):
 
         try:
             if action == "create":
-                return await self._handle_create(db, user_id, kwargs)
+                result = await self._handle_create(db, user_id, kwargs)
             elif action == "list":
-                return await self._handle_list(db, user_id, kwargs)
+                result = await self._handle_list(db, user_id, kwargs)
             elif action == "update":
-                return await self._handle_update(db, user_id, kwargs)
+                result = await self._handle_update(db, user_id, kwargs)
             elif action == "complete":
-                return await self._handle_complete(db, user_id, kwargs)
+                result = await self._handle_complete(db, user_id, kwargs)
             elif action == "delete":
-                return await self._handle_delete(db, user_id, kwargs)
+                result = await self._handle_delete(db, user_id, kwargs)
             else:
                 return f"Error: Unknown action '{action}'. Use create, list, update, complete, or delete."
+
+            # Notify connected frontends so dashboards refresh.
+            # Commit first so the refetch sees the updated data.
+            if action != "list" and not result.startswith("Error"):
+                try:
+                    await db.commit()
+                    from app.services.notifications import NotificationService
+                    ns = NotificationService(db)
+                    await ns.publish(user_id, "todos_changed", {"action": action})
+                except Exception:
+                    pass
+
+            return result
         except Exception as e:
             logger.error(f"Todo tool error (action={action}): {e}", exc_info=True)
             return f"Error performing todo action: {str(e)}"
@@ -118,7 +138,9 @@ class ManageTodosTool(BaseTool):
             return "Error: 'title' is required for creating a todo."
 
         due_at = None
-        if kwargs.get("due_at"):
+        if kwargs.get("snooze_minutes"):
+            due_at = datetime.now(UTC) + timedelta(minutes=int(kwargs["snooze_minutes"]))
+        elif kwargs.get("due_at"):
             try:
                 due_at = datetime.fromisoformat(kwargs["due_at"].replace("Z", "+00:00"))
             except ValueError:
@@ -213,6 +235,16 @@ class ManageTodosTool(BaseTool):
         repo = TodoRepository(db)
         todo = await repo.get(todo_id)
 
+        # Fallback: if ID not found, try the most recent open todo for this user
+        if not todo:
+            recent = await repo.get_user_todos(
+                user_id=user_id, status="open", limit=1,
+                sort_by="created_at", sort_order="desc",
+            )
+            if recent:
+                todo = recent[0]
+                logger.info(f"Todo ID {todo_id} not found, fell back to most recent: {todo.id}")
+
         if not todo:
             return f"Error: Todo not found with ID: {todo_id}"
         if todo.user_id != user_id:
@@ -237,7 +269,9 @@ class ManageTodosTool(BaseTool):
             updates["recurrence_rule"] = kwargs["recurrence_rule"]
 
         old_due_at = todo.due_at
-        if kwargs.get("due_at") is not None:
+        if kwargs.get("snooze_minutes"):
+            updates["due_at"] = datetime.now(UTC) + timedelta(minutes=int(kwargs["snooze_minutes"]))
+        elif kwargs.get("due_at") is not None:
             try:
                 updates["due_at"] = datetime.fromisoformat(
                     kwargs["due_at"].replace("Z", "+00:00")
@@ -277,6 +311,16 @@ class ManageTodosTool(BaseTool):
 
         repo = TodoRepository(db)
         todo = await repo.get(todo_id)
+
+        # Fallback: if ID not found, try the most recent open todo for this user
+        if not todo:
+            recent = await repo.get_user_todos(
+                user_id=user_id, status="open", limit=1,
+                sort_by="created_at", sort_order="desc",
+            )
+            if recent:
+                todo = recent[0]
+                logger.info(f"Todo ID {todo_id} not found, fell back to most recent: {todo.id}")
 
         if not todo:
             return f"Error: Todo not found with ID: {todo_id}"

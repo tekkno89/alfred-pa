@@ -32,7 +32,7 @@ export function TodosCard() {
 
   return (
     <Card
-      className="cursor-pointer hover:shadow-md transition-shadow relative"
+      className="cursor-pointer hover:shadow-md transition-shadow relative h-full flex flex-col"
       onClick={() => navigate('/todos')}
     >
       <CardHeader className="pb-2">
@@ -41,7 +41,7 @@ export function TodosCard() {
           Todos
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex-1 overflow-y-auto">
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading...</p>
         ) : (

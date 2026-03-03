@@ -19,7 +19,7 @@ export function useTodos(
     sort_by: sortBy,
     sort_order: sortOrder,
   })
-  if (status !== undefined) params.set('status', status)
+  if (status !== undefined && status !== 'all') params.set('status', status)
   if (priority !== undefined) params.set('priority', String(priority))
   if (starred !== undefined) params.set('starred', String(starred))
   if (dueBefore) params.set('due_before', dueBefore)
@@ -70,12 +70,8 @@ export function useUpdateTodo() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: TodoUpdate }) =>
       apiPut<Todo>(`/todos/${id}`, data),
-    onSuccess: (updatedTodo, { id }) => {
-      queryClient.setQueryData(['todos', id], updatedTodo)
-      queryClient.invalidateQueries({
-        queryKey: ['todos'],
-        predicate: (query) => query.queryKey[1] !== id,
-      })
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['todos'] })
     },
   })
 }

@@ -564,6 +564,10 @@ async def handle_message_event(
             message=text,
         )
 
+        # Strip any raw tool-call XML leaked by the LLM
+        import re
+        response = re.sub(r"<function>.*?</function>\s*", "", response, flags=re.DOTALL).strip()
+
         # Send response back to Slack
         await slack_service.send_message(
             channel=channel_id,
@@ -943,24 +947,28 @@ async def handle_slack_interactive(
             }
 
         if action_id == "todo_complete":
+            message = payload.get("message", {})
             background_tasks.add_task(
                 process_todo_action_background,
                 "complete",
                 action.get("value", ""),
                 payload.get("user", {}).get("id", ""),
                 payload.get("channel", {}).get("id", ""),
-                payload.get("message", {}).get("ts", ""),
+                message.get("ts", ""),
+                message.get("thread_ts"),
             )
             return {"ok": True}
 
         if action_id and action_id.startswith("todo_snooze_"):
+            message = payload.get("message", {})
             background_tasks.add_task(
                 process_todo_action_background,
                 action_id,
                 action.get("value", ""),
                 payload.get("user", {}).get("id", ""),
                 payload.get("channel", {}).get("id", ""),
-                payload.get("message", {}).get("ts", ""),
+                message.get("ts", ""),
+                message.get("thread_ts"),
             )
             return {"ok": True}
 
@@ -986,13 +994,14 @@ async def process_todo_action_background(
     sender_slack_id: str,
     channel_id: str,
     message_ts: str,
+    thread_ts: str | None = None,
 ) -> None:
     """Process todo button clicks (complete/snooze) in background."""
     async for db in get_db():
         try:
             await handle_todo_action(
                 action_type, signed_payload, sender_slack_id,
-                channel_id, message_ts, db,
+                channel_id, message_ts, db, thread_ts,
             )
         except Exception as e:
             logger.error(f"Error processing todo action: {e}", exc_info=True)
@@ -1005,6 +1014,7 @@ async def handle_todo_action(
     channel_id: str,
     message_ts: str,
     db,
+    thread_ts: str | None = None,
 ) -> None:
     """Handle todo interactive button clicks (complete and snooze)."""
     settings = get_settings()
@@ -1069,7 +1079,14 @@ async def handle_todo_action(
 
         await db.commit()
 
-        # Update the Slack message
+        # Notify connected frontends
+        try:
+            notification_service = NotificationService(db)
+            await notification_service.publish(todo.user_id, "todos_changed", {"action": "complete"})
+        except Exception:
+            pass
+
+        # Update the Slack message (button message)
         try:
             await slack_service.client.chat_update(
                 channel=channel_id,
@@ -1087,6 +1104,20 @@ async def handle_todo_action(
             )
         except Exception as e:
             logger.warning(f"Could not update Slack message: {e}")
+
+        # Post a confirmation reply in the thread
+        if thread_ts:
+            try:
+                confirm_text = f"Done! *{todo.title}* marked as complete."
+                if next_info:
+                    confirm_text += next_info
+                await slack_service.client.chat_postMessage(
+                    channel=channel_id,
+                    text=confirm_text,
+                    thread_ts=thread_ts,
+                )
+            except Exception as e:
+                logger.warning(f"Could not post thread confirmation: {e}")
 
     elif action_type.startswith("todo_snooze_"):
         from app.worker.scheduler import schedule_todo_reminder
@@ -1120,7 +1151,14 @@ async def handle_todo_action(
 
         await db.commit()
 
-        # Update the Slack message
+        # Notify connected frontends
+        try:
+            notification_service = NotificationService(db)
+            await notification_service.publish(todo.user_id, "todos_changed", {"action": "snooze"})
+        except Exception:
+            pass
+
+        # Update the Slack message (button message)
         try:
             await slack_service.client.chat_update(
                 channel=channel_id,
@@ -1138,6 +1176,17 @@ async def handle_todo_action(
             )
         except Exception as e:
             logger.warning(f"Could not update Slack message: {e}")
+
+        # Post a confirmation reply in the thread
+        if thread_ts:
+            try:
+                await slack_service.client.chat_postMessage(
+                    channel=channel_id,
+                    text=f"Got it — snoozed *{todo.title}* for {snooze_label}.",
+                    thread_ts=thread_ts,
+                )
+            except Exception as e:
+                logger.warning(f"Could not post thread confirmation: {e}")
 
 
 async def handle_focus_bypass(

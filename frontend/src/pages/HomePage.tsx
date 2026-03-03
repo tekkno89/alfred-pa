@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Brain, Send } from 'lucide-react'
+import { Brain, Send, MoreVertical } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { BatmanRunner } from '@/components/game/BatmanRunner'
@@ -9,7 +9,18 @@ import { useAvailableCards, useDashboardPreferences } from '@/hooks/useDashboard
 import { BartCard } from '@/components/dashboard/BartCard'
 import { NotesCard } from '@/components/dashboard/NotesCard'
 import { TodosCard } from '@/components/dashboard/TodosCard'
-import type { BartStationPreference } from '@/types'
+import { DashboardConfigDialog } from '@/components/dashboard/DashboardConfigDialog'
+import type { BartStationPreference, DashboardPreference } from '@/types'
+
+const CARD_RENDERERS: Record<string, (prefs: DashboardPreference | undefined) => ReactNode> = {
+  bart: (pref) => {
+    const stations: BartStationPreference[] =
+      (pref?.preferences?.stations as BartStationPreference[]) || []
+    return <BartCard stations={stations} />
+  },
+  todos: () => <TodosCard />,
+  notes: () => <NotesCard />,
+}
 
 export function HomePage() {
   const navigate = useNavigate()
@@ -17,6 +28,7 @@ export function HomePage() {
   const { data: availableCards } = useAvailableCards()
   const { data: prefs } = useDashboardPreferences()
   const [input, setInput] = useState('')
+  const [configOpen, setConfigOpen] = useState(false)
   const [gameEnabled, setGameEnabled] = useState(() => {
     try { return localStorage.getItem('batman-runner-enabled') === '1' } catch { return false }
   })
@@ -63,22 +75,52 @@ export function HomePage() {
     }
   }
 
-  const showBart = availableCards?.includes('bart') ?? false
-  const showNotes = availableCards?.includes('notes') ?? false
-  const showTodos = availableCards?.includes('todos') ?? false
-  const bartPref = prefs?.items.find((p) => p.card_type === 'bart')
-  const bartStations: BartStationPreference[] =
-    (bartPref?.preferences?.stations as BartStationPreference[]) || []
+  const visibleCards = useMemo(() => {
+    if (!availableCards) return []
+
+    return availableCards
+      .map((cardType) => {
+        const pref = prefs?.items.find((p) => p.card_type === cardType)
+        const visible = pref ? pref.preferences?.visible !== false : true
+        const sortOrder = pref?.sort_order ?? Infinity
+        return { cardType, pref, visible, sortOrder }
+      })
+      .filter((c) => c.visible)
+      .sort((a, b) => {
+        if (a.sortOrder === Infinity && b.sortOrder === Infinity)
+          return a.cardType.localeCompare(b.cardType)
+        if (a.sortOrder === Infinity) return 1
+        if (b.sortOrder === Infinity) return -1
+        return a.sortOrder - b.sortOrder
+      })
+  }, [availableCards, prefs])
+
+  const hasCards = visibleCards.length > 0
+  const hasAnyAvailable = (availableCards?.length ?? 0) > 0
 
   return (
     <div className="h-full flex flex-col">
       {/* Dashboard area (scrollable) */}
-      <div className="flex-1 overflow-y-auto p-4">
-        {showBart || showNotes || showTodos ? (
-          <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {showBart && <BartCard stations={bartStations} />}
-            {showTodos && <TodosCard />}
-            {showNotes && <NotesCard />}
+      <div className="flex-1 overflow-y-auto p-4 relative">
+        {hasCards && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 absolute top-2 right-2"
+            onClick={() => setConfigOpen(true)}
+          >
+            <MoreVertical className="h-4 w-4" />
+          </Button>
+        )}
+        {hasCards ? (
+          <div className="max-w-5xl mx-auto">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {visibleCards.map(({ cardType, pref }) => {
+                const render = CARD_RENDERERS[cardType]
+                if (!render) return null
+                return <div key={cardType}>{render(pref)}</div>
+              })}
+            </div>
           </div>
         ) : (
           <div className="h-full flex items-center justify-center">
@@ -94,6 +136,12 @@ export function HomePage() {
                   Your personal AI assistant. Start a conversation below or select one from the sidebar.
                 </p>
               </div>
+              {hasAnyAvailable && (
+                <Button variant="outline" size="sm" onClick={() => setConfigOpen(true)}>
+                  <MoreVertical className="h-4 w-4 mr-1" />
+                  Configure Dashboard
+                </Button>
+              )}
             </div>
           </div>
         )}
@@ -146,6 +194,8 @@ export function HomePage() {
         </div>
         </div>
       </div>
+
+      <DashboardConfigDialog open={configOpen} onOpenChange={setConfigOpen} />
     </div>
   )
 }

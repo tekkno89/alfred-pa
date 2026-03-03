@@ -94,6 +94,11 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       queryClient.invalidateQueries({ queryKey: ['focus-status'] })
     }
 
+    // Invalidate todo queries when todos change (e.g. via Slack or LLM tool)
+    if (event.type === 'todos_changed') {
+      queryClient.invalidateQueries({ queryKey: ['todos'] })
+    }
+
     // Stop alerts when focus mode ends
     if (event.type === 'focus_ended') {
       setLoopingSound(null)

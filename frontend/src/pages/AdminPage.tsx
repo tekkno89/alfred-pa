@@ -17,7 +17,11 @@ import { useAuthStore } from '@/lib/auth'
 import { useAdminUsers, useUpdateUserRole, useUserFeatures, useSetFeatureAccess, useSystemSettings, useUpdateSystemSetting } from '@/hooks/useAdmin'
 import type { AdminUser } from '@/types'
 
-const FEATURE_KEYS = ['card:bart', 'card:notes'] as const
+const FEATURE_KEYS = [
+  { key: 'card:bart', label: 'BART Departures' },
+  { key: 'card:notes', label: 'Notes' },
+  { key: 'card:todos', label: 'Todos' },
+] as const
 
 function UserFeatureToggles({ user }: { user: AdminUser }) {
   const { data: features } = useUserFeatures(user.id)
@@ -38,19 +42,21 @@ function UserFeatureToggles({ user }: { user: AdminUser }) {
   }
 
   return (
-    <div className="flex gap-2 flex-wrap">
-      {FEATURE_KEYS.map((key) => {
+    <div className="space-y-2">
+      {FEATURE_KEYS.map(({ key, label }) => {
         const enabled = isFeatureEnabled(key)
         return (
-          <Button
-            key={key}
-            variant={enabled ? 'default' : 'outline'}
-            size="sm"
-            className={`text-xs h-7 ${enabled ? 'bg-green-600 hover:bg-green-700' : ''}`}
-            onClick={() => toggleFeature(key)}
-          >
-            {key}
-          </Button>
+          <div key={key} className="flex items-center justify-between">
+            <Label htmlFor={`${user.id}-${key}`} className="text-sm cursor-pointer">
+              {label}
+            </Label>
+            <Switch
+              id={`${user.id}-${key}`}
+              checked={enabled}
+              onCheckedChange={() => toggleFeature(key)}
+              disabled={setAccess.isPending}
+            />
+          </div>
         )
       })}
     </div>
@@ -99,7 +105,7 @@ function UserRow({ user }: { user: AdminUser }) {
         </div>
       </div>
       {expanded && (
-        <div className="pt-1">
+        <div className="pt-1 pl-1 max-w-xs">
           <UserFeatureToggles user={user} />
         </div>
       )}
