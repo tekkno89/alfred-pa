@@ -6,7 +6,7 @@ import hmac
 import json
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qs
 
@@ -1029,11 +1029,10 @@ async def handle_slack_interactive(
             )
             return {"ok": True}
 
-        if action_id and action_id.startswith("todo_snooze_"):
+        if action_id == "todo_snooze":
             message = payload.get("message", {})
             background_tasks.add_task(
-                process_todo_action_background,
-                action_id,
+                process_todo_snooze_background,
                 action.get("value", ""),
                 payload.get("user", {}).get("id", ""),
                 payload.get("channel", {}).get("id", ""),
@@ -1066,7 +1065,7 @@ async def process_todo_action_background(
     message_ts: str,
     thread_ts: str | None = None,
 ) -> None:
-    """Process todo button clicks (complete/snooze) in background."""
+    """Process todo button clicks (complete) in background."""
     async for db in get_db():
         try:
             await handle_todo_action(
@@ -1075,6 +1074,24 @@ async def process_todo_action_background(
             )
         except Exception as e:
             logger.error(f"Error processing todo action: {e}", exc_info=True)
+
+
+async def process_todo_snooze_background(
+    signed_payload: str,
+    sender_slack_id: str,
+    channel_id: str,
+    message_ts: str,
+    thread_ts: str | None = None,
+) -> None:
+    """Process todo snooze button click — start conversational flow."""
+    async for db in get_db():
+        try:
+            await handle_todo_snooze(
+                signed_payload, sender_slack_id,
+                channel_id, message_ts, db, thread_ts,
+            )
+        except Exception as e:
+            logger.error(f"Error processing todo snooze: {e}", exc_info=True)
 
 
 async def handle_todo_action(
@@ -1086,7 +1103,7 @@ async def handle_todo_action(
     db,
     thread_ts: str | None = None,
 ) -> None:
-    """Handle todo interactive button clicks (complete and snooze)."""
+    """Handle todo interactive button clicks (complete)."""
     settings = get_settings()
     slack_service = get_slack_service()
 
@@ -1189,80 +1206,103 @@ async def handle_todo_action(
             except Exception as e:
                 logger.warning(f"Could not post thread confirmation: {e}")
 
-    elif action_type.startswith("todo_snooze_"):
-        from app.worker.scheduler import schedule_todo_reminder
 
-        # Determine snooze duration
-        now = datetime.utcnow()
-        if action_type == "todo_snooze_1h":
-            snooze_until = now + timedelta(hours=1)
-            snooze_label = "1 hour"
-        elif action_type == "todo_snooze_3h":
-            snooze_until = now + timedelta(hours=3)
-            snooze_label = "3 hours"
-        elif action_type == "todo_snooze_tomorrow":
-            # Tomorrow at 9 AM
-            tomorrow = now + timedelta(days=1)
-            snooze_until = tomorrow.replace(hour=9, minute=0, second=0, microsecond=0)
-            snooze_label = "tomorrow morning"
-        else:
+async def handle_todo_snooze(
+    signed_payload: str,
+    sender_slack_id: str,
+    channel_id: str,
+    message_ts: str,
+    db,
+    thread_ts: str | None = None,
+) -> None:
+    """Handle Snooze button click — start conversational snooze flow."""
+    settings = get_settings()
+    slack_service = get_slack_service()
+
+    # Validate signed payload: todo_id:timestamp:signature
+    try:
+        parts = signed_payload.split(":")
+        if len(parts) != 3:
+            logger.warning("Invalid todo snooze payload format")
             return
 
-        # Reset reminder state and schedule new reminder
-        await todo_repo.update_todo(todo, reminder_sent_at=None)
-        try:
-            from datetime import UTC
-            snooze_until_tz = snooze_until.replace(tzinfo=UTC)
-            job_id = await schedule_todo_reminder(todo.id, todo.user_id, snooze_until_tz)
-            if job_id:
-                await todo_repo.update_todo(todo, reminder_job_id=job_id)
-        except Exception as e:
-            logger.warning(f"Failed to schedule snoozed reminder: {e}")
+        todo_id, timestamp_str, signature = parts
 
-        await db.commit()
+        payload_str = f"{todo_id}:{timestamp_str}"
+        expected_sig = hmac.new(
+            settings.jwt_secret.encode(),
+            payload_str.encode(),
+            hashlib.sha256,
+        ).hexdigest()[:16]
 
-        # Notify connected frontends and webhook subscribers
-        try:
-            from app.services.todo_notifications import TodoNotificationService
+        if not hmac.compare_digest(signature, expected_sig):
+            logger.warning("Invalid todo snooze signature")
+            return
 
-            todo_ns = TodoNotificationService(db)
-            await todo_ns.publish_snooze_event(
-                todo.user_id, todo.id, todo.title, snooze_label, snooze_until
-            )
-            notification_service = NotificationService(db)
-            await notification_service.publish(todo.user_id, "todos_changed", {"action": "snooze"})
-        except Exception:
-            pass
+        # Check timestamp (24 hour expiry)
+        timestamp_val = int(timestamp_str)
+        if abs(time.time() - timestamp_val) > 86400:
+            logger.warning("Expired todo snooze payload")
+            return
 
-        # Update the Slack message (button message)
-        try:
-            await slack_service.client.chat_update(
-                channel=channel_id,
-                ts=message_ts,
-                text=f":clock3: *{todo.title}* — Snoozed for {snooze_label}",
-                blocks=[
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f":clock3: *{todo.title}* — Snoozed for {snooze_label}",
-                        },
-                    }
-                ],
-            )
-        except Exception as e:
-            logger.warning(f"Could not update Slack message: {e}")
+    except (ValueError, IndexError) as e:
+        logger.warning(f"Error parsing todo snooze payload: {e}")
+        return
 
-        # Post a confirmation reply in the thread
-        if thread_ts:
-            try:
-                await slack_service.client.chat_postMessage(
-                    channel=channel_id,
-                    text=f"Got it — snoozed *{todo.title}* for {snooze_label}.",
-                    thread_ts=thread_ts,
-                )
-            except Exception as e:
-                logger.warning(f"Could not post thread confirmation: {e}")
+    from app.db.repositories.todo import TodoRepository
+
+    todo_repo = TodoRepository(db)
+    todo = await todo_repo.get(todo_id)
+
+    if not todo:
+        logger.warning(f"Todo {todo_id} not found for snooze")
+        return
+
+    # Update button message to remove buttons
+    try:
+        await slack_service.client.chat_update(
+            channel=channel_id,
+            ts=message_ts,
+            text=f":clock3: *{todo.title}*",
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f":clock3: *{todo.title}*",
+                    },
+                }
+            ],
+        )
+    except Exception as e:
+        logger.warning(f"Could not update Slack message for snooze: {e}")
+
+    # Post conversational prompt in thread
+    parent_ts = thread_ts or message_ts
+    try:
+        await slack_service.client.chat_postMessage(
+            channel=channel_id,
+            text="How long would you like to snooze this?",
+            thread_ts=parent_ts,
+        )
+    except Exception as e:
+        logger.warning(f"Could not post snooze prompt: {e}")
+
+    # Update Redis thread→todo mapping with snooze_pending flag
+    try:
+        redis = await get_redis()
+        thread_todo_key = f"thread_todo:{channel_id}:{parent_ts}"
+        await redis.set(
+            thread_todo_key,
+            json.dumps({
+                "todo_id": str(todo.id),
+                "title": todo.title,
+                "snooze_pending": True,
+            }),
+            ex=7 * 86400,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to update thread→todo mapping for snooze: {e}")
 
 
 async def handle_focus_bypass(

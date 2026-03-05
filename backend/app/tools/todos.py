@@ -331,6 +331,15 @@ class ManageTodosTool(BaseTool):
                     job_id = await schedule_todo_reminder(todo.id, user_id, todo.due_at)
                     if job_id:
                         await repo.update_todo(todo, reminder_job_id=job_id, reminder_sent_at=None)
+
+                # Clear the dedup lock so the rescheduled reminder can fire
+                try:
+                    from app.core.redis import get_redis
+
+                    redis_client = await get_redis()
+                    await redis_client.delete(f"todo_reminder_lock:{todo.id}")
+                except Exception:
+                    pass
             except Exception:
                 pass
 

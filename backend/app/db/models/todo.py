@@ -53,6 +53,12 @@ class Todo(Base, UUIDMixin, TimestampMixin):
     reminder_job_id: Mapped[str | None] = mapped_column(
         String(100), nullable=True
     )
+    slack_reminder_thread_ts: Mapped[str | None] = mapped_column(
+        String(50), nullable=True
+    )
+    slack_reminder_channel: Mapped[str | None] = mapped_column(
+        String(50), nullable=True
+    )
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="todos")

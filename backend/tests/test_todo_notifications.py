@@ -1,7 +1,5 @@
 """Tests for TodoNotificationService and send_todo_reminder dedup lock."""
 
-import asyncio
-from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -32,6 +30,8 @@ def _make_todo(
     priority=2,
     description=None,
     user_id="user-1",
+    slack_reminder_thread_ts=None,
+    slack_reminder_channel=None,
 ):
     todo = MagicMock()
     todo.id = todo_id
@@ -40,6 +40,8 @@ def _make_todo(
     todo.priority = priority
     todo.description = description
     todo.user_id = user_id
+    todo.slack_reminder_thread_ts = slack_reminder_thread_ts
+    todo.slack_reminder_channel = slack_reminder_channel
     return todo
 
 
@@ -85,10 +87,10 @@ class TestSendDueReminder:
     @patch("app.services.slack.get_slack_service")
     @patch("app.core.config.get_settings")
     @patch("app.core.redis.get_redis", new_callable=AsyncMock)
-    async def test_dispatches_to_slack_and_notifications(
+    async def test_first_time_reminder_sends_dm_with_two_buttons(
         self, mock_redis, mock_settings, mock_slack, service
     ):
-        """Should send Slack DM and publish todo_due event."""
+        """First-time reminder should send DM with Mark Done + Snooze buttons."""
         todo = _make_todo()
         user = _make_user()
         service.todo_repo.get.return_value = todo
@@ -122,6 +124,21 @@ class TestSendDueReminder:
         # Slack: main message + threaded action buttons
         assert slack_service.client.chat_postMessage.call_count == 2
 
+        # Verify the threaded buttons message has exactly 2 buttons
+        buttons_call = slack_service.client.chat_postMessage.call_args_list[1]
+        action_blocks = buttons_call[1]["blocks"]
+        elements = action_blocks[0]["elements"]
+        assert len(elements) == 2
+        assert elements[0]["action_id"] == "todo_complete"
+        assert elements[1]["action_id"] == "todo_snooze"
+
+        # Should save thread_ts and channel on the todo
+        update_calls = service.todo_repo.update_todo.call_args_list
+        # First call: persist thread location; second call: reminder_sent_at
+        thread_update = update_calls[0]
+        assert thread_update[1]["slack_reminder_thread_ts"] == "123.456"
+        assert thread_update[1]["slack_reminder_channel"] == "D999"
+
         # NotificationService: todo_due event
         service.notification_service.publish.assert_called_once()
         call_args = service.notification_service.publish.call_args
@@ -129,10 +146,51 @@ class TestSendDueReminder:
         assert call_args[0][1] == "todo_due"  # event_type
         assert call_args[0][2]["todo_id"] == "todo-1"
 
-        # reminder_sent_at should be updated
-        service.todo_repo.update_todo.assert_called_once()
-        update_kwargs = service.todo_repo.update_todo.call_args[1]
-        assert "reminder_sent_at" in update_kwargs
+    @patch("app.services.slack.get_slack_service")
+    @patch("app.services.todo_notifications.get_redis", new_callable=AsyncMock)
+    async def test_refire_posts_in_existing_thread(
+        self, mock_redis, mock_slack, service
+    ):
+        """Snoozed re-fire should post text-only in existing thread."""
+        todo = _make_todo(
+            slack_reminder_thread_ts="111.222",
+            slack_reminder_channel="D999",
+        )
+        user = _make_user()
+        service.todo_repo.get.return_value = todo
+        service.user_repo.get.return_value = user
+        service.notification_service.publish.return_value = {
+            "sse_clients_notified": 0,
+            "webhooks_sent": 0,
+            "webhook_results": [],
+        }
+
+        slack_service = MagicMock()
+        slack_service.client.chat_postMessage = AsyncMock()
+        mock_slack.return_value = slack_service
+
+        redis_client = AsyncMock()
+        mock_redis.return_value = redis_client
+
+        result = await service.send_due_reminder("todo-1", "user-1")
+
+        assert result["status"] == "sent"
+        slack_result = result["channels"]["slack"]
+        assert slack_result["refire"] is True
+        assert slack_result["channel"] == "D999"
+        assert slack_result["ts"] == "111.222"
+
+        # Should post exactly one message (text-only in thread)
+        assert slack_service.client.chat_postMessage.call_count == 1
+        msg_call = slack_service.client.chat_postMessage.call_args
+        assert msg_call[1]["thread_ts"] == "111.222"
+        assert msg_call[1]["channel"] == "D999"
+        assert "Buy groceries" in msg_call[1]["text"]
+
+        # Should refresh the Redis mapping
+        redis_client.set.assert_called_once()
+        redis_key = redis_client.set.call_args[0][0]
+        assert redis_key == "thread_todo:D999:111.222"
 
     async def test_skips_slack_when_no_slack_user_id(self, service):
         """Should skip Slack but still send SSE/webhooks when user has no Slack ID."""
@@ -157,35 +215,6 @@ class TestSendDueReminder:
 
         # reminder_sent_at should still be set
         service.todo_repo.update_todo.assert_called_once()
-
-
-class TestPublishSnoozeEvent:
-    """Tests for TodoNotificationService.publish_snooze_event()."""
-
-    async def test_publishes_todo_snoozed_event(self, service):
-        """Should publish todo_snoozed event with correct payload."""
-        snooze_until = datetime(2026, 3, 4, 15, 0, 0)
-        service.notification_service.publish.return_value = {
-            "sse_clients_notified": 1,
-            "webhooks_sent": 0,
-            "webhook_results": [],
-        }
-
-        result = await service.publish_snooze_event(
-            "user-1", "todo-1", "Buy groceries", "1 hour", snooze_until
-        )
-
-        service.notification_service.publish.assert_called_once_with(
-            "user-1",
-            "todo_snoozed",
-            {
-                "todo_id": "todo-1",
-                "title": "Buy groceries",
-                "snooze_label": "1 hour",
-                "snooze_until": "2026-03-04T15:00:00",
-            },
-        )
-        assert result["sse_clients_notified"] == 1
 
 
 class TestDedupLock:

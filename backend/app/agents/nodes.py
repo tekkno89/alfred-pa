@@ -157,6 +157,12 @@ def build_prompt_messages(state: AgentState) -> list[LLMMessage]:
             f'use the manage_todos tool with action="update" or action="complete" and todo_id="{todo_id}". '
             f"Do NOT create a new todo unless the user explicitly asks to create one."
         )
+        if todo_context.get("snooze_pending"):
+            system_content += (
+                f"\n\nThe user clicked 'Snooze' on this todo's reminder and was asked how long to snooze. "
+                f"Interpret their next message as a snooze duration and use the manage_todos tool with "
+                f'action="update" and todo_id="{todo_id}" with either `snooze_minutes` or `due_at` to reschedule it.'
+            )
 
     messages.append(LLMMessage(role="system", content=system_content))
 

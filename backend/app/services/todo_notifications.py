@@ -102,12 +102,28 @@ class TodoNotificationService:
         return {"status": "sent", "todo_id": str(todo_id), "channels": results}
 
     async def _send_slack_reminder(self, todo, user) -> dict[str, Any]:
-        """Build and send the Slack DM with action buttons."""
+        """Send Slack reminder — new top-level DM or threaded re-fire."""
         from app.services.slack import get_slack_service
 
         settings = get_settings()
         slack_service = get_slack_service()
 
+        existing_thread_ts = todo.slack_reminder_thread_ts
+        existing_channel = todo.slack_reminder_channel
+
+        if existing_thread_ts and existing_channel:
+            # Re-fire after snooze: post text-only in the existing thread
+            return await self._refire_in_thread(
+                todo, slack_service, existing_channel, existing_thread_ts
+            )
+
+        # First-time reminder: send new top-level DM with buttons
+        return await self._send_new_reminder(todo, user, slack_service, settings)
+
+    async def _send_new_reminder(
+        self, todo, user, slack_service, settings
+    ) -> dict[str, Any]:
+        """Send a new top-level DM with Mark Done / Snooze buttons."""
         # HMAC sign the todo_id for button verification
         timestamp = str(int(time.time()))
         payload_str = f"{todo.id}:{timestamp}"
@@ -157,7 +173,7 @@ class TodoNotificationService:
         main_ts = main_resp["ts"]
         dm_channel = main_resp["channel"]
 
-        # Threaded reply: action buttons
+        # Threaded reply: Mark Done + Snooze buttons
         action_blocks = [
             {
                 "type": "actions",
@@ -171,20 +187,8 @@ class TodoNotificationService:
                     },
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "1 Hour"},
-                        "action_id": "todo_snooze_1h",
-                        "value": signed_value,
-                    },
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "3 Hours"},
-                        "action_id": "todo_snooze_3h",
-                        "value": signed_value,
-                    },
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "Tomorrow AM"},
-                        "action_id": "todo_snooze_tomorrow",
+                        "text": {"type": "plain_text", "text": "Snooze"},
+                        "action_id": "todo_snooze",
                         "value": signed_value,
                     },
                 ],
@@ -196,6 +200,13 @@ class TodoNotificationService:
             text="Quick actions:",
             blocks=action_blocks,
             thread_ts=main_ts,
+        )
+
+        # Persist thread location on the todo for future re-fires
+        await self.todo_repo.update_todo(
+            todo,
+            slack_reminder_thread_ts=main_ts,
+            slack_reminder_channel=dm_channel,
         )
 
         # Store thread→todo mapping in Redis
@@ -212,34 +223,29 @@ class TodoNotificationService:
 
         return {"channel": dm_channel, "ts": main_ts}
 
-    async def publish_snooze_event(
-        self,
-        user_id: str,
-        todo_id: str,
-        title: str,
-        snooze_label: str,
-        snooze_until: datetime,
+    async def _refire_in_thread(
+        self, todo, slack_service, channel: str, thread_ts: str
     ) -> dict[str, Any]:
-        """
-        Publish a todo_snoozed event to SSE + webhooks.
+        """Post a text-only reminder in the existing thread (no buttons)."""
+        intro = random.choice(_REMINDER_INTROS)
+        text = f"{intro}\n*{todo.title}*"
 
-        Args:
-            user_id: The user's ID
-            todo_id: The todo's ID
-            title: The todo's title
-            snooze_label: Human-readable snooze duration (e.g. "1 hour")
-            snooze_until: When the todo will next be due
-
-        Returns:
-            NotificationService publish result
-        """
-        return await self.notification_service.publish(
-            user_id,
-            "todo_snoozed",
-            {
-                "todo_id": str(todo_id),
-                "title": title,
-                "snooze_label": snooze_label,
-                "snooze_until": snooze_until.isoformat(),
-            },
+        await slack_service.client.chat_postMessage(
+            channel=channel,
+            text=text,
+            thread_ts=thread_ts,
         )
+
+        # Refresh the Redis thread→todo mapping so user replies still resolve
+        try:
+            redis_client = await get_redis()
+            thread_todo_key = f"thread_todo:{channel}:{thread_ts}"
+            await redis_client.set(
+                thread_todo_key,
+                json.dumps({"todo_id": str(todo.id), "title": todo.title}),
+                ex=7 * 86400,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to refresh thread→todo mapping: {e}")
+
+        return {"channel": channel, "ts": thread_ts, "refire": True}
