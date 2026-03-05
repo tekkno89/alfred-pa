@@ -3,6 +3,7 @@
 import pytest
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, patch
+from zoneinfo import ZoneInfo
 
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -439,3 +440,79 @@ class TestTodoDashboard:
         # Starred should be first, then urgent
         assert items[0]["title"] == "Starred"
         assert items[1]["title"] == "Urgent"
+
+
+class TestTodoSummaryTimezone:
+    """Tests for timezone-aware summary counts."""
+
+    async def test_summary_respects_timezone_boundary(
+        self, client: AsyncClient, db_session, test_user,
+    ):
+        """A todo due tonight UTC but tomorrow in UTC+14 should not count as 'today' for UTC+14."""
+        now = datetime.now(timezone.utc)
+        # Set due_at to 23:30 UTC today — still "today" in UTC,
+        # but already tomorrow in Pacific/Kiritimati (UTC+14)
+        due = now.replace(hour=23, minute=30, second=0, microsecond=0)
+        # If it's already past 23:30 UTC, push to tomorrow
+        if due <= now:
+            due += timedelta(days=1)
+
+        todo = Todo(
+            user_id=test_user.id, title="Late UTC",
+            priority=1, status="open", tags=[],
+            due_at=due,
+        )
+        db_session.add(todo)
+        await db_session.commit()
+
+        # With UTC — should be due today
+        resp_utc = await client.get(
+            "/api/todos/summary?tz=UTC",
+            headers=auth_headers(test_user),
+        )
+        assert resp_utc.status_code == 200
+        data_utc = resp_utc.json()
+        assert data_utc["due_today"] == 1
+
+        # With Pacific/Kiritimati (UTC+14) — 23:30 UTC is 13:30 next day
+        resp_kiri = await client.get(
+            "/api/todos/summary?tz=Pacific/Kiritimati",
+            headers=auth_headers(test_user),
+        )
+        assert resp_kiri.status_code == 200
+        data_kiri = resp_kiri.json()
+        # It's tomorrow in Kiritimati, so not due "today"
+        assert data_kiri["due_today"] == 0
+
+    async def test_summary_invalid_timezone_falls_back(
+        self, client: AsyncClient, test_user,
+    ):
+        """Invalid timezone should fall back to UTC without error."""
+        response = await client.get(
+            "/api/todos/summary?tz=Not/A/Timezone",
+            headers=auth_headers(test_user),
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        # Should still return valid counts (all zeros for no todos)
+        assert data["overdue"] == 0
+        assert data["due_today"] == 0
+        assert data["due_this_week"] == 0
+        assert data["total_open"] == 0
+
+    async def test_summary_backward_compat_no_tz(
+        self, client: AsyncClient, test_user,
+    ):
+        """Omitting tz param should still work (backward compatible)."""
+        response = await client.get(
+            "/api/todos/summary",
+            headers=auth_headers(test_user),
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "overdue" in data
+        assert "due_today" in data
+        assert "due_this_week" in data
+        assert "total_open" in data

@@ -67,9 +67,10 @@ export function useTodos(
 }
 
 export function useTodoSummary() {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
   return useQuery({
-    queryKey: ['todos', 'summary'],
-    queryFn: () => apiGet<TodoSummary>('/todos/summary'),
+    queryKey: ['todos', 'summary', tz],
+    queryFn: () => apiGet<TodoSummary>(`/todos/summary?tz=${encodeURIComponent(tz)}`),
     refetchInterval: 60_000,
   })
 }

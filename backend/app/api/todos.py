@@ -85,12 +85,13 @@ async def list_todos(
 async def get_todo_summary(
     db: DbSession,
     user: CurrentUser,
+    tz: Annotated[str | None, Query(max_length=50)] = None,
 ) -> TodoSummary:
     """Get summary counts for dashboard card."""
     await _check_todos_access(user, db)
 
     repo = TodoRepository(db)
-    counts = await repo.get_summary_counts(user.id)
+    counts = await repo.get_summary_counts(user.id, tz_name=tz)
     return TodoSummary(**counts)
 
 

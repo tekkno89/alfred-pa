@@ -1,6 +1,7 @@
 """Todo repository."""
 
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -116,17 +117,30 @@ class TodoRepository(BaseRepository[Todo]):
         result = await self.db.execute(query)
         return result.scalar() or 0
 
-    async def get_summary_counts(self, user_id: str) -> dict[str, int]:
+    async def get_summary_counts(
+        self, user_id: str, tz_name: str | None = None
+    ) -> dict[str, int]:
         """Get summary counts for dashboard card."""
         now = datetime.now(UTC)
-        today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
-        # End of week (next Sunday 23:59:59)
-        days_until_sunday = 6 - now.weekday()
+
+        # Resolve user timezone (fall back to UTC for invalid/missing)
+        try:
+            user_tz = ZoneInfo(tz_name) if tz_name else UTC
+        except (KeyError, ValueError):
+            user_tz = UTC
+
+        local_now = now.astimezone(user_tz)
+        today_end = local_now.replace(
+            hour=23, minute=59, second=59, microsecond=999999
+        ).astimezone(UTC)
+        # End of week (next Sunday 23:59:59 in user's timezone)
+        days_until_sunday = 6 - local_now.weekday()
         if days_until_sunday < 0:
             days_until_sunday = 0
-        week_end = now.replace(
-            hour=23, minute=59, second=59, microsecond=999999
-        ) + timedelta(days=days_until_sunday)
+        week_end = (
+            local_now.replace(hour=23, minute=59, second=59, microsecond=999999)
+            + timedelta(days=days_until_sunday)
+        ).astimezone(UTC)
 
         # Overdue: due_at < now
         overdue_q = (
