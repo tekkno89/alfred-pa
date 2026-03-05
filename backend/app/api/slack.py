@@ -1221,8 +1221,14 @@ async def handle_todo_action(
 
         await db.commit()
 
-        # Notify connected frontends
+        # Notify connected frontends and webhook subscribers
         try:
+            from app.services.todo_notifications import TodoNotificationService
+
+            todo_ns = TodoNotificationService(db)
+            await todo_ns.publish_snooze_event(
+                todo.user_id, todo.id, todo.title, snooze_label, snooze_until
+            )
             notification_service = NotificationService(db)
             await notification_service.publish(todo.user_id, "todos_changed", {"action": "snooze"})
         except Exception:

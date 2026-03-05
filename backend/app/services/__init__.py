@@ -5,6 +5,7 @@ from app.services.linking import LinkingService
 from app.services.focus import FocusModeService
 from app.services.notifications import NotificationService
 from app.services.slack_user import SlackUserService
+from app.services.todo_notifications import TodoNotificationService
 
 __all__ = [
     "SlackService",
@@ -12,4 +13,5 @@ __all__ = [
     "FocusModeService",
     "NotificationService",
     "SlackUserService",
+    "TodoNotificationService",
 ]

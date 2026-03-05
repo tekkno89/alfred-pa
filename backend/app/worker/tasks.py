@@ -1,7 +1,6 @@
 """Background tasks for the ARQ worker."""
 
 import logging
-import random
 from datetime import datetime
 from contextlib import asynccontextmanager
 
@@ -84,171 +83,32 @@ async def expire_focus_session(ctx: dict, user_id: str | None = None) -> dict:
             return {"status": "cron_complete", "expired_count": expired_count}
 
 
-_REMINDER_INTROS = [
-    "Hey, just a heads up — this task is due now:",
-    "Friendly reminder, this one's due:",
-    "This just came due on your list:",
-    "Heads up — you've got something due:",
-    "Quick nudge — this is due now:",
-    "Don't forget, this one's ready for you:",
-    "Looks like this task just came due:",
-    "Hey — this one's due, whenever you're ready:",
-    "Popping in to remind you about this:",
-    "This is on your plate now:",
-    "Just flagging this — it's due:",
-    "Time's up on this one:",
-]
-
-
 async def send_todo_reminder(ctx: dict, todo_id: str, user_id: str) -> dict:
     """
-    Send a Slack DM reminder for a todo that has reached its due time.
+    Send notifications for a todo that has reached its due time.
 
-    Sends a natural-sounding top-level message, then action buttons
-    as a threaded reply. Creates a session so the user can reply in
-    the thread to snooze/complete via natural language.
+    Dispatches to all configured channels (Slack, SSE, webhooks) via
+    TodoNotificationService.
     """
+    # Acquire a Redis lock to prevent duplicate notifications
+    # (race between scheduled job and cron backup job)
+    from app.core.redis import get_redis
+
+    redis_client = await get_redis()
+    lock_key = f"todo_reminder_lock:{todo_id}"
+    acquired = await redis_client.set(lock_key, "1", nx=True, ex=300)  # 5-min TTL
+    if not acquired:
+        logger.info(f"Todo {todo_id} reminder already in progress, skipping (dedup)")
+        return {"status": "skipped", "reason": "dedup_lock"}
+
     async with get_db_session() as db:
-        from app.db.repositories import UserRepository
-        from app.db.repositories.todo import TodoRepository
+        from app.services.todo_notifications import TodoNotificationService
 
-        todo_repo = TodoRepository(db)
-        user_repo = UserRepository(db)
-
-        todo = await todo_repo.get(todo_id)
-        if not todo or todo.status != "open":
-            logger.info(f"Todo {todo_id} not found or already completed, skipping reminder")
-            return {"status": "skipped", "reason": "not_open"}
-
-        user = await user_repo.get(user_id)
-        if not user or not user.slack_user_id:
-            logger.info(f"User {user_id} has no Slack ID, skipping reminder")
-            return {"status": "skipped", "reason": "no_slack"}
-
-        # Build and send Slack message
-        try:
-            import hashlib
-            import hmac
-            import time
-
-            from app.core.config import get_settings
-            from app.services.slack import get_slack_service
-
-            settings = get_settings()
-            slack_service = get_slack_service()
-
-            # HMAC sign the todo_id for button verification
-            timestamp = str(int(time.time()))
-            payload_str = f"{todo_id}:{timestamp}"
-            signature = hmac.new(
-                settings.jwt_secret.encode(),
-                payload_str.encode(),
-                hashlib.sha256,
-            ).hexdigest()[:16]
-            signed_value = f"{payload_str}:{signature}"
-
-            # Priority label
-            p_label = {0: "P0 Urgent", 1: "P1 High", 2: "P2 Medium", 3: "P3 Low"}.get(todo.priority, "P2 Medium")
-
-            # --- Top-level message: natural intro + todo details + link ---
-            intro = random.choice(_REMINDER_INTROS)
-            todo_url = f"{settings.frontend_url}/todos"
-
-            text_parts = [f"{intro}\n", f"*{todo.title}*", f"Priority: {p_label}"]
-            if todo.description:
-                text_parts.append(todo.description)
-            text_parts.append(f"\n<{todo_url}|View in Alfred>")
-
-            main_blocks = [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "\n".join(text_parts),
-                    },
-                },
-            ]
-
-            fallback_text = f"Todo reminder: {todo.title} ({p_label})"
-
-            # Send the top-level DM and capture its timestamp
-            main_resp = await slack_service.client.chat_postMessage(
-                channel=user.slack_user_id,
-                text=fallback_text,
-                blocks=main_blocks,
-                metadata={
-                    "event_type": "alfred_todo_reminder",
-                    "event_payload": {"todo_id": str(todo.id)},
-                },
-            )
-            main_ts = main_resp["ts"]
-            dm_channel = main_resp["channel"]
-
-            # --- Threaded reply: action buttons ---
-            action_blocks = [
-                {
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "Mark Done"},
-                            "style": "primary",
-                            "action_id": "todo_complete",
-                            "value": signed_value,
-                        },
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "1 Hour"},
-                            "action_id": "todo_snooze_1h",
-                            "value": signed_value,
-                        },
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "3 Hours"},
-                            "action_id": "todo_snooze_3h",
-                            "value": signed_value,
-                        },
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "Tomorrow AM"},
-                            "action_id": "todo_snooze_tomorrow",
-                            "value": signed_value,
-                        },
-                    ],
-                },
-            ]
-
-            await slack_service.client.chat_postMessage(
-                channel=dm_channel,
-                text="Quick actions:",
-                blocks=action_blocks,
-                thread_ts=main_ts,
-            )
-
-            # --- Store thread→todo mapping in Redis ---
-            try:
-                from app.core.redis import get_redis
-                redis_client = await get_redis()
-                import json as _json
-                thread_todo_key = f"thread_todo:{dm_channel}:{main_ts}"
-                await redis_client.set(
-                    thread_todo_key,
-                    _json.dumps({"todo_id": str(todo.id), "title": todo.title}),
-                    ex=7 * 86400,  # 7 days TTL
-                )
-            except Exception as e:
-                logger.warning(f"Failed to store thread→todo mapping: {e}")
-
-            # Mark reminder as sent
-            await todo_repo.update_todo(todo, reminder_sent_at=datetime.utcnow())
-            await db.commit()
-
-            logger.info(f"Sent todo reminder for todo {todo_id} to user {user_id}")
-            return {"status": "sent", "todo_id": todo_id}
-
-        except Exception as e:
-            logger.error(f"Failed to send todo reminder for {todo_id}: {e}", exc_info=True)
-            return {"status": "error", "error": str(e)}
+        service = TodoNotificationService(db)
+        result = await service.send_due_reminder(todo_id, user_id)
+        await db.commit()
+        logger.info(f"Todo reminder result for {todo_id}: {result.get('status')}")
+        return result
 
 
 async def check_due_todo_reminders(ctx: dict) -> dict:
