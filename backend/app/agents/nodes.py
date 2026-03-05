@@ -2,6 +2,7 @@ import logging
 import re
 from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
@@ -114,20 +115,24 @@ SYSTEM_PROMPT = """You are Alfred, a personal AI assistant inspired by Alfred Pe
 - Complex topics: Break them down with the confidence of someone who's explained this before. You've seen a few things in your time."""
 
 
-def build_prompt_messages(state: AgentState) -> list[LLMMessage]:
+def build_prompt_messages(state: AgentState, *, tz: str | None = None) -> list[LLMMessage]:
     """Build the list of messages for the LLM."""
     messages: list[LLMMessage] = []
 
-    # System prompt
-    today = datetime.now(timezone.utc).strftime("%B %d, %Y")
+    # System prompt — use the user's local timezone when available
+    user_tz = ZoneInfo(tz) if tz else timezone.utc
+    now_local = datetime.now(user_tz)
+    today = now_local.strftime("%B %d, %Y")
+    current_time = now_local.strftime("%I:%M %p %Z")
     system_content = SYSTEM_PROMPT
-    system_content += f"\n\nToday's date is {today}."
+    system_content += f"\n\nToday's date is {today}. The current time is {current_time}."
     system_content += (
         "\n\n**Tool usage:** You have access to tools like web search, focus mode management, and todo management. "
         "When the user asks to enable/disable focus mode, start a pomodoro, check focus status, "
         "or skip a pomodoro phase, use the focus_mode tool. "
         "When the user asks to create, list, update, complete, or delete todos/tasks, use the manage_todos tool. "
-        "For todo due dates, always convert to ISO 8601 format (e.g. 2026-03-15T09:00:00Z). "
+        "For todo due dates, always use ISO 8601 format with the user's timezone offset "
+        "(e.g. 2026-03-15T09:00:00-07:00). Do NOT convert to UTC — use the offset that matches the current time shown above. "
         "For recurring todos, convert natural language recurrence to RFC 5545 RRULE strings "
         "(e.g. 'every day' -> 'FREQ=DAILY;INTERVAL=1', 'every weekday' -> 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR'). "
         "When you use a tool, review the results carefully and then respond to the user. "
@@ -429,7 +434,7 @@ async def llm_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
     # Build or reuse llm_messages
     llm_messages = list(state.get("llm_messages") or [])
     if not llm_messages:
-        llm_messages = build_prompt_messages(state)
+        llm_messages = build_prompt_messages(state, tz=configurable.get("timezone"))
 
     tool_iteration = state.get("tool_iteration", 0)
     has_tools = tool_registry.has_tools()

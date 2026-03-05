@@ -1,6 +1,8 @@
 import pytest
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from collections.abc import AsyncIterator
+from zoneinfo import ZoneInfo
 
 from app.agents import AlfredAgent
 from app.agents.nodes import (
@@ -146,6 +148,34 @@ class TestBuildPromptMessages:
         assert len(messages) == 2
         assert "User prefers Python" in messages[0].content
         assert "User is a developer" in messages[0].content
+
+    def test_build_prompt_with_timezone(self):
+        """Should use user's local timezone for date/time in system prompt."""
+        state = _make_state(user_message="Hello!")
+
+        # Fix time to 11 PM PST on March 4 (which is March 5 in UTC)
+        fake_utc = datetime(2026, 3, 5, 7, 0, 0, tzinfo=timezone.utc)
+
+        with patch("app.agents.nodes.datetime") as mock_dt:
+            mock_dt.now.return_value = fake_utc.astimezone(ZoneInfo("America/Los_Angeles"))
+            mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+
+            messages = build_prompt_messages(state, tz="America/Los_Angeles")
+
+        system = messages[0].content
+        # Should show March 4 (PST local date), not March 5 (UTC)
+        assert "March 04, 2026" in system
+        assert "11:00 PM" in system
+
+    def test_build_prompt_without_timezone_uses_utc(self):
+        """Without timezone, should fall back to UTC."""
+        state = _make_state(user_message="Hello!")
+
+        messages = build_prompt_messages(state)
+
+        system = messages[0].content
+        assert "Today's date is" in system
+        assert "The current time is" in system
 
 
 class TestAlfredAgent:
