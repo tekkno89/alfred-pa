@@ -1,9 +1,12 @@
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.models import Session
 from app.db.repositories.base import BaseRepository
+
+# Tools that mark a session as "utility" (hidden from UI by default)
+UTILITY_TOOLS = {"manage_todos", "focus_mode"}
 
 
 class SessionRepository(BaseRepository[Session]):
@@ -28,8 +31,13 @@ class SessionRepository(BaseRepository[Session]):
         skip: int = 0,
         limit: int = 20,
         starred: bool | None = None,
+        include_utility: bool = False,
     ) -> list[Session]:
-        """Get sessions for a specific user, ordered by most recent."""
+        """Get sessions for a specific user, ordered by most recent.
+
+        By default, utility sessions (task/focus interactions) are hidden.
+        Pass include_utility=True to include them.
+        """
         query = (
             select(Session)
             .where(Session.user_id == user_id)
@@ -39,11 +47,19 @@ class SessionRepository(BaseRepository[Session]):
         )
         if starred is not None:
             query = query.where(Session.is_starred == starred)
+        if not include_utility:
+            query = query.where(
+                or_(Session.session_type != "utility", Session.session_type.is_(None))
+            )
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
     async def count_user_sessions(
-        self, user_id: str, *, starred: bool | None = None
+        self,
+        user_id: str,
+        *,
+        starred: bool | None = None,
+        include_utility: bool = False,
     ) -> int:
         """Count sessions for a specific user."""
         query = (
@@ -53,6 +69,10 @@ class SessionRepository(BaseRepository[Session]):
         )
         if starred is not None:
             query = query.where(Session.is_starred == starred)
+        if not include_utility:
+            query = query.where(
+                or_(Session.session_type != "utility", Session.session_type.is_(None))
+            )
         result = await self.db.execute(query)
         return result.scalar() or 0
 
@@ -63,6 +83,7 @@ class SessionRepository(BaseRepository[Session]):
         source: str = "webapp",
         slack_channel_id: str | None = None,
         slack_thread_ts: str | None = None,
+        session_type: str | None = None,
     ) -> Session:
         """Create a new session."""
         session = Session(
@@ -71,8 +92,29 @@ class SessionRepository(BaseRepository[Session]):
             source=source,
             slack_channel_id=slack_channel_id,
             slack_thread_ts=slack_thread_ts,
+            session_type=session_type,
         )
         return await self.create(session)
+
+    async def classify_session(
+        self, session: Session, tools_used: set[str]
+    ) -> None:
+        """Classify a session based on which tools were used.
+
+        Only classifies on the first exchange (when session_type is None).
+        Once classified, the type is locked.
+
+        Rules:
+        - If already classified, no change.
+        - If only utility tools used (>=1, all in UTILITY_TOOLS) -> 'utility'
+        - Otherwise -> 'conversation'
+        """
+        if session.session_type is not None:
+            return
+        if tools_used and tools_used <= UTILITY_TOOLS:
+            await self.update(session, session_type="utility")
+        else:
+            await self.update(session, session_type="conversation")
 
     async def get_by_slack_thread(
         self,

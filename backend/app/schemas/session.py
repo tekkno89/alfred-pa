@@ -28,6 +28,7 @@ class SessionResponse(BaseModel):
     slack_channel_id: str | None
     slack_thread_ts: str | None
     is_starred: bool
+    session_type: str | None
     created_at: datetime
     updated_at: datetime
 

@@ -617,6 +617,10 @@ async def handle_message_event(
             message=text,
         )
 
+        # Classify session based on tools used
+        session_repo = SessionRepository(db)
+        await session_repo.classify_session(session, agent.tools_used)
+
         # Store thread→todo mapping if the agent used manage_todos
         if thread_ts and agent.last_tool_results:
             for result in agent.last_tool_results:

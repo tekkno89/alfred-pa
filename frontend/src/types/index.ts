@@ -51,6 +51,7 @@ export interface Session {
   slack_channel_id: string | null
   slack_thread_ts: string | null
   is_starred: boolean
+  session_type: string | null
   created_at: string
   updated_at: string
 }

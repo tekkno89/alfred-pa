@@ -295,6 +295,10 @@ async def send_message(
             done_event = StreamEvent(type="done")
             yield f"data: {done_event.model_dump_json()}\n\n"
 
+            # Classify session based on tools used during the stream
+            session_repo = SessionRepository(db)
+            await session_repo.classify_session(session, agent.tools_used)
+
             # Cross-sync AI response to Slack if session has Slack metadata
             if slack_channel_id and slack_thread_ts:
                 response_text = "".join(full_response)

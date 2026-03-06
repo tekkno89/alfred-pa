@@ -25,6 +25,7 @@ class Session(Base, UUIDMixin, TimestampMixin):
     slack_channel_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     slack_thread_ts: Mapped[str | None] = mapped_column(String(50), nullable=True)
     is_starred: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    session_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="sessions")

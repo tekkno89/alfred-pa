@@ -35,6 +35,7 @@ class AlfredAgent:
         self.timezone = timezone
         self.todo_context = todo_context
         self.last_tool_results: list[dict] | None = None
+        self.tools_used: set[str] = set()
         self.graph = create_agent_graph()
 
     def _initial_state(self, session_id: str, user_id: str, message: str) -> AgentState:
@@ -94,6 +95,7 @@ class AlfredAgent:
         final_state = await self.graph.ainvoke(state, config)
 
         self.last_tool_results = final_state.get("tool_results_metadata")
+        self._extract_tools_used(final_state)
 
         if final_state.get("error"):
             raise ValueError(final_state["error"])
@@ -124,4 +126,13 @@ class AlfredAgent:
         config = self._config(streaming=True)
 
         async for event in self.graph.astream(state, config, stream_mode="custom"):
+            if event.get("type") == "tool_use" and event.get("tool_name"):
+                self.tools_used.add(event["tool_name"])
             yield event
+
+    def _extract_tools_used(self, final_state: dict) -> None:
+        """Extract tool names from assistant messages' tool_calls in llm_messages."""
+        for msg in final_state.get("llm_messages") or []:
+            if hasattr(msg, "tool_calls") and msg.tool_calls:
+                for tc in msg.tool_calls:
+                    self.tools_used.add(tc.name)
