@@ -124,10 +124,12 @@ Implementation tasks are tracked in `.claude/plans/`.
 ### Workflow
 1. Start each session by reading `00-project-overview.md` to understand current status
 2. **Create/update the task file BEFORE writing any code**
-3. Read the relevant phase file for detailed tasks
-4. Mark tasks `[x]` immediately when complete (not at the end)
-5. Update phase status in overview when phase completes
-6. Add new tasks as they emerge
+3. **If building a new feature:** Read `.claude/guides/adding-a-feature.md` and `.claude/guides/common-patterns.md`. Create a focused task checklist in the plan file with only the items relevant to this specific feature.
+4. Read the relevant phase file for detailed tasks
+5. Mark tasks `[x]` immediately when complete (not at the end)
+6. **Before marking a feature task complete:** Review all changes against `.claude/guides/adding-a-feature.md`. Verify every applicable checklist item has been addressed. Report any missing items before proceeding.
+7. Update phase status in overview when phase completes
+8. Add new tasks as they emerge
 
 ## Documentation & Diagrams
 
@@ -173,6 +175,12 @@ graph TD
 - `github-flow.md` - GitHub App OAuth + PAT integration flow
 - `google-calendar-flow.md` - Google Calendar OAuth integration flow
 - `frontend-architecture.md` - Frontend component architecture
+
+### Development Guides
+Detailed implementation guides live in `.claude/guides/`. **You MUST read the relevant guide before starting work on any task that matches its description.**
+
+- `adding-a-feature.md` — **Read before building any new feature, service, or dashboard card.** Complete checklist: backend (model → migration → repository → schemas → API → registry), frontend (types → hooks → card → page → admin toggle), and agent tool integration. Covers commonly missed steps like registering in available-cards and adding admin feature toggles.
+- `common-patterns.md` — **Reference during implementation.** Covers cache invalidation, feature access/auth, OAuth integrations, Slack cross-sync, testing, error handling, dashboard cards, and agent tool design.
 
 ### When to Update Documentation
 - After completing a phase, ensure diagrams reflect the implementation
@@ -309,6 +317,7 @@ VITE_GOOGLE_CLIENT_ID=...
 5. Add display mapping in `frontend/src/components/chat/ToolStatusIndicator.tsx`
 6. Add tests in `backend/tests/test_tools.py`
 7. See `.claude/diagrams/tool-system.md` for architecture details
+8. See `.claude/guides/adding-a-feature.md` (Agent Tool section) for the full checklist including tool display mapping and system prompt updates
 
 ### Add a New API Endpoint
 1. Create route in `backend/app/api/`
@@ -316,9 +325,11 @@ VITE_GOOGLE_CLIENT_ID=...
 3. Write tests first (TDD)
 4. Implement endpoint
 5. Update OpenAPI docs
+6. See `.claude/guides/adding-a-feature.md` for the full checklist including feature access gates, admin toggles, and frontend integration
 
 ### Add a Frontend Component
 1. Create component in `frontend/src/components/`
 2. Write tests alongside
 3. Use shadcn/ui primitives where possible
 4. Export from index file
+5. See `.claude/guides/common-patterns.md` (Cache Invalidation) for mutation/refresh patterns
