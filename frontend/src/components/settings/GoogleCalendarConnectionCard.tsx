@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Calendar, Link2, Unlink } from 'lucide-react'
+import { Calendar, Link2, Unlink, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -49,36 +49,46 @@ export function GoogleCalendarConnectionCard() {
             <div className="space-y-3">
               {connections.length > 0 ? (
                 <div className="space-y-3">
-                  {connections.map((conn) => (
-                    <div
-                      key={conn.id}
-                      className="flex items-center justify-between rounded-md border p-3"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="h-2 w-2 rounded-full bg-green-500" />
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-sm">
-                              {conn.external_account_id || conn.account_label}
-                            </span>
-                            {conn.account_label !== 'default' && (
-                              <Badge variant="outline" className="text-xs">
-                                {conn.account_label}
-                              </Badge>
-                            )}
+                  {connections.map((conn) => {
+                    const isRemoving =
+                      removeMutation.isPending &&
+                      removeMutation.variables === conn.id
+                    return (
+                      <div
+                        key={conn.id}
+                        className={`flex items-center justify-between rounded-md border p-3 transition-opacity ${isRemoving ? 'opacity-50' : ''}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="h-2 w-2 rounded-full bg-green-500" />
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-sm">
+                                {conn.external_account_id ||
+                                  conn.account_label}
+                              </span>
+                              {conn.account_label !== 'default' && (
+                                <Badge variant="outline" className="text-xs">
+                                  {conn.account_label}
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                         </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeMutation.mutate(conn.id)}
+                          disabled={removeMutation.isPending}
+                        >
+                          {isRemoving ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Unlink className="h-4 w-4" />
+                          )}
+                        </Button>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeMutation.mutate(conn.id)}
-                        disabled={removeMutation.isPending}
-                      >
-                        <Unlink className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               ) : (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">

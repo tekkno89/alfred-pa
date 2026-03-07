@@ -86,6 +86,7 @@ export function IntegrationsPage() {
 
     const gcalOAuth = searchParams.get('google_calendar_oauth')
     if (gcalOAuth === 'success') {
+      queryClient.invalidateQueries({ queryKey: ['google-calendar-connections'] })
       setFeedback({ type: 'success', message: 'Google Calendar connected successfully.' })
       setSearchParams({}, { replace: true })
     } else if (gcalOAuth === 'error') {
