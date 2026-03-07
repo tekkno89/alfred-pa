@@ -56,3 +56,8 @@ def _register_default_tools(registry: ToolRegistry) -> None:
     from app.tools.todos import ManageTodosTool
 
     registry.register(ManageTodosTool())
+
+    # Calendar management tool — uses Google Calendar OAuth (no API key)
+    from app.tools.calendar import CalendarTool
+
+    registry.register(CalendarTool())

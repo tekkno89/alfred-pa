@@ -517,3 +517,83 @@ export interface GoogleCalendarConnection {
 export interface GoogleCalendarConnectionList {
   connections: GoogleCalendarConnection[]
 }
+
+// Calendar Feature
+export interface CalendarInfo {
+  id: string
+  name: string
+  description: string | null
+  primary: boolean
+  background_color: string | null
+  foreground_color: string | null
+  access_role: string
+  account_label: string
+  account_email: string | null
+  color: string
+  visible: boolean
+}
+
+export interface CalendarListResponse {
+  calendars: CalendarInfo[]
+}
+
+export interface CalendarEventAttendee {
+  email: string
+  response_status: string
+}
+
+export interface CalendarEvent {
+  id: string
+  calendar_id: string
+  title: string
+  description: string | null
+  location: string | null
+  start: string
+  end: string | null
+  all_day: boolean
+  color: string
+  status: string
+  html_link: string | null
+  attendees: CalendarEventAttendee[]
+  recurring_event_id: string | null
+  recurrence: string[] | null
+  creator: string | null
+  organizer: string | null
+  account_label: string
+}
+
+export interface CalendarEventListResponse {
+  events: CalendarEvent[]
+}
+
+export interface CalendarEventCreateRequest {
+  title: string
+  description?: string
+  location?: string
+  start: string
+  end?: string
+  all_day?: boolean
+  calendar_id?: string
+  account_label?: string
+  attendees?: string[]
+  recurrence?: string[]
+}
+
+export interface CalendarEventUpdateRequest {
+  title?: string
+  description?: string
+  location?: string
+  start?: string
+  end?: string
+  all_day?: boolean
+  attendees?: string[]
+  recurrence?: string[]
+}
+
+export interface CalendarPreferenceItem {
+  account_label: string
+  calendar_id: string
+  calendar_name: string
+  color: string
+  visible: boolean
+}

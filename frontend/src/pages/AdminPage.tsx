@@ -21,6 +21,7 @@ const FEATURE_KEYS = [
   { key: 'card:bart', label: 'BART Departures' },
   { key: 'card:notes', label: 'Notes' },
   { key: 'card:todos', label: 'Todos' },
+  { key: 'card:calendar', label: 'Calendar' },
 ] as const
 
 function UserFeatureToggles({ user }: { user: AdminUser }) {

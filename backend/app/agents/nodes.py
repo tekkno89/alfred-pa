@@ -144,7 +144,15 @@ def build_prompt_messages(state: AgentState, *, tz: str | None = None) -> list[L
         "- Only operate on open/active todos unless the user explicitly asks about completed ones.\n"
         "- If a user asks to modify a todo and there are multiple open todos with the same or similar title, "
         "list them with their IDs and ask which one they mean before making changes.\n"
-        "- If the conversation context includes a specific todo ID, always use that ID — do not create a new todo."
+        "- If the conversation context includes a specific todo ID, always use that ID — do not create a new todo.\n\n"
+        "When the user asks about their calendar, events, schedule, meetings, or appointments, "
+        "use the manage_calendar tool. "
+        "For calendar dates/times, always use ISO 8601 format with the user's timezone offset "
+        "(e.g. 2026-03-15T09:00:00-07:00). Do NOT convert to UTC — use the offset matching the current time shown above. "
+        "When creating events, default to calendar_id='primary' and account_label='default' unless the user specifies otherwise. "
+        "If the user has multiple Google Calendar accounts, ask which account to use when ambiguous. "
+        "When listing events, include the event ID so the user can reference it for updates or deletion. "
+        "For recurring events, use scope='this' to modify a single instance or scope='all' for all instances."
     )
     if state.get("memories"):
         memory_context = "\n\nRelevant context about the user:\n" + "\n".join(

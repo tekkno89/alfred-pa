@@ -9,6 +9,7 @@ import { useAvailableCards, useDashboardPreferences } from '@/hooks/useDashboard
 import { BartCard } from '@/components/dashboard/BartCard'
 import { NotesCard } from '@/components/dashboard/NotesCard'
 import { TodosCard } from '@/components/dashboard/TodosCard'
+import { CalendarCard } from '@/components/dashboard/CalendarCard'
 import { DashboardConfigDialog } from '@/components/dashboard/DashboardConfigDialog'
 import type { BartStationPreference, DashboardPreference } from '@/types'
 
@@ -20,6 +21,7 @@ const CARD_RENDERERS: Record<string, (prefs: DashboardPreference | undefined) =>
   },
   todos: () => <TodosCard />,
   notes: () => <NotesCard />,
+  calendar: () => <CalendarCard />,
 }
 
 export function HomePage() {
