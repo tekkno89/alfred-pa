@@ -324,6 +324,57 @@ There is **no automatic re-encryption** when switching KEK providers. If you cha
 3. Re-encrypt all tokens with the new provider
 4. Or: have users re-authenticate their integrations
 
+### Google Calendar Integration
+
+Alfred can connect to users' Google Calendar accounts for schedule awareness and event management. Multiple Google accounts per user are supported (e.g., work + personal) using account labels.
+
+#### 1. Enable the Google Calendar API
+
+In your GCP project, go to **APIs & Services > Library**, search for **Google Calendar API**, and enable it.
+
+#### 2. Configure the OAuth Consent Screen
+
+Go to **APIs & Services > OAuth consent screen**:
+
+- **User type:** Choose **Internal** if all users are on the same Google Workspace domain (no verification needed). Choose **External** if users have personal Gmail accounts.
+- **Scopes:** Add the following:
+  - `openid`
+  - `https://www.googleapis.com/auth/userinfo.email`
+  - `https://www.googleapis.com/auth/calendar`
+- **Publishing status:** For External apps, keep in **Testing** mode and add user emails under **Test users** (up to 100). This avoids Google's app verification process. Test users will see an "unverified app" warning during OAuth — click "Advanced" > "Go to app" to proceed.
+
+#### 3. Add the Redirect URI
+
+Go to **APIs & Services > Credentials**, click your OAuth 2.0 Client ID, and add to **Authorized redirect URIs**:
+
+```
+http://localhost:8000/api/google-calendar/oauth/callback       # Development
+https://yourdomain.com/api/google-calendar/oauth/callback      # Production
+```
+
+#### 4. Configure Environment Variables
+
+The Google Calendar integration reuses the same OAuth client credentials as Google login. Add the redirect URI to `.env`:
+
+```bash
+# Already configured (shared with Google login):
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+
+# New — add this:
+GOOGLE_CALENDAR_OAUTH_REDIRECT_URI=http://localhost:8000/api/google-calendar/oauth/callback
+```
+
+> **Important:** After adding new env vars, recreate the Docker container (`docker-compose -f docker-compose.dev.yml up -d --force-recreate backend`). A simple restart does not pick up new variables.
+
+#### 5. Connect
+
+Users connect their Google accounts from the **Settings > Integrations** page. Each connection requires an account label (e.g., "personal", "work"). Google access tokens expire after 1 hour and are auto-refreshed using the stored refresh token.
+
+#### Notes on Google App Verification
+
+The `calendar` scope is a **restricted scope**. If you publish your app as External, Google requires a verification review including a demo video, privacy policy, and potentially a CASA security audit. For personal or small-team use, **Testing mode** (up to 100 test users) avoids verification entirely with no functional limitations.
+
 ### GitHub Integration
 
 Alfred can connect to users' GitHub accounts for future features like repo access and code review. Users can connect via GitHub App OAuth or by adding a Personal Access Token (PAT). Multiple GitHub accounts per user are supported (e.g., work + personal).
@@ -426,6 +477,10 @@ Block distractions with timed focus sessions:
 - **Bypass notifications:** When someone clicks "Urgent - Notify Them" in Slack, you get a looping alert sound, flashing browser tab, browser notification, and a red banner — all configurable per-user
 - **Notification settings:** Choose your alert sound (chime, urgent, gentle, ping), toggle title flash, and configure future email/SMS delivery
 - **Webhooks:** Get notified of focus events via HTTP webhooks
+
+### Google Calendar Integration
+
+Connect Google Calendar accounts to Alfred from the **Settings > Integrations** page. Supports multiple accounts (e.g., personal Gmail + work Workspace) with full calendar access for viewing schedules and creating events. See [Google Calendar Integration](#google-calendar-integration) under Configuration for GCP setup instructions.
 
 ### GitHub Integration
 
@@ -804,6 +859,7 @@ docker compose -f docker-compose.prod.yml up -d --force-recreate backend worker
 | Memories | `/api/memories` | Memory CRUD with semantic search |
 | Focus | `/api/focus` | Focus mode, Pomodoro, VIP list |
 | Slack | `/api/slack` | Event handling, slash commands |
+| Google Calendar | `/api/google-calendar` | Google OAuth, calendar connections |
 | GitHub | `/api/github` | GitHub OAuth, PAT management, connections |
 | Webhooks | `/api/webhooks` | Webhook subscriptions |
 | Notifications | `/api/notifications` | SSE event stream |

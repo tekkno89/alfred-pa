@@ -501,3 +501,19 @@ export interface GitHubAppConfigCreateRequest {
   client_secret: string
   github_app_id?: string | null
 }
+
+// Google Calendar Integration
+export interface GoogleCalendarConnection {
+  id: string
+  provider: string
+  account_label: string
+  external_account_id: string | null
+  token_type: string
+  scope: string | null
+  expires_at: string | null
+  created_at: string
+}
+
+export interface GoogleCalendarConnectionList {
+  connections: GoogleCalendarConnection[]
+}

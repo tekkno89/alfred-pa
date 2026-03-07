@@ -107,6 +107,9 @@ class Settings(BaseSettings):
     github_webhook_secret: str = ""
     github_oauth_redirect_uri: str = ""
 
+    # Google Calendar
+    google_calendar_oauth_redirect_uri: str = ""
+
     # Memory
     memory_retrieval_limit: int = 5
     memory_similarity_threshold: float = 0.7  # for deduplication

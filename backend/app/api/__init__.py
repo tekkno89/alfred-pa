@@ -12,6 +12,7 @@ from app.api.todos import router as todos_router
 from app.api.dashboard import router as dashboard_router
 from app.api.admin import router as admin_router
 from app.api.github import router as github_router
+from app.api.google_calendar import router as google_calendar_router
 
 router = APIRouter()
 
@@ -35,3 +36,4 @@ router.include_router(todos_router, prefix="/todos", tags=["todos"])
 router.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
 router.include_router(admin_router, prefix="/admin", tags=["admin"])
 router.include_router(github_router, prefix="/github", tags=["github"])
+router.include_router(google_calendar_router, prefix="/google-calendar", tags=["google-calendar"])

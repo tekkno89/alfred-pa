@@ -171,6 +171,7 @@ graph TD
 - `slack-flow.md` - Slack integration flow
 - `encryption-flow.md` - Envelope encryption (DEK/KEK) for token storage
 - `github-flow.md` - GitHub App OAuth + PAT integration flow
+- `google-calendar-flow.md` - Google Calendar OAuth integration flow
 - `frontend-architecture.md` - Frontend component architecture
 
 ### When to Update Documentation

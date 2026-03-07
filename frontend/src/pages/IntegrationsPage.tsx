@@ -5,6 +5,7 @@ import { MessageSquare, ArrowLeft, CheckCircle2, XCircle, Link2, Unlink, Externa
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { GitHubConnectionCard } from '@/components/settings/GitHubConnectionCard'
+import { GoogleCalendarConnectionCard } from '@/components/settings/GoogleCalendarConnectionCard'
 import { SlackLinkModal } from '@/components/settings/SlackLinkModal'
 import { apiDelete, apiGet, apiPost, ApiRequestError } from '@/lib/api'
 import type { SlackStatusResponse, SlackOAuthStatusResponse } from '@/types'
@@ -82,6 +83,16 @@ export function IntegrationsPage() {
       setFeedback({ type: 'error', message })
       setSearchParams({}, { replace: true })
     }
+
+    const gcalOAuth = searchParams.get('google_calendar_oauth')
+    if (gcalOAuth === 'success') {
+      setFeedback({ type: 'success', message: 'Google Calendar connected successfully.' })
+      setSearchParams({}, { replace: true })
+    } else if (gcalOAuth === 'error') {
+      const message = searchParams.get('message') || 'Failed to connect Google Calendar.'
+      setFeedback({ type: 'error', message })
+      setSearchParams({}, { replace: true })
+    }
   }, [searchParams, setSearchParams])
 
   // Auto-dismiss feedback after 5 seconds
@@ -122,6 +133,9 @@ export function IntegrationsPage() {
         )}
 
         <div className="space-y-6">
+          {/* Google Calendar */}
+          <GoogleCalendarConnectionCard />
+
           {/* GitHub */}
           <GitHubConnectionCard />
 
