@@ -19,6 +19,7 @@ from app.schemas.calendar import (
     CalendarResponse,
 )
 from app.services.google_calendar import CALENDAR_COLOR_PALETTE, GoogleCalendarService
+from app.services.notifications import NotificationService
 
 logger = logging.getLogger(__name__)
 
@@ -255,6 +256,13 @@ async def create_event(
     service = GoogleCalendarService(db)
     body = _build_google_event_body(req)
     event = await service.create_event(user.id, req.account_label, req.calendar_id, body)
+
+    try:
+        ns = NotificationService(db)
+        await ns.publish(user.id, "calendar_changed", {"action": "created"})
+    except Exception:
+        pass
+
     return CalendarEventResponse(**event)
 
 
@@ -294,6 +302,13 @@ async def update_event(
 
     service = GoogleCalendarService(db)
     event = await service.update_event(user.id, account_label, calendar_id, event_id, body)
+
+    try:
+        ns = NotificationService(db)
+        await ns.publish(user.id, "calendar_changed", {"action": "updated"})
+    except Exception:
+        pass
+
     return CalendarEventResponse(**event)
 
 
@@ -310,6 +325,12 @@ async def delete_event(
 
     service = GoogleCalendarService(db)
     await service.delete_event(user.id, account_label, calendar_id, event_id)
+
+    try:
+        ns = NotificationService(db)
+        await ns.publish(user.id, "calendar_changed", {"action": "deleted"})
+    except Exception:
+        pass
 
 
 @router.post("/webhook", status_code=status.HTTP_200_OK, include_in_schema=False)
@@ -341,6 +362,13 @@ async def calendar_webhook(request: Request, db: DbSession) -> dict:
 
     # "exists" means events changed; "not_exists" means calendar deleted
     service = GoogleCalendarService(db)
-    await service.handle_push_notification(channel_id, resource_id)
+    user_id = await service.handle_push_notification(channel_id, resource_id)
+
+    if user_id:
+        try:
+            ns = NotificationService(db)
+            await ns.publish(user_id, "calendar_changed", {"action": "sync"})
+        except Exception:
+            pass
 
     return {"status": "ok"}

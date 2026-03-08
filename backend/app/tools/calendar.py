@@ -320,6 +320,13 @@ class CalendarTool(BaseTool):
             "action": "created",
         }
 
+        try:
+            from app.services.notifications import NotificationService
+            ns = NotificationService(db)
+            await ns.publish(user_id, "calendar_changed", {"action": "created"})
+        except Exception:
+            pass
+
         return result
 
     async def _handle_update_event(
@@ -384,6 +391,13 @@ class CalendarTool(BaseTool):
             "action": "updated",
         }
 
+        try:
+            from app.services.notifications import NotificationService
+            ns = NotificationService(db)
+            await ns.publish(user_id, "calendar_changed", {"action": "updated"})
+        except Exception:
+            pass
+
         return result
 
     async def _handle_delete_event(self, db, user_id: str, kwargs: dict) -> str:
@@ -403,5 +417,12 @@ class CalendarTool(BaseTool):
             "event_id": event_id,
             "action": "deleted",
         }
+
+        try:
+            from app.services.notifications import NotificationService
+            ns = NotificationService(db)
+            await ns.publish(user_id, "calendar_changed", {"action": "deleted"})
+        except Exception:
+            pass
 
         return f"Event deleted (ID: {event_id})"

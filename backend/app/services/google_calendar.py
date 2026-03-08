@@ -928,23 +928,24 @@ class GoogleCalendarService:
         except Exception:
             pass
 
-    async def handle_push_notification(self, channel_id: str, resource_id: str) -> None:
+    async def handle_push_notification(self, channel_id: str, resource_id: str) -> str | None:
         """Handle an incoming push notification from Google Calendar.
 
         Performs an incremental sync for the affected calendar.
+        Returns the user_id associated with the watch, or None.
         """
         redis_client = await self._get_redis()
         if not redis_client:
-            return
+            return None
 
         try:
             data = await redis_client.get(f"gcal:watch:{channel_id}")
             if not data:
                 logger.debug(f"Unknown watch channel: {channel_id}")
-                return
+                return None
             watch_info = json.loads(data)
         except Exception:
-            return
+            return None
 
         user_id = watch_info["user_id"]
         account_label = watch_info["account_label"]
@@ -969,6 +970,8 @@ class GoogleCalendarService:
         else:
             # No sync token — next read will trigger full sync
             pass
+
+        return user_id
 
     async def ensure_watches_for_user(self, user_id: str) -> None:
         """Ensure all visible calendars have active watches. Idempotent."""

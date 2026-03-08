@@ -99,6 +99,11 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       queryClient.invalidateQueries({ queryKey: ['todos'] })
     }
 
+    // Invalidate calendar queries when events change (webhook, agent tool, or API)
+    if (event.type === 'calendar_changed') {
+      queryClient.invalidateQueries({ queryKey: ['calendar', 'events'] })
+    }
+
     // Stop alerts when focus mode ends
     if (event.type === 'focus_ended') {
       setLoopingSound(null)
