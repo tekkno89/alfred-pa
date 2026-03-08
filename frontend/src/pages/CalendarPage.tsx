@@ -5,12 +5,13 @@ import { Button } from '@/components/ui/button'
 import { useCalendarEvents, usePrefetchAdjacentRanges } from '@/hooks/useCalendar'
 import { MonthlyView } from '@/components/calendar/MonthlyView'
 import { WeeklyView } from '@/components/calendar/WeeklyView'
+import { DailyView } from '@/components/calendar/DailyView'
 import { CalendarSidebar } from '@/components/calendar/CalendarSidebar'
 import { EventDetailDialog } from '@/components/calendar/EventDetailDialog'
 import { EventCreateDialog } from '@/components/calendar/EventCreateDialog'
 import type { CalendarEvent } from '@/types'
 
-type ViewMode = 'month' | 'week'
+type ViewMode = 'month' | 'week' | 'day'
 
 function getMonthRange(date: Date): { timeMin: string; timeMax: string } {
   const year = date.getFullYear()
@@ -44,9 +45,26 @@ function getWeekRange(date: Date): { timeMin: string; timeMax: string } {
   }
 }
 
+function getDayRange(date: Date): { timeMin: string; timeMax: string } {
+  const start = new Date(date)
+  start.setHours(0, 0, 0, 0)
+
+  const end = new Date(start)
+  end.setDate(end.getDate() + 1)
+
+  return {
+    timeMin: start.toISOString(),
+    timeMax: end.toISOString(),
+  }
+}
+
 export function CalendarPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const [view, setView] = useState<ViewMode>((searchParams.get('view') as ViewMode) || 'month')
+  const [view, setView] = useState<ViewMode>(() => {
+    const v = searchParams.get('view')
+    if (v === 'month' || v === 'week' || v === 'day') return v
+    return 'month'
+  })
   const [currentDate, setCurrentDate] = useState(new Date())
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
@@ -64,10 +82,20 @@ export function CalendarPage() {
     }
   }, [searchParams, setSearchParams])
 
-  const { timeMin, timeMax } = useMemo(
-    () => (view === 'month' ? getMonthRange(currentDate) : getWeekRange(currentDate)),
-    [currentDate, view]
-  )
+  // Sync view to URL
+  useEffect(() => {
+    const currentView = searchParams.get('view')
+    if (currentView !== view) {
+      searchParams.set('view', view)
+      setSearchParams(searchParams, { replace: true })
+    }
+  }, [view])
+
+  const { timeMin, timeMax } = useMemo(() => {
+    if (view === 'month') return getMonthRange(currentDate)
+    if (view === 'week') return getWeekRange(currentDate)
+    return getDayRange(currentDate)
+  }, [currentDate, view])
 
   const { data, isLoading } = useCalendarEvents(timeMin, timeMax)
   const events = data?.events ?? []
@@ -80,8 +108,10 @@ export function CalendarPage() {
         const next = new Date(prev)
         if (view === 'month') {
           next.setMonth(next.getMonth() + direction)
-        } else {
+        } else if (view === 'week') {
           next.setDate(next.getDate() + direction * 7)
+        } else {
+          next.setDate(next.getDate() + direction)
         }
         return next
       })
@@ -97,6 +127,12 @@ export function CalendarPage() {
   }
 
   const handleDayClick = (date: Date) => {
+    setCurrentDate(date)
+    setView('day')
+  }
+
+  const handleTimeSlotClick = (date: Date) => {
+    setEditEvent(null)
     setCreateDate(date)
     setCreateOpen(true)
   }
@@ -109,6 +145,14 @@ export function CalendarPage() {
   const headerTitle = useMemo(() => {
     if (view === 'month') {
       return currentDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+    }
+    if (view === 'day') {
+      return currentDate.toLocaleDateString(undefined, {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+      })
     }
     const start = new Date(currentDate)
     start.setDate(start.getDate() - start.getDay())
@@ -144,7 +188,7 @@ export function CalendarPage() {
           <Button
             variant={view === 'month' ? 'secondary' : 'ghost'}
             size="sm"
-            className="h-7 rounded-r-none"
+            className="h-7 rounded-r-none border-r-0"
             onClick={() => setView('month')}
           >
             Month
@@ -152,10 +196,18 @@ export function CalendarPage() {
           <Button
             variant={view === 'week' ? 'secondary' : 'ghost'}
             size="sm"
-            className="h-7 rounded-l-none"
+            className="h-7 rounded-none"
             onClick={() => setView('week')}
           >
             Week
+          </Button>
+          <Button
+            variant={view === 'day' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-7 rounded-l-none border-l-0"
+            onClick={() => setView('day')}
+          >
+            Day
           </Button>
         </div>
 
@@ -191,11 +243,19 @@ export function CalendarPage() {
               onEventClick={handleEventClick}
               onDayClick={handleDayClick}
             />
-          ) : (
+          ) : view === 'week' ? (
             <WeeklyView
               currentDate={currentDate}
               events={events}
               onEventClick={handleEventClick}
+              onTimeSlotClick={handleTimeSlotClick}
+            />
+          ) : (
+            <DailyView
+              currentDate={currentDate}
+              events={events}
+              onEventClick={handleEventClick}
+              onTimeSlotClick={handleTimeSlotClick}
             />
           )}
         </div>

@@ -44,7 +44,7 @@ export function useCalendarEvents(timeMin: string, timeMax: string) {
  * Prefetch adjacent month/week ranges so navigation feels instant.
  */
 export function usePrefetchAdjacentRanges(
-  view: 'month' | 'week',
+  view: 'month' | 'week' | 'day',
   currentDate: Date,
   timeMin: string,
   timeMax: string,
@@ -71,7 +71,7 @@ export function usePrefetchAdjacentRanges(
         end.setDate(end.getDate() + (6 - end.getDay()) + 1)
         ranges.push({ min: start.toISOString(), max: end.toISOString() })
       }
-    } else {
+    } else if (view === 'week') {
       // Prefetch previous and next week
       for (const offset of [-7, 7]) {
         const d = new Date(currentDate)
@@ -81,6 +81,16 @@ export function usePrefetchAdjacentRanges(
         start.setHours(0, 0, 0, 0)
         const end = new Date(start)
         end.setDate(end.getDate() + 7)
+        ranges.push({ min: start.toISOString(), max: end.toISOString() })
+      }
+    } else {
+      // Prefetch previous and next day
+      for (const offset of [-1, 1]) {
+        const start = new Date(currentDate)
+        start.setDate(start.getDate() + offset)
+        start.setHours(0, 0, 0, 0)
+        const end = new Date(start)
+        end.setDate(end.getDate() + 1)
         ranges.push({ min: start.toISOString(), max: end.toISOString() })
       }
     }

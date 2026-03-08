@@ -76,11 +76,21 @@ export function EventCreateDialog({ open, onOpenChange, initialDate, editEvent }
       setAllDay(false)
       setStartDate(toLocalDate(base))
 
-      // Round to next hour
-      const roundedHour = base.getHours() + 1
-      setStartTime(`${String(roundedHour % 24).padStart(2, '0')}:00`)
+      if (initialDate && (initialDate.getHours() !== 0 || initialDate.getMinutes() !== 0)) {
+        // Use exact time from time slot click
+        const h = initialDate.getHours()
+        const m = initialDate.getMinutes()
+        setStartTime(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`)
+        // End time = start + 1 hour
+        const endH = (h + 1) % 24
+        setEndTime(`${String(endH).padStart(2, '0')}:${String(m).padStart(2, '0')}`)
+      } else {
+        // Round to next hour (from "New Event" button or date-only click)
+        const roundedHour = base.getHours() + 1
+        setStartTime(`${String(roundedHour % 24).padStart(2, '0')}:00`)
+        setEndTime(`${String((roundedHour + 1) % 24).padStart(2, '0')}:00`)
+      }
       setEndDate(toLocalDate(base))
-      setEndTime(`${String((roundedHour + 1) % 24).padStart(2, '0')}:00`)
       setAttendeesInput('')
 
       if (calendars.length > 0 && !calendarKey) {
