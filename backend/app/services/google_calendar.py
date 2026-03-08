@@ -680,7 +680,7 @@ class GoogleCalendarService:
         events = await self._event_store_get_range(
             user_id, account_label, calendar_id, time_min, time_max
         )
-        events.sort(key=lambda e: e.get("start", ""))
+        events.sort(key=lambda e: (e.get("start", "")[:10], 0 if e.get("all_day") else 1, e.get("start", "")))
         return events
 
     async def create_event(
@@ -786,8 +786,8 @@ class GoogleCalendarService:
                     f"Failed to fetch events from {calendar_id} ({account_label})"
                 )
 
-        # Sort by start time
-        all_events.sort(key=lambda e: e.get("start", ""))
+        # Sort by start time, all-day events first within each day
+        all_events.sort(key=lambda e: (e.get("start", "")[:10], 0 if e.get("all_day") else 1, e.get("start", "")))
         return all_events
 
     # ------------------------------------------------------------------

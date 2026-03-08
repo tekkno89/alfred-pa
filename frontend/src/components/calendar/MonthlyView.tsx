@@ -35,6 +35,9 @@ function getDaysInMonth(date: Date): Date[] {
 
 function getEventDate(event: CalendarEvent): string {
   try {
+    // All-day events have a plain date string (YYYY-MM-DD) — use it directly
+    // to avoid timezone shift from new Date() parsing UTC midnight
+    if (event.all_day) return event.start.slice(0, 10)
     const d = new Date(event.start)
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   } catch {
@@ -66,6 +69,14 @@ export function MonthlyView({ currentDate, events, onEventClick, onDayClick }: M
       const key = getEventDate(event)
       if (!map[key]) map[key] = []
       map[key].push(event)
+    }
+    // Sort each day: all-day events first, then by start time
+    for (const key of Object.keys(map)) {
+      map[key].sort((a, b) => {
+        if (a.all_day && !b.all_day) return -1
+        if (!a.all_day && b.all_day) return 1
+        return a.start.localeCompare(b.start)
+      })
     }
     return map
   }, [events])

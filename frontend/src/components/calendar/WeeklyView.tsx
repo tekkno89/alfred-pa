@@ -79,8 +79,11 @@ export function WeeklyView({ currentDate, events, onEventClick }: WeeklyViewProp
     const allDay: Record<string, CalendarEvent[]> = {}
     for (const event of events) {
       try {
-        const d = new Date(event.start)
-        const key = dateKey(d)
+        // All-day events have a plain date string (YYYY-MM-DD) — use it directly
+        // to avoid timezone shift from new Date() parsing UTC midnight
+        const key = event.all_day
+          ? event.start.slice(0, 10)
+          : dateKey(new Date(event.start))
         if (event.all_day) {
           if (!allDay[key]) allDay[key] = []
           allDay[key].push(event)
