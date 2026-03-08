@@ -1,11 +1,17 @@
 """Tests for GoogleCalendarService."""
 
+import json
 from datetime import datetime, UTC
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.google_calendar import GoogleCalendarService, PROVIDER
+from app.services.google_calendar import (
+    GoogleCalendarService,
+    PROVIDER,
+    SyncTokenExpiredError,
+    _normalize_event,
+)
 
 
 @pytest.fixture
@@ -312,3 +318,536 @@ class TestDeleteConnection:
 
         result = await gcal_service.delete_connection("token-1", "user-1")
         assert result is False
+
+    @pytest.mark.asyncio
+    async def test_cleans_up_sync_stores(self, gcal_service) -> None:
+        mock_token = MagicMock()
+        mock_token.user_id = "user-1"
+        mock_token.account_label = "personal"
+        gcal_service.token_repo.get.return_value = mock_token
+        gcal_service.token_encryption.get_decrypted_access_token.return_value = (
+            "ya29.test"
+        )
+        gcal_service.token_repo.delete_by_id.return_value = True
+
+        mock_redis = AsyncMock()
+        mock_redis.scan_iter = MagicMock(return_value=AsyncIterMock([]))
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch.object(gcal_service, "_get_redis", return_value=mock_redis),
+        ):
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            await gcal_service.delete_connection("token-1", "user-1")
+
+        # _cleanup_account_stores was called (scan_iter was invoked for 3 prefixes)
+        assert mock_redis.scan_iter.call_count == 3
+
+
+class AsyncIterMock:
+    """Async iterator mock for redis.scan_iter."""
+
+    def __init__(self, items):
+        self.items = list(items)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if not self.items:
+            raise StopAsyncIteration
+        return self.items.pop(0)
+
+
+def _make_raw_event(event_id: str, summary: str, start: str, end: str, calendar_id: str = "cal-1") -> dict:
+    """Create a raw Google Calendar API event."""
+    return {
+        "id": event_id,
+        "summary": summary,
+        "start": {"dateTime": start},
+        "end": {"dateTime": end},
+        "status": "confirmed",
+    }
+
+
+def _make_normalized_event(event_id: str, summary: str, start: str, end: str, calendar_id: str = "cal-1") -> dict:
+    """Create a normalized event dict."""
+    return _normalize_event(
+        _make_raw_event(event_id, summary, start, end, calendar_id),
+        calendar_id,
+    )
+
+
+@pytest.fixture
+def mock_redis():
+    """Create a mock Redis client with hash operations."""
+    redis = AsyncMock()
+    redis.hgetall = AsyncMock(return_value={})
+    redis.hset = AsyncMock()
+    redis.hdel = AsyncMock()
+    redis.delete = AsyncMock()
+    redis.get = AsyncMock(return_value=None)
+    redis.set = AsyncMock()
+    redis.scan_iter = MagicMock(return_value=AsyncIterMock([]))
+    return redis
+
+
+class TestSyncTokenExpiredError:
+    """Tests for HTTP 410 → SyncTokenExpiredError."""
+
+    @pytest.mark.asyncio
+    async def test_api_request_raises_on_410(self, gcal_service) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 410
+        mock_response.json.return_value = {"error": {"message": "Gone"}}
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.request.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            with pytest.raises(SyncTokenExpiredError):
+                await gcal_service._api_request(
+                    "GET", "https://example.com", "token"
+                )
+
+
+class TestPaginatedEventsList:
+    """Tests for _paginated_events_list."""
+
+    @pytest.mark.asyncio
+    async def test_single_page(self, gcal_service) -> None:
+        items = [_make_raw_event("e1", "Event 1", "2026-03-07T10:00:00Z", "2026-03-07T11:00:00Z")]
+        gcal_service._api_request = AsyncMock(return_value={
+            "items": items,
+            "nextSyncToken": "sync-token-1",
+        })
+
+        result_items, sync_token = await gcal_service._paginated_events_list(
+            "token", "cal-1", {"timeMin": "2026-03-01"}
+        )
+
+        assert len(result_items) == 1
+        assert sync_token == "sync-token-1"
+        gcal_service._api_request.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_multiple_pages(self, gcal_service) -> None:
+        page1 = {
+            "items": [_make_raw_event("e1", "Event 1", "2026-03-07T10:00:00Z", "2026-03-07T11:00:00Z")],
+            "nextPageToken": "page-2",
+        }
+        page2 = {
+            "items": [_make_raw_event("e2", "Event 2", "2026-03-08T10:00:00Z", "2026-03-08T11:00:00Z")],
+            "nextSyncToken": "sync-token-final",
+        }
+        gcal_service._api_request = AsyncMock(side_effect=[page1, page2])
+
+        result_items, sync_token = await gcal_service._paginated_events_list(
+            "token", "cal-1", {"timeMin": "2026-03-01"}
+        )
+
+        assert len(result_items) == 2
+        assert result_items[0]["id"] == "e1"
+        assert result_items[1]["id"] == "e2"
+        assert sync_token == "sync-token-final"
+        assert gcal_service._api_request.call_count == 2
+
+
+class TestFullSync:
+    """Tests for _full_sync."""
+
+    @pytest.mark.asyncio
+    async def test_full_sync_stores_events_and_token(self, gcal_service, mock_redis) -> None:
+        gcal_service.get_valid_token = AsyncMock(return_value="ya29.test")
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+
+        raw_events = [
+            _make_raw_event("e1", "Meeting", "2026-03-07T10:00:00Z", "2026-03-07T11:00:00Z"),
+            _make_raw_event("e2", "Lunch", "2026-03-07T12:00:00Z", "2026-03-07T13:00:00Z"),
+        ]
+
+        gcal_service._api_request = AsyncMock(return_value={
+            "items": raw_events,
+            "nextSyncToken": "sync-abc",
+        })
+
+        await gcal_service._full_sync("user-1", "default", "cal-1")
+
+        # Verify events stored
+        mock_redis.hset.assert_called_once()
+        stored_mapping = mock_redis.hset.call_args[1]["mapping"]
+        assert "e1" in stored_mapping
+        assert "e2" in stored_mapping
+
+        # Verify sync token and start marker stored
+        set_calls = [c for c in mock_redis.set.call_args_list]
+        keys_set = [c[0][0] for c in set_calls]
+        assert "gcal:sync:user-1:default:cal-1" in keys_set
+        assert "gcal:sync:start:user-1:default:cal-1" in keys_set
+
+    @pytest.mark.asyncio
+    async def test_full_sync_clears_existing_store_first(self, gcal_service, mock_redis) -> None:
+        gcal_service.get_valid_token = AsyncMock(return_value="ya29.test")
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+        gcal_service._api_request = AsyncMock(return_value={
+            "items": [],
+            "nextSyncToken": "sync-abc",
+        })
+
+        await gcal_service._full_sync("user-1", "default", "cal-1")
+
+        # Should have called delete to clear existing store
+        mock_redis.delete.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_full_sync_skips_cancelled_events(self, gcal_service, mock_redis) -> None:
+        gcal_service.get_valid_token = AsyncMock(return_value="ya29.test")
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+
+        raw_events = [
+            _make_raw_event("e1", "Active", "2026-03-07T10:00:00Z", "2026-03-07T11:00:00Z"),
+            {**_make_raw_event("e2", "Cancelled", "2026-03-07T12:00:00Z", "2026-03-07T13:00:00Z"), "status": "cancelled"},
+        ]
+
+        gcal_service._api_request = AsyncMock(return_value={
+            "items": raw_events,
+            "nextSyncToken": "sync-abc",
+        })
+
+        await gcal_service._full_sync("user-1", "default", "cal-1")
+
+        stored_mapping = mock_redis.hset.call_args[1]["mapping"]
+        assert "e1" in stored_mapping
+        assert "e2" not in stored_mapping
+
+
+class TestIncrementalSync:
+    """Tests for _incremental_sync."""
+
+    @pytest.mark.asyncio
+    async def test_upserts_modified_events(self, gcal_service, mock_redis) -> None:
+        gcal_service.get_valid_token = AsyncMock(return_value="ya29.test")
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+
+        raw_events = [
+            _make_raw_event("e1", "Updated Meeting", "2026-03-07T10:00:00Z", "2026-03-07T11:00:00Z"),
+        ]
+
+        gcal_service._api_request = AsyncMock(return_value={
+            "items": raw_events,
+            "nextSyncToken": "sync-new",
+        })
+
+        await gcal_service._incremental_sync("user-1", "default", "cal-1", "sync-old")
+
+        # Event upserted
+        mock_redis.hset.assert_called_once()
+        stored_mapping = mock_redis.hset.call_args[1]["mapping"]
+        assert "e1" in stored_mapping
+        evt = json.loads(stored_mapping["e1"])
+        assert evt["title"] == "Updated Meeting"
+
+        # New sync token saved
+        mock_redis.set.assert_called_once_with(
+            "gcal:sync:user-1:default:cal-1", "sync-new"
+        )
+
+    @pytest.mark.asyncio
+    async def test_removes_cancelled_events(self, gcal_service, mock_redis) -> None:
+        gcal_service.get_valid_token = AsyncMock(return_value="ya29.test")
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+
+        raw_events = [
+            {**_make_raw_event("e-del", "Deleted", "2026-03-07T10:00:00Z", "2026-03-07T11:00:00Z"), "status": "cancelled"},
+        ]
+
+        gcal_service._api_request = AsyncMock(return_value={
+            "items": raw_events,
+            "nextSyncToken": "sync-new",
+        })
+
+        await gcal_service._incremental_sync("user-1", "default", "cal-1", "sync-old")
+
+        # Cancelled event removed
+        mock_redis.hdel.assert_called_once()
+        assert "e-del" in mock_redis.hdel.call_args[0]
+
+        # No upsert for cancelled events
+        mock_redis.hset.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_410_triggers_full_sync(self, gcal_service, mock_redis) -> None:
+        gcal_service.get_valid_token = AsyncMock(return_value="ya29.test")
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+
+        gcal_service._api_request = AsyncMock(
+            side_effect=SyncTokenExpiredError("410")
+        )
+        gcal_service._full_sync = AsyncMock()
+
+        await gcal_service._incremental_sync("user-1", "default", "cal-1", "expired-token")
+
+        gcal_service._full_sync.assert_called_once_with("user-1", "default", "cal-1")
+
+    @pytest.mark.asyncio
+    async def test_mixed_upsert_and_delete(self, gcal_service, mock_redis) -> None:
+        gcal_service.get_valid_token = AsyncMock(return_value="ya29.test")
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+
+        raw_events = [
+            _make_raw_event("e1", "New Event", "2026-03-07T10:00:00Z", "2026-03-07T11:00:00Z"),
+            {**_make_raw_event("e2", "Deleted", "2026-03-07T12:00:00Z", "2026-03-07T13:00:00Z"), "status": "cancelled"},
+        ]
+
+        gcal_service._api_request = AsyncMock(return_value={
+            "items": raw_events,
+            "nextSyncToken": "sync-new",
+        })
+
+        await gcal_service._incremental_sync("user-1", "default", "cal-1", "sync-old")
+
+        # Upserted
+        mock_redis.hset.assert_called_once()
+        assert "e1" in mock_redis.hset.call_args[1]["mapping"]
+
+        # Deleted
+        mock_redis.hdel.assert_called_once()
+        assert "e2" in mock_redis.hdel.call_args[0]
+
+
+class TestEnsureSynced:
+    """Tests for _ensure_synced."""
+
+    @pytest.mark.asyncio
+    async def test_calls_incremental_when_sync_token_exists(self, gcal_service, mock_redis) -> None:
+        mock_redis.get.return_value = "existing-sync-token"
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+        gcal_service._incremental_sync = AsyncMock()
+        gcal_service._full_sync = AsyncMock()
+
+        await gcal_service._ensure_synced("user-1", "default", "cal-1")
+
+        gcal_service._incremental_sync.assert_called_once_with(
+            "user-1", "default", "cal-1", "existing-sync-token"
+        )
+        gcal_service._full_sync.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_calls_full_sync_when_no_token(self, gcal_service, mock_redis) -> None:
+        mock_redis.get.return_value = None
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+        gcal_service._incremental_sync = AsyncMock()
+        gcal_service._full_sync = AsyncMock()
+
+        await gcal_service._ensure_synced("user-1", "default", "cal-1")
+
+        gcal_service._full_sync.assert_called_once_with("user-1", "default", "cal-1")
+        gcal_service._incremental_sync.assert_not_called()
+
+
+class TestListEventsSync:
+    """Tests for the new sync-based list_events."""
+
+    @pytest.mark.asyncio
+    async def test_uses_sync_store(self, gcal_service, mock_redis) -> None:
+        mock_redis.get.return_value = None  # No sync start boundary
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+        gcal_service._ensure_synced = AsyncMock()
+        gcal_service._event_store_get_range = AsyncMock(return_value=[
+            _make_normalized_event("e1", "Event 1", "2026-03-07T10:00:00Z", "2026-03-07T11:00:00Z"),
+            _make_normalized_event("e2", "Event 2", "2026-03-07T09:00:00Z", "2026-03-07T10:00:00Z"),
+        ])
+
+        events = await gcal_service.list_events(
+            "user-1", "default", "cal-1",
+            "2026-03-07T00:00:00Z", "2026-03-08T00:00:00Z",
+        )
+
+        gcal_service._ensure_synced.assert_called_once()
+        # Events sorted by start
+        assert events[0]["start"] == "2026-03-07T09:00:00Z"
+        assert events[1]["start"] == "2026-03-07T10:00:00Z"
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_direct_for_old_queries(self, gcal_service, mock_redis) -> None:
+        # sync_start is 90 days ago, but query is older
+        mock_redis.get.return_value = "2025-12-01T00:00:00"
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+        gcal_service._fetch_events_direct = AsyncMock(return_value=[])
+        gcal_service._ensure_synced = AsyncMock()
+
+        events = await gcal_service.list_events(
+            "user-1", "default", "cal-1",
+            "2025-01-01T00:00:00Z", "2025-02-01T00:00:00Z",
+        )
+
+        gcal_service._fetch_events_direct.assert_called_once()
+        gcal_service._ensure_synced.assert_not_called()
+
+
+class TestEventStoreRangeFilter:
+    """Tests for _event_store_get_range."""
+
+    @pytest.mark.asyncio
+    async def test_filters_events_by_range(self, gcal_service, mock_redis) -> None:
+        e_in_range = _make_normalized_event("e1", "In Range", "2026-03-07T10:00:00Z", "2026-03-07T11:00:00Z")
+        e_out_range = _make_normalized_event("e2", "Out of Range", "2026-03-08T10:00:00Z", "2026-03-08T11:00:00Z")
+
+        mock_redis.hgetall.return_value = {
+            "e1": json.dumps(e_in_range),
+            "e2": json.dumps(e_out_range),
+        }
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+
+        events = await gcal_service._event_store_get_range(
+            "user-1", "default", "cal-1",
+            "2026-03-07T00:00:00Z", "2026-03-08T00:00:00Z",
+        )
+
+        assert len(events) == 1
+        assert events[0]["id"] == "e1"
+
+
+class TestWriteOpsUpdateStore:
+    """Tests that create/update/delete update the event store."""
+
+    @pytest.mark.asyncio
+    async def test_create_event_upserts_to_store(self, gcal_service, mock_redis) -> None:
+        gcal_service.get_valid_token = AsyncMock(return_value="ya29.test")
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+
+        created = _make_raw_event("new-1", "New Event", "2026-03-07T10:00:00Z", "2026-03-07T11:00:00Z")
+        gcal_service._api_request = AsyncMock(return_value=created)
+
+        result = await gcal_service.create_event(
+            "user-1", "default", "cal-1", {"summary": "New Event"}
+        )
+
+        assert result["id"] == "new-1"
+        mock_redis.hset.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_update_event_upserts_to_store(self, gcal_service, mock_redis) -> None:
+        gcal_service.get_valid_token = AsyncMock(return_value="ya29.test")
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+
+        updated = _make_raw_event("e1", "Updated", "2026-03-07T10:00:00Z", "2026-03-07T11:00:00Z")
+        gcal_service._api_request = AsyncMock(return_value=updated)
+
+        result = await gcal_service.update_event(
+            "user-1", "default", "cal-1", "e1", {"summary": "Updated"}
+        )
+
+        assert result["title"] == "Updated"
+        mock_redis.hset.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_delete_event_removes_from_store(self, gcal_service, mock_redis) -> None:
+        gcal_service.get_valid_token = AsyncMock(return_value="ya29.test")
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+        gcal_service._api_request = AsyncMock(return_value={})
+
+        await gcal_service.delete_event("user-1", "default", "cal-1", "e1")
+
+        mock_redis.hdel.assert_called_once()
+        assert "e1" in mock_redis.hdel.call_args[0]
+
+
+class TestHandlePushNotification:
+    """Tests for push notification with incremental sync."""
+
+    @pytest.mark.asyncio
+    async def test_incremental_sync_on_push(self, gcal_service, mock_redis) -> None:
+        watch_info = json.dumps({
+            "user_id": "user-1",
+            "account_label": "default",
+            "calendar_id": "cal-1",
+            "resource_id": "res-1",
+        })
+
+        call_count = 0
+        async def mock_get(key):
+            nonlocal call_count
+            call_count += 1
+            if "gcal:watch:" in key:
+                return watch_info
+            if "gcal:sync:" in key:
+                return "sync-token-abc"
+            return None
+
+        mock_redis.get = AsyncMock(side_effect=mock_get)
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+        gcal_service._incremental_sync = AsyncMock()
+
+        await gcal_service.handle_push_notification("channel-1", "res-1")
+
+        gcal_service._incremental_sync.assert_called_once_with(
+            "user-1", "default", "cal-1", "sync-token-abc"
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_sync_token_skips_sync(self, gcal_service, mock_redis) -> None:
+        watch_info = json.dumps({
+            "user_id": "user-1",
+            "account_label": "default",
+            "calendar_id": "cal-1",
+            "resource_id": "res-1",
+        })
+
+        async def mock_get(key):
+            if "gcal:watch:" in key:
+                return watch_info
+            return None
+
+        mock_redis.get = AsyncMock(side_effect=mock_get)
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+        gcal_service._incremental_sync = AsyncMock()
+
+        await gcal_service.handle_push_notification("channel-1", "res-1")
+
+        gcal_service._incremental_sync.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sync_failure_clears_store(self, gcal_service, mock_redis) -> None:
+        watch_info = json.dumps({
+            "user_id": "user-1",
+            "account_label": "default",
+            "calendar_id": "cal-1",
+            "resource_id": "res-1",
+        })
+
+        async def mock_get(key):
+            if "gcal:watch:" in key:
+                return watch_info
+            if "gcal:sync:" in key:
+                return "sync-token-abc"
+            return None
+
+        mock_redis.get = AsyncMock(side_effect=mock_get)
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+        gcal_service._incremental_sync = AsyncMock(side_effect=Exception("API error"))
+
+        await gcal_service.handle_push_notification("channel-1", "res-1")
+
+        # Store should be cleared so next read triggers full sync
+        mock_redis.delete.assert_called_once()
+
+
+class TestRedisKeyBuilders:
+    """Tests for static key builder methods."""
+
+    def test_store_key(self) -> None:
+        assert GoogleCalendarService._store_key("u1", "default", "cal-1") == "gcal:store:u1:default:cal-1"
+
+    def test_sync_token_key(self) -> None:
+        assert GoogleCalendarService._sync_token_key("u1", "work", "cal-2") == "gcal:sync:u1:work:cal-2"
+
+    def test_sync_start_key(self) -> None:
+        assert GoogleCalendarService._sync_start_key("u1", "default", "cal-1") == "gcal:sync:start:u1:default:cal-1"

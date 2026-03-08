@@ -31,6 +31,13 @@ GOOGLE_CALENDAR_SCOPES = "openid email https://www.googleapis.com/auth/calendar"
 
 PROVIDER = "google_calendar"
 
+SYNC_WINDOW_DAYS = 90  # Initial full sync covers this many days back
+
+
+class SyncTokenExpiredError(Exception):
+    """Raised when Google returns HTTP 410 indicating the sync token is invalid."""
+    pass
+
 CALENDAR_COLOR_PALETTE = [
     "#4285f4", "#0b8043", "#8e24aa", "#d50000", "#f4511e",
     "#f6bf26", "#039be5", "#616161", "#33b679", "#e67c73",
@@ -38,7 +45,6 @@ CALENDAR_COLOR_PALETTE = [
 
 # Redis cache TTLs
 CACHE_TTL_CALENDARS = 300  # 5 minutes
-CACHE_TTL_EVENTS = 300  # 5 minutes (invalidated on write and by push notifications)
 
 
 def _normalize_event(event: dict, calendar_id: str, color: str = "#4285f4") -> dict:
@@ -236,6 +242,22 @@ class GoogleCalendarService:
 
         return await self.token_encryption.get_decrypted_access_token(token)
 
+    async def _cleanup_account_stores(self, user_id: str, account_label: str) -> None:
+        """Remove all event store, sync token, and sync start keys for an account."""
+        redis_client = await self._get_redis()
+        if not redis_client:
+            return
+        try:
+            keys_to_delete = []
+            for prefix in ("gcal:store:", "gcal:sync:", "gcal:sync:start:"):
+                pattern = f"{prefix}{user_id}:{account_label}:*"
+                async for key in redis_client.scan_iter(match=pattern, count=100):
+                    keys_to_delete.append(key)
+            if keys_to_delete:
+                await redis_client.delete(*keys_to_delete)
+        except Exception:
+            pass
+
     async def delete_connection(self, connection_id: str, user_id: str) -> bool:
         """Delete a Google Calendar connection by ID with ownership check.
 
@@ -244,6 +266,8 @@ class GoogleCalendarService:
         token = await self.token_repo.get(connection_id)
         if not token or token.user_id != user_id:
             return False
+
+        account_label = token.account_label
 
         # Best-effort revoke
         try:
@@ -257,6 +281,9 @@ class GoogleCalendarService:
                 )
         except Exception:
             logger.warning("Failed to revoke Google token (best effort)")
+
+        # Clean up sync stores for this account
+        await self._cleanup_account_stores(user_id, account_label)
 
         return await self.token_repo.delete_by_id(connection_id, user_id)
 
@@ -280,6 +307,8 @@ class GoogleCalendarService:
             return {}
 
         data = response.json()
+        if response.status_code == 410:
+            raise SyncTokenExpiredError("Sync token expired (HTTP 410)")
         if response.status_code >= 400:
             error_msg = data.get("error", {}).get("message", response.text)
             raise ValueError(f"Google Calendar API error ({response.status_code}): {error_msg}")
@@ -315,20 +344,276 @@ class GoogleCalendarService:
         except Exception:
             pass
 
-    async def _cache_invalidate_events(self, user_id: str) -> None:
-        """Invalidate all cached events for a user."""
+    # ------------------------------------------------------------------
+    # Paginated fetch helper
+    # ------------------------------------------------------------------
+
+    async def _paginated_events_list(
+        self, access_token: str, calendar_id: str, params: dict
+    ) -> tuple[list[dict], str]:
+        """Fetch all pages of Events.list, return (items, nextSyncToken)."""
+        url = f"{GOOGLE_CALENDAR_API}/calendars/{calendar_id}/events"
+        all_items: list[dict] = []
+        sync_token = ""
+
+        while True:
+            data = await self._api_request("GET", url, access_token, params=params)
+            all_items.extend(data.get("items", []))
+            sync_token = data.get("nextSyncToken", "")
+            next_page = data.get("nextPageToken")
+            if not next_page:
+                break
+            params["pageToken"] = next_page
+
+        return all_items, sync_token
+
+    # ------------------------------------------------------------------
+    # Event store (Redis hash) helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _store_key(user_id: str, account_label: str, calendar_id: str) -> str:
+        return f"gcal:store:{user_id}:{account_label}:{calendar_id}"
+
+    @staticmethod
+    def _sync_token_key(user_id: str, account_label: str, calendar_id: str) -> str:
+        return f"gcal:sync:{user_id}:{account_label}:{calendar_id}"
+
+    @staticmethod
+    def _sync_start_key(user_id: str, account_label: str, calendar_id: str) -> str:
+        return f"gcal:sync:start:{user_id}:{account_label}:{calendar_id}"
+
+    async def _event_store_get_range(
+        self,
+        user_id: str,
+        account_label: str,
+        calendar_id: str,
+        time_min: str,
+        time_max: str,
+    ) -> list[dict]:
+        """Read events from the Redis hash and filter by time range."""
+        redis_client = await self._get_redis()
+        if not redis_client:
+            return []
+        try:
+            key = self._store_key(user_id, account_label, calendar_id)
+            raw = await redis_client.hgetall(key)
+            if not raw:
+                return []
+
+            events = []
+            for _eid, val in raw.items():
+                evt = json.loads(val)
+                start = evt.get("start", "")
+                if start >= time_min[:19] and start < time_max[:19]:
+                    events.append(evt)
+            return events
+        except Exception:
+            return []
+
+    async def _event_store_upsert(
+        self,
+        user_id: str,
+        account_label: str,
+        calendar_id: str,
+        events: list[dict],
+    ) -> None:
+        """Upsert events into the Redis hash by event ID."""
+        if not events:
+            return
         redis_client = await self._get_redis()
         if not redis_client:
             return
         try:
-            pattern = f"gcal:events:{user_id}:*"
-            keys = []
-            async for key in redis_client.scan_iter(match=pattern, count=100):
-                keys.append(key)
-            if keys:
-                await redis_client.delete(*keys)
+            key = self._store_key(user_id, account_label, calendar_id)
+            mapping = {evt["id"]: json.dumps(evt) for evt in events}
+            await redis_client.hset(key, mapping=mapping)
         except Exception:
             pass
+
+    async def _event_store_remove(
+        self,
+        user_id: str,
+        account_label: str,
+        calendar_id: str,
+        event_ids: list[str],
+    ) -> None:
+        """Remove events from the Redis hash by ID."""
+        if not event_ids:
+            return
+        redis_client = await self._get_redis()
+        if not redis_client:
+            return
+        try:
+            key = self._store_key(user_id, account_label, calendar_id)
+            await redis_client.hdel(key, *event_ids)
+        except Exception:
+            pass
+
+    async def _event_store_clear(
+        self,
+        user_id: str,
+        account_label: str,
+        calendar_id: str,
+    ) -> None:
+        """Delete the event store hash, sync token, and start marker for a calendar."""
+        redis_client = await self._get_redis()
+        if not redis_client:
+            return
+        try:
+            await redis_client.delete(
+                self._store_key(user_id, account_label, calendar_id),
+                self._sync_token_key(user_id, account_label, calendar_id),
+                self._sync_start_key(user_id, account_label, calendar_id),
+            )
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # Full & incremental sync
+    # ------------------------------------------------------------------
+
+    async def _full_sync(
+        self, user_id: str, account_label: str, calendar_id: str
+    ) -> None:
+        """Perform a full sync: fetch 90 days of events and store + save sync token."""
+        access_token = await self.get_valid_token(user_id, account_label)
+        if not access_token:
+            return
+
+        await self._event_store_clear(user_id, account_label, calendar_id)
+
+        time_min = (datetime.now(UTC) - timedelta(days=SYNC_WINDOW_DAYS)).isoformat()
+        params: dict[str, str] = {
+            "singleEvents": "true",
+            "timeMin": time_min,
+            "maxResults": "2500",
+        }
+
+        items, sync_token = await self._paginated_events_list(
+            access_token, calendar_id, params
+        )
+
+        events = [
+            _normalize_event(e, calendar_id)
+            for e in items
+            if e.get("status") != "cancelled"
+        ]
+        await self._event_store_upsert(user_id, account_label, calendar_id, events)
+
+        # Persist sync token and the timeMin boundary
+        redis_client = await self._get_redis()
+        if redis_client and sync_token:
+            try:
+                await redis_client.set(
+                    self._sync_token_key(user_id, account_label, calendar_id),
+                    sync_token,
+                )
+                await redis_client.set(
+                    self._sync_start_key(user_id, account_label, calendar_id),
+                    time_min,
+                )
+            except Exception:
+                pass
+
+    async def _incremental_sync(
+        self, user_id: str, account_label: str, calendar_id: str, sync_token: str
+    ) -> None:
+        """Fetch only changes since the last sync token."""
+        access_token = await self.get_valid_token(user_id, account_label)
+        if not access_token:
+            return
+
+        params: dict[str, str] = {"syncToken": sync_token}
+
+        try:
+            items, new_sync_token = await self._paginated_events_list(
+                access_token, calendar_id, params
+            )
+        except SyncTokenExpiredError:
+            logger.info(f"Sync token expired for cal={calendar_id}, doing full sync")
+            await self._full_sync(user_id, account_label, calendar_id)
+            return
+
+        # Separate cancelled (deleted) from upserts
+        cancelled_ids = [e["id"] for e in items if e.get("status") == "cancelled"]
+        upsert_events = [
+            _normalize_event(e, calendar_id)
+            for e in items
+            if e.get("status") != "cancelled"
+        ]
+
+        await self._event_store_remove(user_id, account_label, calendar_id, cancelled_ids)
+        await self._event_store_upsert(user_id, account_label, calendar_id, upsert_events)
+
+        # Save new sync token
+        if new_sync_token:
+            redis_client = await self._get_redis()
+            if redis_client:
+                try:
+                    await redis_client.set(
+                        self._sync_token_key(user_id, account_label, calendar_id),
+                        new_sync_token,
+                    )
+                except Exception:
+                    pass
+
+    async def _ensure_synced(
+        self, user_id: str, account_label: str, calendar_id: str
+    ) -> None:
+        """Ensure the event store is up-to-date via incremental or full sync."""
+        redis_client = await self._get_redis()
+        if not redis_client:
+            # No Redis — can't use sync store, caller will fall back to direct API
+            return
+
+        try:
+            sync_token = await redis_client.get(
+                self._sync_token_key(user_id, account_label, calendar_id)
+            )
+        except Exception:
+            sync_token = None
+
+        if sync_token:
+            await self._incremental_sync(
+                user_id, account_label, calendar_id, sync_token
+            )
+        else:
+            await self._full_sync(user_id, account_label, calendar_id)
+
+    # ------------------------------------------------------------------
+    # Direct API fallback (queries outside sync window)
+    # ------------------------------------------------------------------
+
+    async def _fetch_events_direct(
+        self,
+        user_id: str,
+        account_label: str,
+        calendar_id: str,
+        time_min: str,
+        time_max: str,
+    ) -> list[dict]:
+        """Fetch events directly from the API without caching (for out-of-window queries)."""
+        access_token = await self.get_valid_token(user_id, account_label)
+        if not access_token:
+            return []
+
+        params: dict[str, str] = {
+            "timeMin": time_min,
+            "timeMax": time_max,
+            "singleEvents": "true",
+            "orderBy": "startTime",
+            "maxResults": "2500",
+        }
+
+        items, _ = await self._paginated_events_list(
+            access_token, calendar_id, params
+        )
+        return [
+            _normalize_event(e, calendar_id)
+            for e in items
+            if e.get("status") != "cancelled"
+        ]
 
     async def list_calendars(
         self, user_id: str, account_label: str = "default"
@@ -361,74 +646,6 @@ class GoogleCalendarService:
         await self._cache_set(cache_key, calendars, CACHE_TTL_CALENDARS)
         return calendars
 
-    def _get_months_for_range(self, time_min: str, time_max: str) -> list[tuple[int, int]]:
-        """Return list of (year, month) tuples covering the requested range."""
-        from datetime import datetime as dt
-
-        try:
-            start = dt.fromisoformat(time_min.replace("Z", "+00:00"))
-            end = dt.fromisoformat(time_max.replace("Z", "+00:00"))
-        except ValueError:
-            # Fallback: parse just the date portion
-            start = dt.fromisoformat(time_min[:10])
-            end = dt.fromisoformat(time_max[:10])
-
-        months = []
-        current = start.replace(day=1)
-        while current <= end:
-            months.append((current.year, current.month))
-            if current.month == 12:
-                current = current.replace(year=current.year + 1, month=1)
-            else:
-                current = current.replace(month=current.month + 1)
-        return months
-
-    async def _fetch_month_events(
-        self,
-        user_id: str,
-        account_label: str,
-        calendar_id: str,
-        year: int,
-        month: int,
-    ) -> list[dict]:
-        """Fetch and cache a full calendar month of events."""
-        cache_key = f"gcal:events:{user_id}:{account_label}:{calendar_id}:{year}-{month:02d}"
-        cached = await self._cache_get(cache_key)
-        if cached is not None:
-            return cached
-
-        access_token = await self.get_valid_token(user_id, account_label)
-        if not access_token:
-            return []
-
-        # Full month boundaries in UTC
-        from calendar import monthrange
-        _, last_day = monthrange(year, month)
-        month_start = f"{year}-{month:02d}-01T00:00:00Z"
-        if month == 12:
-            month_end = f"{year + 1}-01-01T00:00:00Z"
-        else:
-            month_end = f"{year}-{month + 1:02d}-01T00:00:00Z"
-
-        url = f"{GOOGLE_CALENDAR_API}/calendars/{calendar_id}/events"
-        params = {
-            "timeMin": month_start,
-            "timeMax": month_end,
-            "singleEvents": "true",
-            "orderBy": "startTime",
-            "maxResults": "2500",
-        }
-        data = await self._api_request("GET", url, access_token, params=params)
-
-        events = [
-            _normalize_event(e, calendar_id)
-            for e in data.get("items", [])
-            if e.get("status") != "cancelled"
-        ]
-
-        await self._cache_set(cache_key, events, CACHE_TTL_EVENTS)
-        return events
-
     async def list_events(
         self,
         user_id: str,
@@ -439,24 +656,32 @@ class GoogleCalendarService:
     ) -> list[dict]:
         """List events from a specific calendar within a time range.
 
-        Fetches full calendar months and caches by month boundary so that
-        different views (week, month) within the same month share cache.
+        Uses incremental sync to keep a local event store in Redis.
+        Falls back to a direct API call for queries outside the sync window.
         """
-        months = self._get_months_for_range(time_min, time_max)
-        all_events = []
+        # Check if the query starts before the sync window boundary
+        redis_client = await self._get_redis()
+        if redis_client:
+            try:
+                sync_start = await redis_client.get(
+                    self._sync_start_key(user_id, account_label, calendar_id)
+                )
+            except Exception:
+                sync_start = None
 
-        for year, month in months:
-            events = await self._fetch_month_events(
-                user_id, account_label, calendar_id, year, month
-            )
-            all_events.extend(events)
+            # If we have a sync window and the query predates it, use direct API
+            if sync_start and time_min[:19] < sync_start[:19]:
+                return await self._fetch_events_direct(
+                    user_id, account_label, calendar_id, time_min, time_max
+                )
 
-        # Filter to the exact requested range
-        filtered = [
-            e for e in all_events
-            if e.get("start", "") >= time_min[:19] and e.get("start", "") < time_max[:19]
-        ]
-        return filtered
+        await self._ensure_synced(user_id, account_label, calendar_id)
+
+        events = await self._event_store_get_range(
+            user_id, account_label, calendar_id, time_min, time_max
+        )
+        events.sort(key=lambda e: e.get("start", ""))
+        return events
 
     async def create_event(
         self,
@@ -473,8 +698,9 @@ class GoogleCalendarService:
         url = f"{GOOGLE_CALENDAR_API}/calendars/{calendar_id}/events"
         data = await self._api_request("POST", url, access_token, json=event_data)
 
-        await self._cache_invalidate_events(user_id)
-        return _normalize_event(data, calendar_id)
+        normalized = _normalize_event(data, calendar_id)
+        await self._event_store_upsert(user_id, account_label, calendar_id, [normalized])
+        return normalized
 
     async def update_event(
         self,
@@ -492,8 +718,9 @@ class GoogleCalendarService:
         url = f"{GOOGLE_CALENDAR_API}/calendars/{calendar_id}/events/{event_id}"
         data = await self._api_request("PATCH", url, access_token, json=event_data)
 
-        await self._cache_invalidate_events(user_id)
-        return _normalize_event(data, calendar_id)
+        normalized = _normalize_event(data, calendar_id)
+        await self._event_store_upsert(user_id, account_label, calendar_id, [normalized])
+        return normalized
 
     async def delete_event(
         self,
@@ -510,7 +737,7 @@ class GoogleCalendarService:
         url = f"{GOOGLE_CALENDAR_API}/calendars/{calendar_id}/events/{event_id}"
         await self._api_request("DELETE", url, access_token)
 
-        await self._cache_invalidate_events(user_id)
+        await self._event_store_remove(user_id, account_label, calendar_id, [event_id])
 
     async def list_all_calendars_for_user(self, user_id: str) -> list[dict]:
         """List all calendars across all connected Google Calendar accounts."""
@@ -701,7 +928,7 @@ class GoogleCalendarService:
     async def handle_push_notification(self, channel_id: str, resource_id: str) -> None:
         """Handle an incoming push notification from Google Calendar.
 
-        Invalidates the cached events for the relevant user/calendar.
+        Performs an incremental sync for the affected calendar.
         """
         redis_client = await self._get_redis()
         if not redis_client:
@@ -717,8 +944,28 @@ class GoogleCalendarService:
             return
 
         user_id = watch_info["user_id"]
-        logger.info(f"Calendar push notification: user={user_id} channel={channel_id}")
-        await self._cache_invalidate_events(user_id)
+        account_label = watch_info["account_label"]
+        calendar_id = watch_info["calendar_id"]
+        logger.info(f"Calendar push notification: user={user_id} cal={calendar_id}")
+
+        try:
+            sync_token = await redis_client.get(
+                self._sync_token_key(user_id, account_label, calendar_id)
+            )
+        except Exception:
+            sync_token = None
+
+        if sync_token:
+            try:
+                await self._incremental_sync(
+                    user_id, account_label, calendar_id, sync_token
+                )
+            except Exception:
+                logger.warning("Incremental sync failed during push, clearing store")
+                await self._event_store_clear(user_id, account_label, calendar_id)
+        else:
+            # No sync token — next read will trigger full sync
+            pass
 
     async def ensure_watches_for_user(self, user_id: str) -> None:
         """Ensure all visible calendars have active watches. Idempotent."""

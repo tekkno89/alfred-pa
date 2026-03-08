@@ -268,3 +268,45 @@ class TestGoogleCalendarOAuthCallback:
 
         assert response.status_code == 307
         assert "google_calendar_oauth=error" in response.headers["location"]
+
+
+class TestCalendarWebhook:
+    """Tests for POST /calendar/webhook."""
+
+    @pytest_asyncio.fixture
+    async def client(self):
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as ac:
+            yield ac
+
+    async def test_webhook_calls_incremental_sync(self, client):
+        """Verify webhook triggers handle_push_notification (incremental sync)."""
+        with (
+            patch(
+                "app.api.calendar.GoogleCalendarService"
+            ) as mock_svc_cls,
+            patch(
+                "app.api.calendar.GoogleCalendarService.verify_channel_token",
+                return_value=True,
+            ),
+        ):
+            mock_svc = AsyncMock()
+            mock_svc.handle_push_notification = AsyncMock()
+            mock_svc_cls.return_value = mock_svc
+
+            response = await client.post(
+                "/api/calendar/webhook",
+                headers={
+                    "X-Goog-Channel-ID": "chan-123",
+                    "X-Goog-Resource-ID": "res-456",
+                    "X-Goog-Resource-State": "exists",
+                    "X-Goog-Channel-Token": "valid-token",
+                },
+            )
+
+        assert response.status_code == 200
+        mock_svc.handle_push_notification.assert_called_once_with(
+            "chan-123", "res-456"
+        )
