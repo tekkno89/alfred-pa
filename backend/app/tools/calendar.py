@@ -86,7 +86,7 @@ class CalendarTool(BaseTool):
             },
             "account_label": {
                 "type": "string",
-                "description": "Account label for multi-account. Defaults to 'default'.",
+                "description": "Account label for multi-account. Only provide if the user specifies which account.",
             },
             "event_id": {
                 "type": "string",
@@ -118,6 +118,32 @@ class CalendarTool(BaseTool):
         },
         "required": ["action"],
     }
+
+    async def _resolve_account_label(self, db, user_id: str, account_label: str | None) -> str:
+        """Resolve the account label to use for write operations.
+
+        If account_label is explicitly provided, use it. Otherwise, look up
+        the user's connected Google Calendar accounts and use the first (or
+        only) one. This handles the common case where the token was stored
+        with a custom label like "personal" or "work" instead of "default".
+        """
+        from app.db.repositories import OAuthTokenRepository
+        token_repo = OAuthTokenRepository(db)
+        tokens = await token_repo.get_all_by_user_and_provider(user_id, "google_calendar")
+        if not tokens:
+            return account_label or "default"
+
+        # If a specific (non-default) label was provided, verify it exists
+        if account_label and account_label != "default":
+            if any(t.account_label == account_label for t in tokens):
+                return account_label
+
+        # Single account — use it directly
+        if len(tokens) == 1:
+            return tokens[0].account_label
+
+        # Multiple accounts — no specific label given, use the first one
+        return tokens[0].account_label
 
     async def execute(self, *, context: ToolContext | None = None, **kwargs: Any) -> str:
         """Execute a calendar management action."""
@@ -238,7 +264,7 @@ class CalendarTool(BaseTool):
             return "Error: 'start' is required for creating an event."
 
         calendar_id = kwargs.get("calendar_id", "primary")
-        account_label = kwargs.get("account_label", "default")
+        account_label = await self._resolve_account_label(db, user_id, kwargs.get("account_label"))
         all_day = kwargs.get("all_day", False)
 
         body: dict = {"summary": title}
@@ -299,7 +325,7 @@ class CalendarTool(BaseTool):
             return "Error: 'event_id' is required for updating an event."
 
         calendar_id = kwargs.get("calendar_id", "primary")
-        account_label = kwargs.get("account_label", "default")
+        account_label = await self._resolve_account_label(db, user_id, kwargs.get("account_label"))
 
         body: dict = {}
         if kwargs.get("title") is not None:
@@ -355,7 +381,7 @@ class CalendarTool(BaseTool):
             return "Error: 'event_id' is required for deleting an event."
 
         calendar_id = kwargs.get("calendar_id", "primary")
-        account_label = kwargs.get("account_label", "default")
+        account_label = await self._resolve_account_label(db, user_id, kwargs.get("account_label"))
 
         service = GoogleCalendarService(db)
         await service.delete_event(user_id, account_label, calendar_id, event_id)

@@ -127,7 +127,7 @@ def build_prompt_messages(state: AgentState, *, tz: str | None = None) -> list[L
     system_content = SYSTEM_PROMPT
     system_content += f"\n\nToday's date is {today}. The current time is {current_time}."
     system_content += (
-        "\n\n**Tool usage:** You have access to tools like web search, focus mode management, and todo management. "
+        "\n\n**Tool usage:** You have access to tools like web search, focus mode management, todo management, and calendar management. "
         "When the user asks to enable/disable focus mode, start a pomodoro, check focus status, "
         "or skip a pomodoro phase, use the focus_mode tool. "
         "When the user asks to create, list, update, complete, or delete todos/tasks, use the manage_todos tool. "
@@ -149,7 +149,7 @@ def build_prompt_messages(state: AgentState, *, tz: str | None = None) -> list[L
         "use the manage_calendar tool. "
         "For calendar dates/times, always use ISO 8601 format with the user's timezone offset "
         "(e.g. 2026-03-15T09:00:00-07:00). Do NOT convert to UTC — use the offset matching the current time shown above. "
-        "When creating events, default to calendar_id='primary' and account_label='default' unless the user specifies otherwise. "
+        "When creating events, default to calendar_id='primary'. Do NOT pass account_label unless the user explicitly specifies which account to use. "
         "If the user has multiple Google Calendar accounts, ask which account to use when ambiguous. "
         "When listing events, include the event ID so the user can reference it for updates or deletion. "
         "For recurring events, use scope='this' to modify a single instance or scope='all' for all instances."

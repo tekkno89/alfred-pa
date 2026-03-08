@@ -1,8 +1,11 @@
 """Google Calendar service for OAuth and API operations."""
 
+import hashlib
+import hmac
 import json
 import logging
 import secrets
+import uuid
 from datetime import datetime, UTC, timedelta
 from typing import Any
 from urllib.parse import urlencode
@@ -35,7 +38,7 @@ CALENDAR_COLOR_PALETTE = [
 
 # Redis cache TTLs
 CACHE_TTL_CALENDARS = 300  # 5 minutes
-CACHE_TTL_EVENTS = 60  # 1 minute
+CACHE_TTL_EVENTS = 300  # 5 minutes (invalidated on write and by push notifications)
 
 
 def _normalize_event(event: dict, calendar_id: str, color: str = "#4285f4") -> dict:
@@ -358,16 +361,38 @@ class GoogleCalendarService:
         await self._cache_set(cache_key, calendars, CACHE_TTL_CALENDARS)
         return calendars
 
-    async def list_events(
+    def _get_months_for_range(self, time_min: str, time_max: str) -> list[tuple[int, int]]:
+        """Return list of (year, month) tuples covering the requested range."""
+        from datetime import datetime as dt
+
+        try:
+            start = dt.fromisoformat(time_min.replace("Z", "+00:00"))
+            end = dt.fromisoformat(time_max.replace("Z", "+00:00"))
+        except ValueError:
+            # Fallback: parse just the date portion
+            start = dt.fromisoformat(time_min[:10])
+            end = dt.fromisoformat(time_max[:10])
+
+        months = []
+        current = start.replace(day=1)
+        while current <= end:
+            months.append((current.year, current.month))
+            if current.month == 12:
+                current = current.replace(year=current.year + 1, month=1)
+            else:
+                current = current.replace(month=current.month + 1)
+        return months
+
+    async def _fetch_month_events(
         self,
         user_id: str,
         account_label: str,
         calendar_id: str,
-        time_min: str,
-        time_max: str,
+        year: int,
+        month: int,
     ) -> list[dict]:
-        """List events from a specific calendar within a time range."""
-        cache_key = f"gcal:events:{user_id}:{account_label}:{calendar_id}:{time_min}:{time_max}"
+        """Fetch and cache a full calendar month of events."""
+        cache_key = f"gcal:events:{user_id}:{account_label}:{calendar_id}:{year}-{month:02d}"
         cached = await self._cache_get(cache_key)
         if cached is not None:
             return cached
@@ -376,13 +401,22 @@ class GoogleCalendarService:
         if not access_token:
             return []
 
+        # Full month boundaries in UTC
+        from calendar import monthrange
+        _, last_day = monthrange(year, month)
+        month_start = f"{year}-{month:02d}-01T00:00:00Z"
+        if month == 12:
+            month_end = f"{year + 1}-01-01T00:00:00Z"
+        else:
+            month_end = f"{year}-{month + 1:02d}-01T00:00:00Z"
+
         url = f"{GOOGLE_CALENDAR_API}/calendars/{calendar_id}/events"
         params = {
-            "timeMin": time_min,
-            "timeMax": time_max,
+            "timeMin": month_start,
+            "timeMax": month_end,
             "singleEvents": "true",
             "orderBy": "startTime",
-            "maxResults": "250",
+            "maxResults": "2500",
         }
         data = await self._api_request("GET", url, access_token, params=params)
 
@@ -394,6 +428,35 @@ class GoogleCalendarService:
 
         await self._cache_set(cache_key, events, CACHE_TTL_EVENTS)
         return events
+
+    async def list_events(
+        self,
+        user_id: str,
+        account_label: str,
+        calendar_id: str,
+        time_min: str,
+        time_max: str,
+    ) -> list[dict]:
+        """List events from a specific calendar within a time range.
+
+        Fetches full calendar months and caches by month boundary so that
+        different views (week, month) within the same month share cache.
+        """
+        months = self._get_months_for_range(time_min, time_max)
+        all_events = []
+
+        for year, month in months:
+            events = await self._fetch_month_events(
+                user_id, account_label, calendar_id, year, month
+            )
+            all_events.extend(events)
+
+        # Filter to the exact requested range
+        filtered = [
+            e for e in all_events
+            if e.get("start", "") >= time_min[:19] and e.get("start", "") < time_max[:19]
+        ]
+        return filtered
 
     async def create_event(
         self,
@@ -499,3 +562,199 @@ class GoogleCalendarService:
         # Sort by start time
         all_events.sort(key=lambda e: e.get("start", ""))
         return all_events
+
+    # ------------------------------------------------------------------
+    # Push notification (watch) management
+    # ------------------------------------------------------------------
+
+    # Redis keys for watch channels:
+    #   gcal:watch:{channel_id} → JSON{user_id, account_label, calendar_id, resource_id, expiration}
+    #   gcal:watches:{user_id}  → set of channel_ids
+
+    WATCH_TTL = 7 * 24 * 3600  # Google max is 7 days; we renew before expiry
+
+    @staticmethod
+    def _generate_channel_token(channel_id: str) -> str:
+        """Generate an HMAC token for a watch channel.
+
+        Uses JWT_SECRET as the signing key so only this server can produce
+        valid tokens. Google echoes this back in X-Goog-Channel-Token on
+        every notification so we can verify the request is legitimate.
+        """
+        settings = get_settings()
+        return hmac.new(
+            settings.jwt_secret.encode(),
+            channel_id.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+
+    @staticmethod
+    def verify_channel_token(channel_id: str, token: str) -> bool:
+        """Verify that a channel token is valid."""
+        expected = GoogleCalendarService._generate_channel_token(channel_id)
+        return hmac.compare_digest(expected, token)
+
+    async def watch_calendar(
+        self,
+        user_id: str,
+        account_label: str,
+        calendar_id: str,
+    ) -> dict | None:
+        """Register a push notification watch for a calendar.
+
+        Returns the watch info dict or None if webhook URL is not configured.
+        """
+        settings = get_settings()
+        webhook_url = settings.google_calendar_webhook_url
+        if not webhook_url:
+            return None
+
+        access_token = await self.get_valid_token(user_id, account_label)
+        if not access_token:
+            return None
+
+        channel_id = str(uuid.uuid4())
+        channel_token = self._generate_channel_token(channel_id)
+
+        # Google requires an absolute HTTPS URL
+        url = f"{GOOGLE_CALENDAR_API}/calendars/{calendar_id}/events/watch"
+        body = {
+            "id": channel_id,
+            "type": "web_hook",
+            "address": webhook_url,
+            "token": channel_token,
+        }
+
+        try:
+            data = await self._api_request("POST", url, access_token, json=body)
+        except ValueError as e:
+            logger.warning(f"Failed to register calendar watch: {e}")
+            return None
+
+        resource_id = data.get("resourceId", "")
+        expiration = int(data.get("expiration", 0))
+
+        # Store mapping in Redis
+        watch_info = {
+            "user_id": user_id,
+            "account_label": account_label,
+            "calendar_id": calendar_id,
+            "resource_id": resource_id,
+            "channel_id": channel_id,
+            "expiration": expiration,
+        }
+
+        redis_client = await self._get_redis()
+        if redis_client:
+            try:
+                await redis_client.set(
+                    f"gcal:watch:{channel_id}",
+                    json.dumps(watch_info),
+                    ex=self.WATCH_TTL,
+                )
+                await redis_client.sadd(f"gcal:watches:{user_id}", channel_id)
+            except Exception:
+                logger.warning("Failed to store watch info in Redis")
+
+        logger.info(
+            f"Registered calendar watch: user={user_id} cal={calendar_id} channel={channel_id}"
+        )
+        return watch_info
+
+    async def unwatch_calendar(self, channel_id: str, resource_id: str) -> None:
+        """Stop a push notification watch."""
+        # We need a valid token — look up the watch info first
+        redis_client = await self._get_redis()
+        if not redis_client:
+            return
+
+        try:
+            data = await redis_client.get(f"gcal:watch:{channel_id}")
+            if not data:
+                return
+            watch_info = json.loads(data)
+        except Exception:
+            return
+
+        user_id = watch_info["user_id"]
+        account_label = watch_info["account_label"]
+        access_token = await self.get_valid_token(user_id, account_label)
+        if not access_token:
+            return
+
+        try:
+            url = f"{GOOGLE_CALENDAR_API}/channels/stop"
+            await self._api_request(
+                "POST", url, access_token,
+                json={"id": channel_id, "resourceId": resource_id},
+            )
+        except ValueError:
+            logger.warning(f"Failed to stop watch channel {channel_id} (best effort)")
+
+        # Clean up Redis
+        try:
+            await redis_client.delete(f"gcal:watch:{channel_id}")
+            await redis_client.srem(f"gcal:watches:{user_id}", channel_id)
+        except Exception:
+            pass
+
+    async def handle_push_notification(self, channel_id: str, resource_id: str) -> None:
+        """Handle an incoming push notification from Google Calendar.
+
+        Invalidates the cached events for the relevant user/calendar.
+        """
+        redis_client = await self._get_redis()
+        if not redis_client:
+            return
+
+        try:
+            data = await redis_client.get(f"gcal:watch:{channel_id}")
+            if not data:
+                logger.debug(f"Unknown watch channel: {channel_id}")
+                return
+            watch_info = json.loads(data)
+        except Exception:
+            return
+
+        user_id = watch_info["user_id"]
+        logger.info(f"Calendar push notification: user={user_id} channel={channel_id}")
+        await self._cache_invalidate_events(user_id)
+
+    async def ensure_watches_for_user(self, user_id: str) -> None:
+        """Ensure all visible calendars have active watches. Idempotent."""
+        settings = get_settings()
+        if not settings.google_calendar_webhook_url:
+            return
+
+        redis_client = await self._get_redis()
+        if not redis_client:
+            return
+
+        # Get existing watches
+        try:
+            existing_channels = await redis_client.smembers(f"gcal:watches:{user_id}")
+        except Exception:
+            existing_channels = set()
+
+        # Build set of calendars already watched
+        watched_cals: set[str] = set()
+        for ch_id in existing_channels:
+            try:
+                data = await redis_client.get(f"gcal:watch:{ch_id}")
+                if data:
+                    info = json.loads(data)
+                    watched_cals.add(f"{info['account_label']}:{info['calendar_id']}")
+            except Exception:
+                pass
+
+        # Get all calendars for this user
+        all_calendars = await self.list_all_calendars_for_user(user_id)
+
+        for cal in all_calendars:
+            cal_key = f"{cal.get('account_label', 'default')}:{cal['id']}"
+            if cal_key not in watched_cals:
+                await self.watch_calendar(
+                    user_id,
+                    cal.get("account_label", "default"),
+                    cal["id"],
+                )

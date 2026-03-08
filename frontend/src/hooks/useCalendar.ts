@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiPost, apiPut, apiPatch, apiDelete } from '@/lib/api'
 import type {
@@ -9,24 +10,89 @@ import type {
   CalendarPreferenceItem,
 } from '@/types'
 
+const STALE_TIME = 5 * 60 * 1000 // 5 minutes — data shows instantly from cache
+
+function eventsQueryKey(timeMin: string, timeMax: string) {
+  return ['calendar', 'events', timeMin, timeMax] as const
+}
+
+function fetchEvents(timeMin: string, timeMax: string) {
+  return apiGet<CalendarEventListResponse>(
+    `/calendar/events?time_min=${encodeURIComponent(timeMin)}&time_max=${encodeURIComponent(timeMax)}`
+  )
+}
+
 export function useCalendars() {
   return useQuery({
     queryKey: ['calendar', 'calendars'],
     queryFn: () => apiGet<CalendarListResponse>('/calendar/calendars'),
-    staleTime: 5 * 60 * 1000,
+    staleTime: STALE_TIME,
   })
 }
 
 export function useCalendarEvents(timeMin: string, timeMax: string) {
   return useQuery({
-    queryKey: ['calendar', 'events', timeMin, timeMax],
-    queryFn: () =>
-      apiGet<CalendarEventListResponse>(
-        `/calendar/events?time_min=${encodeURIComponent(timeMin)}&time_max=${encodeURIComponent(timeMax)}`
-      ),
+    queryKey: eventsQueryKey(timeMin, timeMax),
+    queryFn: () => fetchEvents(timeMin, timeMax),
     enabled: !!timeMin && !!timeMax,
+    staleTime: STALE_TIME,
     refetchInterval: 5 * 60 * 1000,
   })
+}
+
+/**
+ * Prefetch adjacent month/week ranges so navigation feels instant.
+ */
+export function usePrefetchAdjacentRanges(
+  view: 'month' | 'week',
+  currentDate: Date,
+  timeMin: string,
+  timeMax: string,
+) {
+  const queryClient = useQueryClient()
+
+  useEffect(() => {
+    if (!timeMin || !timeMax) return
+
+    const ranges: { min: string; max: string }[] = []
+
+    if (view === 'month') {
+      // Prefetch previous and next month
+      for (const offset of [-1, 1]) {
+        const d = new Date(currentDate)
+        d.setMonth(d.getMonth() + offset)
+        const year = d.getFullYear()
+        const month = d.getMonth()
+        const first = new Date(year, month, 1)
+        const start = new Date(first)
+        start.setDate(start.getDate() - start.getDay())
+        const last = new Date(year, month + 1, 0)
+        const end = new Date(last)
+        end.setDate(end.getDate() + (6 - end.getDay()) + 1)
+        ranges.push({ min: start.toISOString(), max: end.toISOString() })
+      }
+    } else {
+      // Prefetch previous and next week
+      for (const offset of [-7, 7]) {
+        const d = new Date(currentDate)
+        d.setDate(d.getDate() + offset)
+        const start = new Date(d)
+        start.setDate(start.getDate() - start.getDay())
+        start.setHours(0, 0, 0, 0)
+        const end = new Date(start)
+        end.setDate(end.getDate() + 7)
+        ranges.push({ min: start.toISOString(), max: end.toISOString() })
+      }
+    }
+
+    for (const range of ranges) {
+      queryClient.prefetchQuery({
+        queryKey: eventsQueryKey(range.min, range.max),
+        queryFn: () => fetchEvents(range.min, range.max),
+        staleTime: STALE_TIME,
+      })
+    }
+  }, [queryClient, view, currentDate.getTime(), timeMin, timeMax])
 }
 
 export function useTodayEvents() {
@@ -37,6 +103,7 @@ export function useTodayEvents() {
       apiGet<CalendarEventListResponse>(
         `/calendar/events/today?tz=${encodeURIComponent(tz)}`
       ),
+    staleTime: STALE_TIME,
     refetchInterval: 60_000,
   })
 }

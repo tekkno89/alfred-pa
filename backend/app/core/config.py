@@ -109,6 +109,7 @@ class Settings(BaseSettings):
 
     # Google Calendar
     google_calendar_oauth_redirect_uri: str = ""
+    google_calendar_webhook_url: str = ""  # Public URL for push notifications
 
     # Memory
     memory_retrieval_limit: int = 5

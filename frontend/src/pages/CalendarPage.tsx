@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Plus, PanelRight, CalendarDays } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useCalendarEvents } from '@/hooks/useCalendar'
+import { useCalendarEvents, usePrefetchAdjacentRanges } from '@/hooks/useCalendar'
 import { MonthlyView } from '@/components/calendar/MonthlyView'
 import { WeeklyView } from '@/components/calendar/WeeklyView'
 import { CalendarSidebar } from '@/components/calendar/CalendarSidebar'
@@ -71,6 +71,8 @@ export function CalendarPage() {
 
   const { data, isLoading } = useCalendarEvents(timeMin, timeMax)
   const events = data?.events ?? []
+
+  usePrefetchAdjacentRanges(view, currentDate, timeMin, timeMax)
 
   const navigate = useCallback(
     (direction: number) => {

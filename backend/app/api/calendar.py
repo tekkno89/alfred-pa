@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.api.deps import CurrentUser, DbSession
 from app.db.repositories.dashboard import DashboardPreferenceRepository, FeatureAccessRepository
@@ -97,6 +97,13 @@ async def list_calendars(user: CurrentUser, db: DbSession) -> CalendarListRespon
     prefs = _get_calendar_prefs(pref.preferences if pref else None)
 
     merged = _merge_calendars_with_prefs(calendars, prefs)
+
+    # Ensure push notification watches are set up (non-blocking best-effort)
+    try:
+        await service.ensure_watches_for_user(user.id)
+    except Exception:
+        logger.debug("Failed to ensure calendar watches (non-critical)")
+
     return CalendarListResponse(calendars=merged)
 
 
@@ -303,3 +310,37 @@ async def delete_event(
 
     service = GoogleCalendarService(db)
     await service.delete_event(user.id, account_label, calendar_id, event_id)
+
+
+@router.post("/webhook", status_code=status.HTTP_200_OK, include_in_schema=False)
+async def calendar_webhook(request: Request, db: DbSession) -> dict:
+    """Handle Google Calendar push notification.
+
+    This endpoint is called by Google when calendar events change.
+    It is unauthenticated — Google identifies the watch via headers.
+    """
+    channel_id = request.headers.get("X-Goog-Channel-ID", "")
+    resource_id = request.headers.get("X-Goog-Resource-ID", "")
+    resource_state = request.headers.get("X-Goog-Resource-State", "")
+    channel_token = request.headers.get("X-Goog-Channel-Token", "")
+
+    if not channel_id:
+        raise HTTPException(status_code=400, detail="Missing channel ID")
+
+    if not GoogleCalendarService.verify_channel_token(channel_id, channel_token):
+        logger.warning(f"Calendar webhook: invalid token for channel={channel_id}")
+        raise HTTPException(status_code=403, detail="Invalid channel token")
+
+    logger.info(
+        f"Calendar webhook: state={resource_state} channel={channel_id}"
+    )
+
+    # "sync" is the initial verification — just return 200
+    if resource_state == "sync":
+        return {"status": "ok"}
+
+    # "exists" means events changed; "not_exists" means calendar deleted
+    service = GoogleCalendarService(db)
+    await service.handle_push_notification(channel_id, resource_id)
+
+    return {"status": "ok"}
