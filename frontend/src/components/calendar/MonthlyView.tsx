@@ -33,17 +33,10 @@ function getDaysInMonth(date: Date): Date[] {
   return days
 }
 
-function getEventDate(event: CalendarEvent): string {
-  try {
-    // All-day events have a plain date string (YYYY-MM-DD) — use it directly
-    // to avoid timezone shift from new Date() parsing UTC midnight
-    if (event.all_day) return event.start.slice(0, 10)
-    const d = new Date(event.start)
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  } catch {
-    return ''
-  }
+function dayKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
+
 
 function formatTime(event: CalendarEvent): string {
   if (event.all_day) return ''
@@ -66,11 +59,33 @@ export function MonthlyView({ currentDate, events, onEventClick, onDayClick }: M
   const eventsByDate = useMemo(() => {
     const map: Record<string, CalendarEvent[]> = {}
     for (const event of events) {
-      const key = getEventDate(event)
-      if (!map[key]) map[key] = []
-      map[key].push(event)
+      // For all-day events use the date string directly (avoids UTC timezone shift).
+      // For timed events parse the dateTime to get the local date.
+      const startStr = event.all_day
+        ? event.start.slice(0, 10)
+        : dayKey(new Date(event.start))
+      const endStr = event.end
+        ? (event.all_day ? event.end.slice(0, 10) : dayKey(new Date(event.end)))
+        : ''
+
+      // Multi-day event: expand across each day it spans
+      if (endStr && endStr > startStr) {
+        const cur = new Date(startStr + 'T12:00:00') // noon avoids DST edge cases
+        const endDate = new Date(endStr + 'T12:00:00')
+        // For all-day events end is exclusive; for timed events include the end date
+        if (!event.all_day) endDate.setDate(endDate.getDate() + 1)
+        while (cur < endDate) {
+          const key = dayKey(cur)
+          if (!map[key]) map[key] = []
+          map[key].push(event)
+          cur.setDate(cur.getDate() + 1)
+        }
+      } else {
+        if (!map[startStr]) map[startStr] = []
+        map[startStr].push(event)
+      }
     }
-    // Sort each day: all-day events first, then by start time
+    // Sort each day: all-day events first, then multi-day timed, then by start time
     for (const key of Object.keys(map)) {
       map[key].sort((a, b) => {
         if (a.all_day && !b.all_day) return -1

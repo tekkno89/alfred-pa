@@ -714,6 +714,32 @@ class TestEventStoreRangeFilter:
         assert len(events) == 1
         assert events[0]["id"] == "e1"
 
+    @pytest.mark.asyncio
+    async def test_includes_multi_day_events_overlapping_range(self, gcal_service, mock_redis) -> None:
+        # Multi-day all-day event: Mar 2-9, query is Mar 5-6
+        e_multi = _normalize_event(
+            {"id": "e-multi", "summary": "On-call", "start": {"date": "2026-03-02"}, "end": {"date": "2026-03-09"}, "status": "confirmed"},
+            "cal-1",
+        )
+        e_outside = _normalize_event(
+            {"id": "e-outside", "summary": "Old", "start": {"date": "2026-02-01"}, "end": {"date": "2026-02-02"}, "status": "confirmed"},
+            "cal-1",
+        )
+
+        mock_redis.hgetall.return_value = {
+            "e-multi": json.dumps(e_multi),
+            "e-outside": json.dumps(e_outside),
+        }
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+
+        events = await gcal_service._event_store_get_range(
+            "user-1", "default", "cal-1",
+            "2026-03-05T00:00:00Z", "2026-03-06T00:00:00Z",
+        )
+
+        assert len(events) == 1
+        assert events[0]["id"] == "e-multi"
+
 
 class TestWriteOpsUpdateStore:
     """Tests that create/update/delete update the event store."""

@@ -59,6 +59,8 @@ function formatEventTime(event: CalendarEvent): string {
   }
 }
 
+type LayoutItem = { event: CalendarEvent; startCol: number; endCol: number }
+
 export function WeeklyView({ currentDate, events, onEventClick }: WeeklyViewProps) {
   const days = useMemo(() => getWeekDays(currentDate), [currentDate])
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -73,36 +75,105 @@ export function WeeklyView({ currentDate, events, onEventClick }: WeeklyViewProp
     }
   }, [])
 
-  // Group events by date
-  const eventsByDate = useMemo(() => {
+  const dayKeys = useMemo(() => days.map(d => dateKey(d)), [days])
+
+  // Single-day timed events for the time grid
+  const timedByDate = useMemo(() => {
     const map: Record<string, CalendarEvent[]> = {}
-    const allDay: Record<string, CalendarEvent[]> = {}
     for (const event of events) {
       try {
-        // All-day events have a plain date string (YYYY-MM-DD) — use it directly
-        // to avoid timezone shift from new Date() parsing UTC midnight
-        const key = event.all_day
-          ? event.start.slice(0, 10)
-          : dateKey(new Date(event.start))
-        if (event.all_day) {
-          if (!allDay[key]) allDay[key] = []
-          allDay[key].push(event)
-        } else {
-          if (!map[key]) map[key] = []
-          map[key].push(event)
-        }
+        if (event.all_day) continue
+        const startStr = dateKey(new Date(event.start))
+        const endStr = event.end ? dateKey(new Date(event.end)) : ''
+        // Multi-day timed events go in the all-day strip instead
+        if (endStr && endStr > startStr) continue
+        if (!map[startStr]) map[startStr] = []
+        map[startStr].push(event)
       } catch {
-        // skip malformed events
+        // skip malformed
       }
     }
-    return { timed: map, allDay }
+    return map
   }, [events])
+
+  // All-day strip layout: spanning bars with row packing
+  const allDayLayout = useMemo(() => {
+    const items: LayoutItem[] = []
+    const seen = new Set<string>()
+
+    for (const event of events) {
+      if (seen.has(event.id)) continue
+
+      const startStr = event.all_day
+        ? event.start.slice(0, 10)
+        : dateKey(new Date(event.start))
+      const endStr = event.end
+        ? (event.all_day ? event.end.slice(0, 10) : dateKey(new Date(event.end)))
+        : ''
+      const isMultiDay = !!endStr && endStr > startStr
+
+      if (!event.all_day && !isMultiDay) continue
+      seen.add(event.id)
+
+      // Calculate start column (clamp to visible week)
+      let startCol: number
+      if (startStr < dayKeys[0]) {
+        startCol = 0
+      } else {
+        startCol = dayKeys.indexOf(startStr)
+        if (startCol === -1) continue // starts after this week
+      }
+
+      // Calculate end column (exclusive for CSS grid)
+      let endCol: number
+      if (!isMultiDay) {
+        endCol = startCol + 1
+      } else if (event.all_day) {
+        // All-day end date is exclusive (Google convention)
+        if (endStr > dayKeys[6]) {
+          endCol = 7
+        } else {
+          const idx = dayKeys.indexOf(endStr)
+          endCol = idx === -1 ? 7 : idx
+        }
+      } else {
+        // Timed multi-day: include the end date
+        if (endStr > dayKeys[6]) {
+          endCol = 7
+        } else {
+          const idx = dayKeys.indexOf(endStr)
+          endCol = idx === -1 ? 7 : idx + 1
+        }
+      }
+
+      if (endCol <= startCol) endCol = startCol + 1
+
+      items.push({ event, startCol, endCol })
+    }
+
+    // Sort: earlier start first, then longer spans first
+    items.sort((a, b) => a.startCol - b.startCol || (b.endCol - b.startCol) - (a.endCol - a.startCol))
+
+    // Greedy row packing
+    const rows: LayoutItem[][] = []
+    for (const item of items) {
+      let placed = false
+      for (const row of rows) {
+        if (!row.some(r => r.startCol < item.endCol && item.startCol < r.endCol)) {
+          row.push(item)
+          placed = true
+          break
+        }
+      }
+      if (!placed) rows.push([item])
+    }
+
+    return rows
+  }, [events, dayKeys])
 
   // Current time indicator position
   const nowMinutes = today.getHours() * 60 + today.getMinutes()
   const nowTop = (nowMinutes / 60) * HOUR_HEIGHT
-
-  const hasAllDay = days.some((d) => (eventsByDate.allDay[dateKey(d)] || []).length > 0)
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -129,30 +200,42 @@ export function WeeklyView({ currentDate, events, onEventClick }: WeeklyViewProp
         })}
       </div>
 
-      {/* All-day row */}
-      {hasAllDay && (
+      {/* All-day strip */}
+      {allDayLayout.length > 0 && (
         <div className="flex border-b shrink-0">
-          <div className="w-16 shrink-0 text-xs text-muted-foreground p-1 text-right pr-2">
+          <div className="w-16 shrink-0 text-xs text-muted-foreground p-1 text-right pr-2 flex items-start justify-end pt-1.5">
             all-day
           </div>
-          {days.map((day) => {
-            const key = dateKey(day)
-            const dayAllDay = eventsByDate.allDay[key] || []
-            return (
-              <div key={key} className="flex-1 border-l p-0.5 space-y-0.5 min-h-[28px]">
-                {dayAllDay.map((event) => (
+          <div className="flex-1 relative">
+            {/* Column borders */}
+            <div className="absolute inset-0 grid grid-cols-7 pointer-events-none">
+              {days.map((day) => (
+                <div key={dateKey(day)} className="border-l" />
+              ))}
+            </div>
+            {/* Event bars */}
+            <div
+              className="relative grid grid-cols-7 gap-y-0.5 py-0.5"
+              style={{ gridAutoRows: '24px' }}
+            >
+              {allDayLayout.map((row, rowIdx) =>
+                row.map(({ event, startCol, endCol }) => (
                   <div
-                    key={event.id}
-                    className="text-xs rounded px-1 py-0.5 truncate cursor-pointer text-white"
-                    style={{ backgroundColor: event.color }}
+                    key={`${event.id}-r${rowIdx}`}
+                    className="text-xs px-1.5 py-0.5 truncate cursor-pointer text-white mx-0.5 leading-tight rounded-sm"
+                    style={{
+                      gridColumn: `${startCol + 1} / ${endCol + 1}`,
+                      gridRow: rowIdx + 1,
+                      backgroundColor: event.color,
+                    }}
                     onClick={() => onEventClick(event)}
                   >
                     {event.title}
                   </div>
-                ))}
-              </div>
-            )
-          })}
+                ))
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -176,7 +259,7 @@ export function WeeklyView({ currentDate, events, onEventClick }: WeeklyViewProp
           {days.map((day) => {
             const key = dateKey(day)
             const isToday = key === todayKey
-            const dayEvents = eventsByDate.timed[key] || []
+            const dayEvents = timedByDate[key] || []
 
             return (
               <div key={key} className="flex-1 relative border-l">

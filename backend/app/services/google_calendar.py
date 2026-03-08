@@ -405,7 +405,10 @@ class GoogleCalendarService:
             for _eid, val in raw.items():
                 evt = json.loads(val)
                 start = evt.get("start", "")
-                if start >= time_min[:19] and start < time_max[:19]:
+                end = evt.get("end", start)
+                # Include events that overlap the query range:
+                # event ends after range start AND event starts before range end
+                if end > time_min[:19] and start < time_max[:19]:
                     events.append(evt)
             return events
         except Exception:
