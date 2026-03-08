@@ -31,6 +31,9 @@ export function CalendarCard() {
         <CardTitle className="flex items-center gap-2 text-base">
           <CalendarDays className="h-4 w-4" />
           Calendar
+          <span className="ml-auto text-sm font-normal text-muted-foreground">
+            {new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+          </span>
         </CardTitle>
       </CardHeader>
       <CardContent className="flex-1 overflow-y-auto">
