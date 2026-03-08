@@ -638,9 +638,15 @@ async def handle_message_event(
                         logger.warning(f"Failed to store thread→todo mapping: {e}")
                     break  # one mapping per thread
 
-        # Strip any raw tool-call XML leaked by the LLM
+        # Strip any raw XML tags leaked by the LLM (thinking, tool calls, etc.)
         import re
-        response = re.sub(r"<function>.*?</function>\s*", "", response, flags=re.DOTALL).strip()
+        xml_tags = r"(?:antml:thinking|antml:function_calls|antml:invoke|function_calls|function|invoke|thinking)"
+        response = re.sub(
+            rf"<{xml_tags}(?:\s[^>]*)?>.*?</{xml_tags}>\s*",
+            "", response, flags=re.DOTALL,
+        ).strip()
+        # Strip any remaining orphaned opening/closing tags
+        response = re.sub(rf"</?{xml_tags}(?:\s[^>]*)?>", "", response).strip()
 
         # Send response back to Slack
         await slack_service.send_message(
