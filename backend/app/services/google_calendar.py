@@ -31,7 +31,7 @@ GOOGLE_CALENDAR_SCOPES = "openid email https://www.googleapis.com/auth/calendar"
 
 PROVIDER = "google_calendar"
 
-SYNC_WINDOW_DAYS = 90  # Initial full sync covers this many days back
+SYNC_WINDOW_DAYS = 365  # Initial full sync covers this many days back
 
 
 class SyncTokenExpiredError(Exception):
