@@ -44,8 +44,8 @@ class CalendarTool(BaseTool):
         '"create_event" creates a new event (requires title + start), '
         '"update_event" modifies an existing event (requires event_id), '
         '"delete_event" removes an event (requires event_id). '
-        "For dates/times, use ISO 8601 format with timezone offset "
-        "(e.g. 2026-03-15T09:00:00-07:00). "
+        "For dates/times, use local time in ISO 8601 format without timezone offset "
+        "(e.g. 2026-03-15T09:00:00). The user's timezone is applied automatically. "
         "For all-day events, use date format (e.g. 2026-03-15)."
     )
     parameters_schema: dict[str, Any] = {
@@ -278,17 +278,24 @@ class CalendarTool(BaseTool):
             body["start"] = {"date": start}
             body["end"] = {"date": kwargs.get("end", start)}
         else:
-            body["start"] = {"dateTime": start}
+            start_obj: dict = {"dateTime": start}
+            if user_timezone:
+                start_obj["timeZone"] = user_timezone
+            body["start"] = start_obj
+
             end = kwargs.get("end")
             if end:
-                body["end"] = {"dateTime": end}
+                end_obj: dict = {"dateTime": end}
             else:
                 try:
                     start_dt = datetime.fromisoformat(start)
                     end_dt = start_dt + timedelta(hours=1)
-                    body["end"] = {"dateTime": end_dt.isoformat()}
+                    end_obj = {"dateTime": end_dt.isoformat()}
                 except ValueError:
-                    body["end"] = {"dateTime": start}
+                    end_obj = {"dateTime": start}
+            if user_timezone:
+                end_obj["timeZone"] = user_timezone
+            body["end"] = end_obj
 
         if kwargs.get("attendees"):
             body["attendees"] = [{"email": email} for email in kwargs["attendees"]]
@@ -340,12 +347,18 @@ class CalendarTool(BaseTool):
             if all_day:
                 body["start"] = {"date": kwargs["start"]}
             else:
-                body["start"] = {"dateTime": kwargs["start"]}
+                start_obj: dict = {"dateTime": kwargs["start"]}
+                if user_timezone:
+                    start_obj["timeZone"] = user_timezone
+                body["start"] = start_obj
         if kwargs.get("end") is not None:
             if all_day:
                 body["end"] = {"date": kwargs["end"]}
             else:
-                body["end"] = {"dateTime": kwargs["end"]}
+                end_obj: dict = {"dateTime": kwargs["end"]}
+                if user_timezone:
+                    end_obj["timeZone"] = user_timezone
+                body["end"] = end_obj
 
         if kwargs.get("attendees") is not None:
             body["attendees"] = [{"email": email} for email in kwargs["attendees"]]

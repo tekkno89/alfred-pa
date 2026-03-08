@@ -123,7 +123,12 @@ def build_prompt_messages(state: AgentState, *, tz: str | None = None) -> list[L
     user_tz = ZoneInfo(tz) if tz else timezone.utc
     now_local = datetime.now(user_tz)
     today = now_local.strftime("%B %d, %Y")
-    current_time = now_local.strftime("%I:%M %p %Z")
+    # Include numeric UTC offset so the LLM knows the exact offset for todos
+    utc_offset = now_local.strftime("%z")  # e.g. "-0800"
+    utc_offset_formatted = f"{utc_offset[:3]}:{utc_offset[3:]}"  # e.g. "-08:00"
+    current_time = now_local.strftime("%I:%M %p %Z") + f" (UTC{utc_offset_formatted})"
+    # Build a dynamic example timestamp using today's actual offset (for todos)
+    todo_example_ts = f"2026-03-15T09:00:00{utc_offset_formatted}"
     system_content = SYSTEM_PROMPT
     system_content += f"\n\nToday's date is {today}. The current time is {current_time}."
     system_content += (
@@ -132,7 +137,7 @@ def build_prompt_messages(state: AgentState, *, tz: str | None = None) -> list[L
         "or skip a pomodoro phase, use the focus_mode tool. "
         "When the user asks to create, list, update, complete, or delete todos/tasks, use the manage_todos tool. "
         "For todo due dates, always use ISO 8601 format with the user's timezone offset "
-        "(e.g. 2026-03-15T09:00:00-07:00). Do NOT convert to UTC — use the offset that matches the current time shown above. "
+        f"(e.g. {todo_example_ts}). Do NOT convert to UTC — use the offset that matches the current time shown above. "
         "For recurring todos, convert natural language recurrence to RFC 5545 RRULE strings "
         "(e.g. 'every day' -> 'FREQ=DAILY;INTERVAL=1', 'every weekday' -> 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR'). "
         "When you use a tool, review the results carefully and then respond to the user. "
@@ -147,8 +152,9 @@ def build_prompt_messages(state: AgentState, *, tz: str | None = None) -> list[L
         "- If the conversation context includes a specific todo ID, always use that ID — do not create a new todo.\n\n"
         "When the user asks about their calendar, events, schedule, meetings, or appointments, "
         "use the manage_calendar tool. "
-        "For calendar dates/times, always use ISO 8601 format with the user's timezone offset "
-        "(e.g. 2026-03-15T09:00:00-07:00). Do NOT convert to UTC — use the offset matching the current time shown above. "
+        "For calendar dates/times, use LOCAL time in ISO 8601 format WITHOUT a timezone offset "
+        "(e.g. 2026-03-15T09:00:00). The tool automatically applies the user's timezone — "
+        "do NOT append a UTC offset like -07:00 or -08:00. "
         "When creating events, default to calendar_id='primary'. Do NOT pass account_label unless the user explicitly specifies which account to use. "
         "If the user has multiple Google Calendar accounts, ask which account to use when ambiguous. "
         "When listing events, include the event ID so the user can reference it for updates or deletion. "

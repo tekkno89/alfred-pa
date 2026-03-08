@@ -8,6 +8,7 @@ class MessageCreate(BaseModel):
     """Schema for creating a new message."""
 
     content: str
+    timezone: str | None = None
 
 
 class MessageResponse(BaseModel):

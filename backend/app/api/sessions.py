@@ -263,7 +263,7 @@ async def send_message(
         )
 
     async def event_stream():
-        agent = AlfredAgent(db=db)
+        agent = AlfredAgent(db=db, timezone=message_data.timezone)
         full_response: list[str] = []
 
         try:

@@ -164,7 +164,7 @@ export function useChat({ sessionId, onError }: UseChatOptions): UseChatReturn {
 
       abortControllerRef.current = apiStreamPost(
         `/sessions/${sessionId}/messages`,
-        { content: content.trim() },
+        { content: content.trim(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
         handleEvent,
         handleError,
         handleComplete

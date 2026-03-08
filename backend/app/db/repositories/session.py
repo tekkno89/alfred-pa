@@ -111,7 +111,7 @@ class SessionRepository(BaseRepository[Session]):
         """
         if session.session_type is not None:
             return
-        if tools_used and tools_used <= UTILITY_TOOLS:
+        if session.source == "slack" and tools_used and tools_used <= UTILITY_TOOLS:
             await self.update(session, session_type="utility")
         else:
             await self.update(session, session_type="conversation")
