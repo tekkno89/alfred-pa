@@ -116,11 +116,11 @@ export function HomePage() {
         )}
         {hasCards ? (
           <div className="max-w-5xl mx-auto">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 auto-rows-[minmax(220px,auto)]">
               {visibleCards.map(({ cardType, pref }) => {
                 const render = CARD_RENDERERS[cardType]
                 if (!render) return null
-                return <div key={cardType}>{render(pref)}</div>
+                return <div key={cardType} className="min-w-0">{render(pref)}</div>
               })}
             </div>
           </div>
