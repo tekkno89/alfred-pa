@@ -6,7 +6,7 @@ from app.db.models import Session
 from app.db.repositories.base import BaseRepository
 
 # Tools that mark a session as "utility" (hidden from UI by default)
-UTILITY_TOOLS = {"manage_todos", "focus_mode"}
+UTILITY_TOOLS = {"manage_todos", "focus_mode", "manage_calendar"}
 
 
 class SessionRepository(BaseRepository[Session]):
