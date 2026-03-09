@@ -15,6 +15,7 @@
 | Phase 9: GitHub & Token Encryption | ✅ Complete | GitHub App integration, envelope encryption, integrations page |
 | Phase 10: Observability | 🔲 Not Started | Prometheus metrics, Loki logging, dashboards |
 | Phase 11: CI/CD | 🔲 Not Started | GitHub Actions, Cloud Run deployment |
+| Phase 12: Plugin System | 📋 Design | Installable feature modules from external repos |
 
 ---
 
