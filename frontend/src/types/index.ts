@@ -597,3 +597,64 @@ export interface CalendarPreferenceItem {
   color: string
   visible: boolean
 }
+
+// YouTube
+export interface YouTubePlaylist {
+  id: string
+  name: string
+  is_active: boolean
+  is_archived: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface YouTubePlaylistListResponse {
+  playlists: YouTubePlaylist[]
+}
+
+export interface YouTubePlaylistCreate {
+  name: string
+  is_active?: boolean
+}
+
+export interface YouTubePlaylistUpdate {
+  name?: string
+  is_active?: boolean
+}
+
+export interface YouTubeVideo {
+  id: string
+  playlist_id: string
+  youtube_url: string
+  youtube_video_id: string
+  title: string
+  thumbnail_url: string | null
+  status: string
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface YouTubeVideoListResponse {
+  videos: YouTubeVideo[]
+  total: number
+}
+
+export interface YouTubeVideoCreate {
+  playlist_id: string
+  youtube_url: string
+  add_to_top?: boolean
+}
+
+export interface YouTubeMetadata {
+  title: string
+  thumbnail_url: string | null
+  youtube_video_id: string | null
+}
+
+export interface YouTubeDashboard {
+  playlist_name: string | null
+  playlist_id: string | null
+  current_video: YouTubeVideo | null
+  active_video_count: number
+}

@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from 'react-router-dom'
-import { Plus, PanelLeft, MessagesSquare, StickyNote, CheckSquare, CalendarDays } from 'lucide-react'
+import { Plus, PanelLeft, MessagesSquare, StickyNote, CheckSquare, CalendarDays, Youtube } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SessionList } from '@/components/sessions/SessionList'
@@ -21,6 +21,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const showNotes = availableCards?.includes('notes') ?? false
   const showTodos = availableCards?.includes('todos') ?? false
   const showCalendar = availableCards?.includes('calendar') ?? false
+  const showYouTube = availableCards?.includes('youtube') ?? false
 
   const handleNewChat = async () => {
     const title = new Date().toLocaleString(undefined, {
@@ -146,6 +147,25 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           >
             <CalendarDays className="h-4 w-4 mr-2" />
             Calendar
+          </Button>
+        ))}
+        {showYouTube && (collapsed ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="mx-auto w-full text-muted-foreground hover:text-foreground"
+            onClick={() => navigate('/youtube')}
+          >
+            <Youtube className="h-4 w-4" />
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            className="w-full justify-start text-sm text-muted-foreground hover:text-foreground"
+            onClick={() => navigate('/youtube')}
+          >
+            <Youtube className="h-4 w-4 mr-2" />
+            YouTube
           </Button>
         ))}
       </div>

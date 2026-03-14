@@ -10,6 +10,7 @@ import { BartCard } from '@/components/dashboard/BartCard'
 import { NotesCard } from '@/components/dashboard/NotesCard'
 import { TodosCard } from '@/components/dashboard/TodosCard'
 import { CalendarCard } from '@/components/dashboard/CalendarCard'
+import { YouTubeCard } from '@/components/dashboard/YouTubeCard'
 import { DashboardConfigDialog } from '@/components/dashboard/DashboardConfigDialog'
 import type { BartStationPreference, DashboardPreference } from '@/types'
 
@@ -22,6 +23,7 @@ const CARD_RENDERERS: Record<string, (prefs: DashboardPreference | undefined) =>
   todos: () => <TodosCard />,
   notes: () => <NotesCard />,
   calendar: () => <CalendarCard />,
+  youtube: () => <YouTubeCard />,
 }
 
 export function HomePage() {

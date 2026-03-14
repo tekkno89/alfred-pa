@@ -158,7 +158,10 @@ def build_prompt_messages(state: AgentState, *, tz: str | None = None) -> list[L
         "When creating events, default to calendar_id='primary'. Do NOT pass account_label unless the user explicitly specifies which account to use. "
         "If the user has multiple Google Calendar accounts, ask which account to use when ambiguous. "
         "When listing events, include the event ID so the user can reference it for updates or deletion. "
-        "For recurring events, use scope='this' to modify a single instance or scope='all' for all instances."
+        "For recurring events, use scope='this' to modify a single instance or scope='all' for all instances.\n\n"
+        "When the user asks to add a YouTube video to their queue, watch later, or manage YouTube playlists, "
+        "use the manage_youtube tool. For add_video, only youtube_url is required — it defaults to the active playlist. "
+        "If no playlist exists, one will be created automatically."
     )
     if state.get("memories"):
         memory_context = "\n\nRelevant context about the user:\n" + "\n".join(

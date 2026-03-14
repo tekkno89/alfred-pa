@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from app.db.models.oauth_token import UserOAuthToken
     from app.db.models.github_app_config import GitHubAppConfig
     from app.db.models.dashboard import UserDashboardPreference, UserFeatureAccess
+    from app.db.models.youtube import YouTubePlaylist, YouTubeVideo
 
 
 class User(Base, UUIDMixin, TimestampMixin):
@@ -69,6 +70,12 @@ class User(Base, UUIDMixin, TimestampMixin):
         back_populates="user",
         cascade="all, delete-orphan",
         foreign_keys="UserFeatureAccess.user_id",
+    )
+    youtube_playlists: Mapped[list["YouTubePlaylist"]] = relationship(
+        "YouTubePlaylist", back_populates="user", cascade="all, delete-orphan"
+    )
+    youtube_videos: Mapped[list["YouTubeVideo"]] = relationship(
+        "YouTubeVideo", back_populates="user", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

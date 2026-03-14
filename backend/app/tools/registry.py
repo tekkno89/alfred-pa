@@ -61,3 +61,8 @@ def _register_default_tools(registry: ToolRegistry) -> None:
     from app.tools.calendar import CalendarTool
 
     registry.register(CalendarTool())
+
+    # YouTube management tool — no external API key dependency
+    from app.tools.youtube import ManageYouTubeTool
+
+    registry.register(ManageYouTubeTool())

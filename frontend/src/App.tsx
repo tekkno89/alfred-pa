@@ -14,6 +14,7 @@ import { NotesPage } from '@/pages/NotesPage'
 import { NoteEditorPage } from '@/pages/NoteEditorPage'
 import { TodosPage } from '@/pages/TodosPage'
 import { CalendarPage } from '@/pages/CalendarPage'
+import { YouTubePage } from '@/pages/YouTubePage'
 import { AdminPage } from '@/pages/AdminPage'
 import { IntegrationsPage } from '@/pages/IntegrationsPage'
 import { AppLayout } from '@/components/layout/AppLayout'
@@ -54,6 +55,7 @@ function App() {
           <Route path="/notes" element={<NotesPage />} />
           <Route path="/notes/new" element={<NoteEditorPage />} />
           <Route path="/notes/:noteId" element={<NoteEditorPage />} />
+          <Route path="/youtube" element={<YouTubePage />} />
           <Route path="/dashboard/bart" element={<BartPage />} />
           <Route path="/admin" element={<AdminPage />} />
         </Route>

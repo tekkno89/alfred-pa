@@ -18,6 +18,7 @@ from app.db.repositories.dashboard import (
     DashboardPreferenceRepository,
     FeatureAccessRepository,
 )
+from app.db.repositories.youtube import YouTubePlaylistRepository, YouTubeVideoRepository
 from app.db.repositories.system_settings import SystemSettingsRepository
 
 __all__ = [
@@ -37,5 +38,7 @@ __all__ = [
     "TodoRepository",
     "DashboardPreferenceRepository",
     "FeatureAccessRepository",
+    "YouTubePlaylistRepository",
+    "YouTubeVideoRepository",
     "SystemSettingsRepository",
 ]

@@ -11,6 +11,7 @@ from app.db.models.github_app_config import GitHubAppConfig
 from app.db.models.note import Note
 from app.db.models.todo import Todo
 from app.db.models.dashboard import UserDashboardPreference, UserFeatureAccess
+from app.db.models.youtube import YouTubePlaylist, YouTubeVideo
 from app.db.models.system_settings import SystemSetting
 
 __all__ = [
@@ -30,5 +31,7 @@ __all__ = [
     "Todo",
     "UserDashboardPreference",
     "UserFeatureAccess",
+    "YouTubePlaylist",
+    "YouTubeVideo",
     "SystemSetting",
 ]
