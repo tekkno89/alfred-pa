@@ -49,9 +49,11 @@ interface YTPlayerOptions {
 }
 
 interface YTPlayer {
-  loadVideoById: (videoId: string) => void
+  loadVideoById: (config: string | { videoId: string; startSeconds?: number }) => void
   stopVideo: () => void
   destroy: () => void
+  getCurrentTime: () => number
+  seekTo: (seconds: number, allowSeekAhead: boolean) => void
 }
 
 interface YTConstructor {
@@ -67,6 +69,36 @@ declare global {
 }
 
 type FilterTab = 'active' | 'watched' | 'deleted' | 'all'
+
+const PROGRESS_KEY = 'youtube-progress'
+
+function getProgressMap(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(PROGRESS_KEY)
+    if (!raw) return {}
+    return JSON.parse(raw) ?? {}
+  } catch {
+    return {}
+  }
+}
+
+function saveProgress(videoId: string, time: number) {
+  const map = getProgressMap()
+  map[videoId] = time
+  localStorage.setItem(PROGRESS_KEY, JSON.stringify(map))
+}
+
+function getProgress(videoId: string): number | null {
+  const map = getProgressMap()
+  const time = map[videoId]
+  return typeof time === 'number' && time > 0 ? time : null
+}
+
+function clearProgress(videoId: string) {
+  const map = getProgressMap()
+  delete map[videoId]
+  localStorage.setItem(PROGRESS_KEY, JSON.stringify(map))
+}
 
 export function YouTubePage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -132,24 +164,69 @@ export function YouTubePage() {
     }
   }, [])
 
-  // Load a video into the player
-  const loadVideo = useCallback((ytVideoId: string) => {
-    setCurrentVideoId(ytVideoId)
+  // Pending start time for seeking when player loads
+  const pendingSeekRef = useRef<number | null>(null)
 
-    if (playerRef.current) {
-      playerRef.current.loadVideoById(ytVideoId)
-      return
+  // Save playback progress every 5 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (playerRef.current && currentVideoId) {
+        try {
+          const time = playerRef.current.getCurrentTime()
+          if (time > 0) saveProgress(currentVideoId, time)
+        } catch {
+          // Player may not be ready yet
+        }
+      }
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [currentVideoId])
+
+  // Load a video — if player exists, load directly; otherwise just set state
+  // and the player-creation effect below will handle it.
+  // Automatically resumes from saved progress if no explicit startSeconds given.
+  const loadVideo = useCallback((ytVideoId: string, startSeconds?: number) => {
+    // Save progress of the current video before switching
+    if (playerRef.current && currentVideoId && currentVideoId !== ytVideoId) {
+      try {
+        const time = playerRef.current.getCurrentTime()
+        if (time > 0) saveProgress(currentVideoId, time)
+      } catch {
+        // Player may not be ready
+      }
     }
 
-    if (!playerContainerRef.current || !window.YT?.Player) return
+    // Use saved progress if no explicit start time
+    const resumeTime = startSeconds ?? getProgress(ytVideoId) ?? undefined
+
+    setCurrentVideoId(ytVideoId)
+    pendingSeekRef.current = resumeTime ?? null
+
+    if (playerRef.current) {
+      if (resumeTime && resumeTime > 0) {
+        playerRef.current.loadVideoById({ videoId: ytVideoId, startSeconds: resumeTime })
+      } else {
+        playerRef.current.loadVideoById(ytVideoId)
+      }
+    }
+    // If no player yet, the effect below creates it once the div is in the DOM
+  }, [currentVideoId])
+
+  // Create player when we have a video ID but no player yet (runs after render so div exists)
+  useEffect(() => {
+    if (!currentVideoId || playerRef.current || !playerContainerRef.current || !window.YT?.Player) return
+
+    const startSeconds = pendingSeekRef.current
+    pendingSeekRef.current = null
 
     playerRef.current = new window.YT.Player(playerContainerRef.current, {
-      videoId: ytVideoId,
+      videoId: currentVideoId,
       playerVars: {
         autoplay: 1,
         enablejsapi: 1,
         modestbranding: 1,
         rel: 0,
+        ...(startSeconds && startSeconds > 0 ? { start: Math.floor(startSeconds) } : {}),
       },
       events: {
         onStateChange: (event: { data: number }) => {
@@ -159,13 +236,14 @@ export function YouTubePage() {
         },
       },
     })
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentVideoId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-load first unwatched video when playlist changes
+  // Auto-load first unwatched video when playlist changes, restoring saved progress
   useEffect(() => {
     if (!currentVideoId && videos.length > 0) {
       const firstActive = videos.find((v) => v.status === 'active')
       if (firstActive) {
+        // loadVideo will automatically resume from saved progress if available
         loadVideo(firstActive.youtube_video_id)
       }
     }
@@ -173,6 +251,7 @@ export function YouTubePage() {
 
   const handleVideoEnded = async () => {
     // Mark current video as watched, then load next
+    if (currentVideoId) clearProgress(currentVideoId)
     const currentVid = videos.find((v) => v.youtube_video_id === currentVideoId)
     if (currentVid && currentVid.status === 'active') {
       await markWatched.mutateAsync(currentVid.id)
