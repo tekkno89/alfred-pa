@@ -32,6 +32,7 @@ GOOGLE_CALENDAR_SCOPES = "openid email https://www.googleapis.com/auth/calendar"
 PROVIDER = "google_calendar"
 
 SYNC_WINDOW_DAYS = 365  # Initial full sync covers this many days back
+FULL_SYNC_INTERVAL_SECONDS = 6 * 3600  # Force a full re-sync every 6 hours
 
 
 class SyncTokenExpiredError(Exception):
@@ -74,6 +75,28 @@ def _normalize_event(event: dict, calendar_id: str, color: str = "#4285f4") -> d
         "creator": event.get("creator", {}).get("email"),
         "organizer": event.get("organizer", {}).get("email"),
     }
+
+
+def _event_sort_key(event: dict) -> tuple[str, int, float]:
+    """Sort key: (date, all_day_flag, timestamp).
+
+    All-day events sort first within each day (flag=0 vs 1).
+    Timed events are sorted by parsed UTC timestamp so that events in
+    different timezone representations are ordered chronologically.
+    """
+    start = event.get("start", "")
+    date_str = start[:10]
+    all_day_flag = 0 if event.get("all_day") else 1
+
+    if event.get("all_day"):
+        timestamp = 0.0
+    else:
+        try:
+            timestamp = datetime.fromisoformat(start).timestamp()
+        except (ValueError, TypeError):
+            timestamp = 0.0
+
+    return (date_str, all_day_flag, timestamp)
 
 
 class GoogleCalendarService:
@@ -249,7 +272,7 @@ class GoogleCalendarService:
             return
         try:
             keys_to_delete = []
-            for prefix in ("gcal:store:", "gcal:sync:", "gcal:sync:start:"):
+            for prefix in ("gcal:store:", "gcal:sync:", "gcal:sync:start:", "gcal:sync:last_full:"):
                 pattern = f"{prefix}{user_id}:{account_label}:*"
                 async for key in redis_client.scan_iter(match=pattern, count=100):
                     keys_to_delete.append(key)
@@ -383,6 +406,10 @@ class GoogleCalendarService:
     def _sync_start_key(user_id: str, account_label: str, calendar_id: str) -> str:
         return f"gcal:sync:start:{user_id}:{account_label}:{calendar_id}"
 
+    @staticmethod
+    def _last_full_sync_key(user_id: str, account_label: str, calendar_id: str) -> str:
+        return f"gcal:sync:last_full:{user_id}:{account_label}:{calendar_id}"
+
     async def _event_store_get_range(
         self,
         user_id: str,
@@ -432,7 +459,7 @@ class GoogleCalendarService:
             mapping = {evt["id"]: json.dumps(evt) for evt in events}
             await redis_client.hset(key, mapping=mapping)
         except Exception:
-            pass
+            logger.warning(f"Failed to upsert events to store key={key}")
 
     async def _event_store_remove(
         self,
@@ -451,7 +478,7 @@ class GoogleCalendarService:
             key = self._store_key(user_id, account_label, calendar_id)
             await redis_client.hdel(key, *event_ids)
         except Exception:
-            pass
+            logger.warning(f"Failed to remove events from store key={key}")
 
     async def _event_store_clear(
         self,
@@ -459,7 +486,7 @@ class GoogleCalendarService:
         account_label: str,
         calendar_id: str,
     ) -> None:
-        """Delete the event store hash, sync token, and start marker for a calendar."""
+        """Delete the event store hash, sync token, start marker, and last full sync marker."""
         redis_client = await self._get_redis()
         if not redis_client:
             return
@@ -468,6 +495,7 @@ class GoogleCalendarService:
                 self._store_key(user_id, account_label, calendar_id),
                 self._sync_token_key(user_id, account_label, calendar_id),
                 self._sync_start_key(user_id, account_label, calendar_id),
+                self._last_full_sync_key(user_id, account_label, calendar_id),
             )
         except Exception:
             pass
@@ -504,7 +532,7 @@ class GoogleCalendarService:
         ]
         await self._event_store_upsert(user_id, account_label, calendar_id, events)
 
-        # Persist sync token and the timeMin boundary
+        # Persist sync token, timeMin boundary, and last full sync timestamp
         redis_client = await self._get_redis()
         if redis_client and sync_token:
             try:
@@ -516,8 +544,14 @@ class GoogleCalendarService:
                     self._sync_start_key(user_id, account_label, calendar_id),
                     time_min,
                 )
+                await redis_client.set(
+                    self._last_full_sync_key(user_id, account_label, calendar_id),
+                    datetime.now(UTC).isoformat(),
+                )
             except Exception:
-                pass
+                logger.warning(
+                    f"Failed to persist sync metadata for cal={calendar_id}"
+                )
 
     async def _incremental_sync(
         self, user_id: str, account_label: str, calendar_id: str, sync_token: str
@@ -559,12 +593,19 @@ class GoogleCalendarService:
                         new_sync_token,
                     )
                 except Exception:
-                    pass
+                    logger.warning(
+                        f"Failed to save sync token for cal={calendar_id}"
+                    )
 
     async def _ensure_synced(
         self, user_id: str, account_label: str, calendar_id: str
     ) -> None:
-        """Ensure the event store is up-to-date via incremental or full sync."""
+        """Ensure the event store is up-to-date via incremental or full sync.
+
+        Forces a full re-sync if the last full sync was more than
+        FULL_SYNC_INTERVAL_SECONDS ago, to clear any stale/deleted events
+        that may have been missed by incremental syncs.
+        """
         redis_client = await self._get_redis()
         if not redis_client:
             # No Redis — can't use sync store, caller will fall back to direct API
@@ -578,9 +619,29 @@ class GoogleCalendarService:
             sync_token = None
 
         if sync_token:
-            await self._incremental_sync(
-                user_id, account_label, calendar_id, sync_token
-            )
+            # Check if we need a periodic full re-sync
+            needs_full = False
+            try:
+                last_full = await redis_client.get(
+                    self._last_full_sync_key(user_id, account_label, calendar_id)
+                )
+                if not last_full:
+                    needs_full = True
+                else:
+                    elapsed = (
+                        datetime.now(UTC) - datetime.fromisoformat(last_full)
+                    ).total_seconds()
+                    if elapsed >= FULL_SYNC_INTERVAL_SECONDS:
+                        needs_full = True
+            except Exception:
+                needs_full = True
+
+            if needs_full:
+                await self._full_sync(user_id, account_label, calendar_id)
+            else:
+                await self._incremental_sync(
+                    user_id, account_label, calendar_id, sync_token
+                )
         else:
             await self._full_sync(user_id, account_label, calendar_id)
 
@@ -683,7 +744,7 @@ class GoogleCalendarService:
         events = await self._event_store_get_range(
             user_id, account_label, calendar_id, time_min, time_max
         )
-        events.sort(key=lambda e: (e.get("start", "")[:10], 0 if e.get("all_day") else 1, e.get("start", "")))
+        events.sort(key=_event_sort_key)
         return events
 
     async def create_event(
@@ -789,9 +850,18 @@ class GoogleCalendarService:
                     f"Failed to fetch events from {calendar_id} ({account_label})"
                 )
 
+        # Deduplicate: same event can appear in multiple calendars (e.g. room
+        # resources).  First calendar in config wins (determines color).
+        seen: set[str] = set()
+        deduped: list[dict] = []
+        for event in all_events:
+            if event["id"] not in seen:
+                seen.add(event["id"])
+                deduped.append(event)
+
         # Sort by start time, all-day events first within each day
-        all_events.sort(key=lambda e: (e.get("start", "")[:10], 0 if e.get("all_day") else 1, e.get("start", "")))
-        return all_events
+        deduped.sort(key=_event_sort_key)
+        return deduped
 
     # ------------------------------------------------------------------
     # Push notification (watch) management

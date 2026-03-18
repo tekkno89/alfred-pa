@@ -90,7 +90,8 @@ export function MonthlyView({ currentDate, events, onEventClick, onDayClick }: M
       map[key].sort((a, b) => {
         if (a.all_day && !b.all_day) return -1
         if (!a.all_day && b.all_day) return 1
-        return a.start.localeCompare(b.start)
+        if (a.all_day && b.all_day) return 0
+        return new Date(a.start).getTime() - new Date(b.start).getTime()
       })
     }
     return map

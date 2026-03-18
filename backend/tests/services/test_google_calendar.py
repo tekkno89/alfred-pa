@@ -1,15 +1,17 @@
 """Tests for GoogleCalendarService."""
 
 import json
-from datetime import datetime, UTC
+from datetime import datetime, timedelta, UTC
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.services.google_calendar import (
+    FULL_SYNC_INTERVAL_SECONDS,
     GoogleCalendarService,
     PROVIDER,
     SyncTokenExpiredError,
+    _event_sort_key,
     _normalize_event,
 )
 
@@ -344,8 +346,8 @@ class TestDeleteConnection:
 
             await gcal_service.delete_connection("token-1", "user-1")
 
-        # _cleanup_account_stores was called (scan_iter was invoked for 3 prefixes)
-        assert mock_redis.scan_iter.call_count == 3
+        # _cleanup_account_stores was called (scan_iter was invoked for 4 prefixes)
+        assert mock_redis.scan_iter.call_count == 4
 
 
 class AsyncIterMock:
@@ -627,7 +629,16 @@ class TestEnsureSynced:
 
     @pytest.mark.asyncio
     async def test_calls_incremental_when_sync_token_exists(self, gcal_service, mock_redis) -> None:
-        mock_redis.get.return_value = "existing-sync-token"
+        fresh_time = (datetime.now(UTC) - timedelta(seconds=60)).isoformat()
+
+        async def mock_get(key):
+            if "gcal:sync:last_full:" in key:
+                return fresh_time
+            if "gcal:sync:" in key:
+                return "existing-sync-token"
+            return None
+
+        mock_redis.get = AsyncMock(side_effect=mock_get)
         gcal_service._get_redis = AsyncMock(return_value=mock_redis)
         gcal_service._incremental_sync = AsyncMock()
         gcal_service._full_sync = AsyncMock()
@@ -877,3 +888,176 @@ class TestRedisKeyBuilders:
 
     def test_sync_start_key(self) -> None:
         assert GoogleCalendarService._sync_start_key("u1", "default", "cal-1") == "gcal:sync:start:u1:default:cal-1"
+
+    def test_last_full_sync_key(self) -> None:
+        assert GoogleCalendarService._last_full_sync_key("u1", "default", "cal-1") == "gcal:sync:last_full:u1:default:cal-1"
+
+
+class TestStalenessFullResync:
+    """Tests for periodic full re-sync staleness mechanism."""
+
+    @pytest.mark.asyncio
+    async def test_full_sync_stores_last_full_timestamp(self, gcal_service, mock_redis) -> None:
+        gcal_service.get_valid_token = AsyncMock(return_value="ya29.test")
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+        gcal_service._api_request = AsyncMock(return_value={
+            "items": [],
+            "nextSyncToken": "sync-abc",
+        })
+
+        await gcal_service._full_sync("user-1", "default", "cal-1")
+
+        set_calls = [c for c in mock_redis.set.call_args_list]
+        keys_set = [c[0][0] for c in set_calls]
+        assert "gcal:sync:last_full:user-1:default:cal-1" in keys_set
+
+    @pytest.mark.asyncio
+    async def test_ensure_synced_forces_full_when_last_full_missing(self, gcal_service, mock_redis) -> None:
+        """When sync token exists but last_full marker is missing, force full sync."""
+        call_count = 0
+        async def mock_get(key):
+            nonlocal call_count
+            call_count += 1
+            if "gcal:sync:last_full:" in key:
+                return None
+            if "gcal:sync:" in key:
+                return "existing-sync-token"
+            return None
+
+        mock_redis.get = AsyncMock(side_effect=mock_get)
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+        gcal_service._incremental_sync = AsyncMock()
+        gcal_service._full_sync = AsyncMock()
+
+        await gcal_service._ensure_synced("user-1", "default", "cal-1")
+
+        gcal_service._full_sync.assert_called_once_with("user-1", "default", "cal-1")
+        gcal_service._incremental_sync.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_ensure_synced_forces_full_when_stale(self, gcal_service, mock_redis) -> None:
+        """When last full sync is older than FULL_SYNC_INTERVAL_SECONDS, force full sync."""
+        stale_time = (datetime.now(UTC) - timedelta(seconds=FULL_SYNC_INTERVAL_SECONDS + 60)).isoformat()
+
+        async def mock_get(key):
+            if "gcal:sync:last_full:" in key:
+                return stale_time
+            if "gcal:sync:" in key:
+                return "existing-sync-token"
+            return None
+
+        mock_redis.get = AsyncMock(side_effect=mock_get)
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+        gcal_service._incremental_sync = AsyncMock()
+        gcal_service._full_sync = AsyncMock()
+
+        await gcal_service._ensure_synced("user-1", "default", "cal-1")
+
+        gcal_service._full_sync.assert_called_once_with("user-1", "default", "cal-1")
+        gcal_service._incremental_sync.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_ensure_synced_incremental_when_fresh(self, gcal_service, mock_redis) -> None:
+        """When last full sync is recent, use incremental sync."""
+        fresh_time = (datetime.now(UTC) - timedelta(seconds=60)).isoformat()
+
+        async def mock_get(key):
+            if "gcal:sync:last_full:" in key:
+                return fresh_time
+            if "gcal:sync:" in key:
+                return "existing-sync-token"
+            return None
+
+        mock_redis.get = AsyncMock(side_effect=mock_get)
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+        gcal_service._incremental_sync = AsyncMock()
+        gcal_service._full_sync = AsyncMock()
+
+        await gcal_service._ensure_synced("user-1", "default", "cal-1")
+
+        gcal_service._incremental_sync.assert_called_once_with(
+            "user-1", "default", "cal-1", "existing-sync-token"
+        )
+        gcal_service._full_sync.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_event_store_clear_deletes_last_full_key(self, gcal_service, mock_redis) -> None:
+        gcal_service._get_redis = AsyncMock(return_value=mock_redis)
+
+        await gcal_service._event_store_clear("user-1", "default", "cal-1")
+
+        delete_args = mock_redis.delete.call_args[0]
+        assert "gcal:sync:last_full:user-1:default:cal-1" in delete_args
+
+
+class TestDeduplication:
+    """Tests for event deduplication across calendars."""
+
+    @pytest.mark.asyncio
+    async def test_deduplicates_by_event_id(self, gcal_service) -> None:
+        """Same event in two calendars should appear only once."""
+        e1 = _make_normalized_event("shared-event", "Eng Leads", "2026-03-17T10:00:00Z", "2026-03-17T11:00:00Z", "cal-1")
+        e2 = _make_normalized_event("shared-event", "Eng Leads", "2026-03-17T10:00:00Z", "2026-03-17T11:00:00Z", "cal-2")
+        e3 = _make_normalized_event("unique-event", "Standup", "2026-03-17T09:00:00Z", "2026-03-17T09:30:00Z", "cal-1")
+
+        gcal_service.list_events = AsyncMock(side_effect=[[e1, e3], [e2]])
+
+        configs = [
+            {"calendar_id": "cal-1", "account_label": "default", "color": "#4285f4"},
+            {"calendar_id": "cal-2", "account_label": "default", "color": "#0b8043"},
+        ]
+
+        events = await gcal_service.list_events_for_user(
+            "user-1", configs,
+            "2026-03-17T00:00:00Z", "2026-03-18T00:00:00Z",
+        )
+
+        ids = [e["id"] for e in events]
+        assert ids.count("shared-event") == 1
+        assert len(events) == 2
+
+    @pytest.mark.asyncio
+    async def test_first_calendar_color_wins(self, gcal_service) -> None:
+        """The first calendar in config order determines the event's color."""
+        e1 = _make_normalized_event("shared", "Meeting", "2026-03-17T10:00:00Z", "2026-03-17T11:00:00Z", "cal-1")
+        e2 = _make_normalized_event("shared", "Meeting", "2026-03-17T10:00:00Z", "2026-03-17T11:00:00Z", "cal-2")
+
+        gcal_service.list_events = AsyncMock(side_effect=[[e1], [e2]])
+
+        configs = [
+            {"calendar_id": "cal-1", "account_label": "default", "color": "#ff0000"},
+            {"calendar_id": "cal-2", "account_label": "default", "color": "#00ff00"},
+        ]
+
+        events = await gcal_service.list_events_for_user(
+            "user-1", configs,
+            "2026-03-17T00:00:00Z", "2026-03-18T00:00:00Z",
+        )
+
+        assert len(events) == 1
+        assert events[0]["color"] == "#ff0000"
+
+
+class TestEventSortKey:
+    """Tests for the _event_sort_key helper."""
+
+    def test_all_day_before_timed(self) -> None:
+        all_day = {"start": "2026-03-17", "all_day": True}
+        timed = {"start": "2026-03-17T08:00:00Z", "all_day": False}
+        assert _event_sort_key(all_day) < _event_sort_key(timed)
+
+    def test_timed_events_sorted_by_timestamp(self) -> None:
+        early = {"start": "2026-03-17T08:00:00-07:00", "all_day": False}
+        late = {"start": "2026-03-17T18:00:00+00:00", "all_day": False}
+        assert _event_sort_key(early) < _event_sort_key(late)
+
+    def test_cross_timezone_ordering(self) -> None:
+        """Event at 8am Pacific (15:00 UTC) should sort after 10am UTC."""
+        utc_morning = {"start": "2026-03-17T10:00:00+00:00", "all_day": False}
+        pacific_morning = {"start": "2026-03-17T08:00:00-07:00", "all_day": False}
+        assert _event_sort_key(utc_morning) < _event_sort_key(pacific_morning)
+
+    def test_different_days(self) -> None:
+        day1 = {"start": "2026-03-16T23:00:00Z", "all_day": False}
+        day2 = {"start": "2026-03-17T01:00:00Z", "all_day": False}
+        assert _event_sort_key(day1) < _event_sort_key(day2)
