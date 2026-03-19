@@ -72,6 +72,8 @@ async def get_available_cards(
         cards.append("calendar")
     if await repo.is_enabled(user.id, "card:youtube"):
         cards.append("youtube")
+    if await repo.is_enabled(user.id, "card:focus"):
+        cards.append("focus")
     return cards
 
 

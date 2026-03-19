@@ -23,6 +23,7 @@ const FEATURE_KEYS = [
   { key: 'card:todos', label: 'Todos' },
   { key: 'card:calendar', label: 'Calendar' },
   { key: 'card:youtube', label: 'YouTube' },
+  { key: 'card:focus', label: 'Focus Mode' },
 ] as const
 
 function UserFeatureToggles({ user }: { user: AdminUser }) {

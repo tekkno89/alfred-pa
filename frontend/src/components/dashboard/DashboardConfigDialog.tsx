@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Train, StickyNote, CheckSquare, CalendarDays, Youtube, GripVertical, type LucideIcon } from 'lucide-react'
+import { Train, StickyNote, CheckSquare, CalendarDays, Youtube, Bell, GripVertical, type LucideIcon } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,7 @@ const CARD_META: Record<string, { label: string; icon: LucideIcon }> = {
   notes: { label: 'Notes', icon: StickyNote },
   calendar: { label: 'Calendar', icon: CalendarDays },
   youtube: { label: 'YouTube', icon: Youtube },
+  focus: { label: 'Focus Mode', icon: Bell },
 }
 
 interface CardConfig {

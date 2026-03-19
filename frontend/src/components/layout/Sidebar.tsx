@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from 'react-router-dom'
-import { Plus, PanelLeft, MessagesSquare, StickyNote, CheckSquare, CalendarDays, Youtube } from 'lucide-react'
+import { Plus, PanelLeft, MessagesSquare, StickyNote, CheckSquare, CalendarDays, Youtube, Bell } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SessionList } from '@/components/sessions/SessionList'
@@ -22,6 +22,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const showTodos = availableCards?.includes('todos') ?? false
   const showCalendar = availableCards?.includes('calendar') ?? false
   const showYouTube = availableCards?.includes('youtube') ?? false
+  const showFocus = availableCards?.includes('focus') ?? false
 
   const handleNewChat = async () => {
     const title = new Date().toLocaleString(undefined, {
@@ -166,6 +167,25 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           >
             <Youtube className="h-4 w-4 mr-2" />
             YouTube
+          </Button>
+        ))}
+        {showFocus && (collapsed ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="mx-auto w-full text-muted-foreground hover:text-foreground"
+            onClick={() => navigate('/focus')}
+          >
+            <Bell className="h-4 w-4" />
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            className="w-full justify-start text-sm text-muted-foreground hover:text-foreground"
+            onClick={() => navigate('/focus')}
+          >
+            <Bell className="h-4 w-4 mr-2" />
+            Focus
           </Button>
         ))}
       </div>
