@@ -34,9 +34,14 @@ class MessageList(BaseModel):
 class StreamEvent(BaseModel):
     """Schema for streaming response events."""
 
-    type: Literal["token", "tool_use", "tool_result", "done", "error"]
+    type: Literal["token", "tool_use", "tool_result", "done", "error", "context_usage"]
     content: str | None = None
     message_id: str | None = None
     tool_name: str | None = None
     tool_args: dict[str, Any] | None = None
     tool_data: dict[str, Any] | None = None
+    # Context usage fields (sent with type="context_usage")
+    tokens_used: int | None = None
+    token_limit: int | None = None
+    percentage: float | None = None
+    model: str | None = None

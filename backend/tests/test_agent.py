@@ -90,7 +90,6 @@ class TestProcessMessage:
         assert result["user_message"] == "Hello!"
         assert result["user_message_id"] != ""
         assert result["assistant_message_id"] != ""
-        assert result["is_remember_command"] is False
 
     async def test_process_message_empty(self):
         """Should return error for empty message."""
@@ -136,18 +135,18 @@ class TestBuildPromptMessages:
         assert messages[3].role == "user"
         assert messages[3].content == "Thanks!"
 
-    def test_build_prompt_with_memories(self):
-        """Should include memories in system prompt."""
+    def test_build_prompt_with_summary(self):
+        """Should include conversation summary in system prompt."""
         state = _make_state(
             user_message="Hello!",
-            memories=["User prefers Python", "User is a developer"],
+            conversation_summary="Earlier, the user discussed Python and databases.",
         )
 
         messages = build_prompt_messages(state)
 
         assert len(messages) == 2
-        assert "User prefers Python" in messages[0].content
-        assert "User is a developer" in messages[0].content
+        assert "Summary of earlier conversation" in messages[0].content
+        assert "Python and databases" in messages[0].content
 
     def test_build_prompt_with_timezone(self):
         """Should use user's local timezone for date/time in system prompt."""
@@ -191,19 +190,42 @@ class TestAlfredAgent:
         """Create mock LLM provider."""
         return MockLLMProvider("Hello! How can I help you?")
 
+    def _patch_repos(self):
+        """Return a context manager that patches MessageRepository and SessionRepository."""
+        mock_msg_repo = AsyncMock()
+        mock_msg_repo.get_session_messages.return_value = []
+        mock_msg_repo.get_messages_after.return_value = []
+        mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
+
+        mock_session_repo = AsyncMock()
+        mock_session = MagicMock()
+        mock_session.conversation_summary = None
+        mock_session.summary_through_id = None
+        mock_session_repo.get.return_value = mock_session
+
+        class PatchContext:
+            def __init__(self):
+                self.msg_repo = mock_msg_repo
+                self.session_repo = mock_session_repo
+                self._patches = []
+
+            def __enter__(self):
+                p1 = patch("app.agents.nodes.MessageRepository", return_value=self.msg_repo)
+                p2 = patch("app.agents.nodes.SessionRepository", return_value=self.session_repo)
+                self._patches = [p1, p2]
+                p1.start()
+                p2.start()
+                return self
+
+            def __exit__(self, *args):
+                for p in self._patches:
+                    p.stop()
+
+        return PatchContext()
+
     async def test_agent_run(self, mock_db, mock_provider):
         """Should run agent and return response."""
-        with patch("app.agents.nodes.MessageRepository") as MockMsgRepo, \
-             patch("app.agents.nodes.MemoryRepository") as MockMemRepo:
-            mock_msg_repo = AsyncMock()
-            mock_msg_repo.get_recent_messages.return_value = []
-            mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
-            MockMsgRepo.return_value = mock_msg_repo
-
-            mock_mem_repo = AsyncMock()
-            mock_mem_repo.search_similar.return_value = []
-            MockMemRepo.return_value = mock_mem_repo
-
+        with self._patch_repos() as ctx:
             agent = AlfredAgent(db=mock_db, llm_provider=mock_provider)
             response = await agent.run(
                 session_id="test-session",
@@ -212,21 +234,11 @@ class TestAlfredAgent:
             )
 
             assert response == "Hello! How can I help you?"
-            assert mock_msg_repo.create_message.call_count == 2
+            assert ctx.msg_repo.create_message.call_count == 2
 
     async def test_agent_stream(self, mock_db, mock_provider):
         """Should stream response events."""
-        with patch("app.agents.nodes.MessageRepository") as MockMsgRepo, \
-             patch("app.agents.nodes.MemoryRepository") as MockMemRepo:
-            mock_msg_repo = AsyncMock()
-            mock_msg_repo.get_recent_messages.return_value = []
-            mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
-            MockMsgRepo.return_value = mock_msg_repo
-
-            mock_mem_repo = AsyncMock()
-            mock_mem_repo.search_similar.return_value = []
-            MockMemRepo.return_value = mock_mem_repo
-
+        with self._patch_repos():
             agent = AlfredAgent(db=mock_db, llm_provider=mock_provider)
 
             events = []
@@ -267,6 +279,39 @@ class TestAlfredAgent:
             ):
                 pass
 
+    async def test_agent_captures_context_usage(self, mock_db, mock_provider):
+        """Should capture context_usage in non-streaming mode."""
+        with self._patch_repos():
+            agent = AlfredAgent(db=mock_db, llm_provider=mock_provider)
+            await agent.run(
+                session_id="test-session",
+                user_id="test-user",
+                message="Hello!",
+            )
+
+            assert agent.last_context_usage is not None
+            assert "tokens_used" in agent.last_context_usage
+            assert "token_limit" in agent.last_context_usage
+            assert "percentage" in agent.last_context_usage
+
+    async def test_agent_stream_emits_context_usage(self, mock_db, mock_provider):
+        """Should emit context_usage event in streaming mode."""
+        with self._patch_repos():
+            agent = AlfredAgent(db=mock_db, llm_provider=mock_provider)
+
+            events = []
+            async for event in agent.stream(
+                session_id="test-session",
+                user_id="test-user",
+                message="Hello!",
+            ):
+                events.append(event)
+
+            context_events = [e for e in events if e.get("type") == "context_usage"]
+            assert len(context_events) == 1
+            assert "tokens_used" in context_events[0]
+            assert "token_limit" in context_events[0]
+
 
 class MockTool(BaseTool):
     """Mock tool for testing."""
@@ -296,14 +341,15 @@ def _make_state(**overrides) -> AgentState:
         "session_id": "test-session",
         "user_id": "test-user",
         "user_message": "Test message",
-        "is_remember_command": False,
-        "remember_content": None,
         "context_messages": [],
-        "memories": [],
+        "conversation_summary": None,
+        "context_usage": None,
         "response": "",
         "llm_messages": [],
         "tool_calls": None,
         "tool_iteration": 0,
+        "tool_results_metadata": None,
+        "todo_context": None,
         "user_message_id": "msg-1",
         "assistant_message_id": "msg-2",
         "error": None,
@@ -315,6 +361,39 @@ def _make_state(**overrides) -> AgentState:
 class TestReActLoop:
     """Tests for the ReAct loop via the graph."""
 
+    def _patch_repos(self):
+        """Return a context manager that patches repos for ReAct tests."""
+        mock_msg_repo = AsyncMock()
+        mock_msg_repo.get_session_messages.return_value = []
+        mock_msg_repo.get_messages_after.return_value = []
+        mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
+
+        mock_session_repo = AsyncMock()
+        mock_session = MagicMock()
+        mock_session.conversation_summary = None
+        mock_session.summary_through_id = None
+        mock_session_repo.get.return_value = mock_session
+
+        class PatchContext:
+            def __init__(self):
+                self.msg_repo = mock_msg_repo
+                self.session_repo = mock_session_repo
+                self._patches = []
+
+            def __enter__(self):
+                p1 = patch("app.agents.nodes.MessageRepository", return_value=self.msg_repo)
+                p2 = patch("app.agents.nodes.SessionRepository", return_value=self.session_repo)
+                self._patches = [p1, p2]
+                p1.start()
+                p2.start()
+                return self
+
+            def __exit__(self, *args):
+                for p in self._patches:
+                    p.stop()
+
+        return PatchContext()
+
     async def test_no_tool_call(self):
         """When LLM returns text directly, should return it without calling tools."""
         provider = MockLLMProvider("Direct answer")
@@ -322,17 +401,7 @@ class TestReActLoop:
         registry.register(MockTool())
 
         mock_db = AsyncMock()
-        with patch("app.agents.nodes.MessageRepository") as MockMsgRepo, \
-             patch("app.agents.nodes.MemoryRepository") as MockMemRepo:
-            mock_msg_repo = AsyncMock()
-            mock_msg_repo.get_recent_messages.return_value = []
-            mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
-            MockMsgRepo.return_value = mock_msg_repo
-
-            mock_mem_repo = AsyncMock()
-            mock_mem_repo.search_similar.return_value = []
-            MockMemRepo.return_value = mock_mem_repo
-
+        with self._patch_repos():
             agent = AlfredAgent(db=mock_db, llm_provider=provider, tool_registry=registry)
             response = await agent.run(
                 session_id="test-session",
@@ -357,17 +426,7 @@ class TestReActLoop:
         registry.register(mock_tool)
 
         mock_db = AsyncMock()
-        with patch("app.agents.nodes.MessageRepository") as MockMsgRepo, \
-             patch("app.agents.nodes.MemoryRepository") as MockMemRepo:
-            mock_msg_repo = AsyncMock()
-            mock_msg_repo.get_recent_messages.return_value = []
-            mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
-            MockMsgRepo.return_value = mock_msg_repo
-
-            mock_mem_repo = AsyncMock()
-            mock_mem_repo.search_similar.return_value = []
-            MockMemRepo.return_value = mock_mem_repo
-
+        with self._patch_repos():
             agent = AlfredAgent(db=mock_db, llm_provider=provider, tool_registry=registry)
             response = await agent.run(
                 session_id="test-session",
@@ -392,17 +451,7 @@ class TestReActLoop:
         registry.register(MockTool())
 
         mock_db = AsyncMock()
-        with patch("app.agents.nodes.MessageRepository") as MockMsgRepo, \
-             patch("app.agents.nodes.MemoryRepository") as MockMemRepo:
-            mock_msg_repo = AsyncMock()
-            mock_msg_repo.get_recent_messages.return_value = []
-            mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
-            MockMsgRepo.return_value = mock_msg_repo
-
-            mock_mem_repo = AsyncMock()
-            mock_mem_repo.search_similar.return_value = []
-            MockMemRepo.return_value = mock_mem_repo
-
+        with self._patch_repos():
             agent = AlfredAgent(db=mock_db, llm_provider=provider, tool_registry=registry)
             response = await agent.run(
                 session_id="test-session",
@@ -428,17 +477,7 @@ class TestReActLoop:
         registry.register(mock_tool)
 
         mock_db = AsyncMock()
-        with patch("app.agents.nodes.MessageRepository") as MockMsgRepo, \
-             patch("app.agents.nodes.MemoryRepository") as MockMemRepo:
-            mock_msg_repo = AsyncMock()
-            mock_msg_repo.get_recent_messages.return_value = []
-            mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
-            MockMsgRepo.return_value = mock_msg_repo
-
-            mock_mem_repo = AsyncMock()
-            mock_mem_repo.search_similar.return_value = []
-            MockMemRepo.return_value = mock_mem_repo
-
+        with self._patch_repos():
             agent = AlfredAgent(db=mock_db, llm_provider=provider, tool_registry=registry)
             response = await agent.run(
                 session_id="test-session",
@@ -471,23 +510,46 @@ class TestReActLoop:
 class TestReActStreamLoop:
     """Tests for the streaming ReAct loop via the graph."""
 
+    def _patch_repos(self):
+        """Return a context manager that patches repos for streaming tests."""
+        mock_msg_repo = AsyncMock()
+        mock_msg_repo.get_session_messages.return_value = []
+        mock_msg_repo.get_messages_after.return_value = []
+        mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
+
+        mock_session_repo = AsyncMock()
+        mock_session = MagicMock()
+        mock_session.conversation_summary = None
+        mock_session.summary_through_id = None
+        mock_session_repo.get.return_value = mock_session
+
+        class PatchContext:
+            def __init__(self):
+                self.msg_repo = mock_msg_repo
+                self.session_repo = mock_session_repo
+                self._patches = []
+
+            def __enter__(self):
+                p1 = patch("app.agents.nodes.MessageRepository", return_value=self.msg_repo)
+                p2 = patch("app.agents.nodes.SessionRepository", return_value=self.session_repo)
+                self._patches = [p1, p2]
+                p1.start()
+                p2.start()
+                return self
+
+            def __exit__(self, *args):
+                for p in self._patches:
+                    p.stop()
+
+        return PatchContext()
+
     async def test_stream_no_tool_call(self):
         """When LLM streams text directly, should yield token events."""
         provider = MockLLMProvider("Streamed answer here")
         registry = ToolRegistry()
 
         mock_db = AsyncMock()
-        with patch("app.agents.nodes.MessageRepository") as MockMsgRepo, \
-             patch("app.agents.nodes.MemoryRepository") as MockMemRepo:
-            mock_msg_repo = AsyncMock()
-            mock_msg_repo.get_recent_messages.return_value = []
-            mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
-            MockMsgRepo.return_value = mock_msg_repo
-
-            mock_mem_repo = AsyncMock()
-            mock_mem_repo.search_similar.return_value = []
-            MockMemRepo.return_value = mock_mem_repo
-
+        with self._patch_repos():
             agent = AlfredAgent(db=mock_db, llm_provider=provider, tool_registry=registry)
             events = []
             async for event in agent.stream(
@@ -517,17 +579,7 @@ class TestReActStreamLoop:
         registry.register(mock_tool)
 
         mock_db = AsyncMock()
-        with patch("app.agents.nodes.MessageRepository") as MockMsgRepo, \
-             patch("app.agents.nodes.MemoryRepository") as MockMemRepo:
-            mock_msg_repo = AsyncMock()
-            mock_msg_repo.get_recent_messages.return_value = []
-            mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
-            MockMsgRepo.return_value = mock_msg_repo
-
-            mock_mem_repo = AsyncMock()
-            mock_mem_repo.search_similar.return_value = []
-            MockMemRepo.return_value = mock_mem_repo
-
+        with self._patch_repos():
             agent = AlfredAgent(db=mock_db, llm_provider=provider, tool_registry=registry)
             events = []
             async for event in agent.stream(
@@ -571,6 +623,39 @@ class TestAgentWithTools:
     def mock_db(self):
         return AsyncMock()
 
+    def _patch_repos(self):
+        """Return a context manager that patches repos."""
+        mock_msg_repo = AsyncMock()
+        mock_msg_repo.get_session_messages.return_value = []
+        mock_msg_repo.get_messages_after.return_value = []
+        mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
+
+        mock_session_repo = AsyncMock()
+        mock_session = MagicMock()
+        mock_session.conversation_summary = None
+        mock_session.summary_through_id = None
+        mock_session_repo.get.return_value = mock_session
+
+        class PatchContext:
+            def __init__(self):
+                self.msg_repo = mock_msg_repo
+                self.session_repo = mock_session_repo
+                self._patches = []
+
+            def __enter__(self):
+                p1 = patch("app.agents.nodes.MessageRepository", return_value=self.msg_repo)
+                p2 = patch("app.agents.nodes.SessionRepository", return_value=self.session_repo)
+                self._patches = [p1, p2]
+                p1.start()
+                p2.start()
+                return self
+
+            def __exit__(self, *args):
+                for p in self._patches:
+                    p.stop()
+
+        return PatchContext()
+
     async def test_agent_run_with_tools(self, mock_db):
         """Should use tool-calling path when registry has tools."""
         provider = MockLLMProvider()
@@ -585,17 +670,7 @@ class TestAgentWithTools:
         registry = ToolRegistry()
         registry.register(mock_tool)
 
-        with patch("app.agents.nodes.MessageRepository") as MockMsgRepo, \
-             patch("app.agents.nodes.MemoryRepository") as MockMemRepo:
-            mock_msg_repo = AsyncMock()
-            mock_msg_repo.get_recent_messages.return_value = []
-            mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
-            MockMsgRepo.return_value = mock_msg_repo
-
-            mock_mem_repo = AsyncMock()
-            mock_mem_repo.search_similar.return_value = []
-            MockMemRepo.return_value = mock_mem_repo
-
+        with self._patch_repos():
             agent = AlfredAgent(
                 db=mock_db,
                 llm_provider=provider,
@@ -624,17 +699,7 @@ class TestAgentWithTools:
         registry = ToolRegistry()
         registry.register(mock_tool)
 
-        with patch("app.agents.nodes.MessageRepository") as MockMsgRepo, \
-             patch("app.agents.nodes.MemoryRepository") as MockMemRepo:
-            mock_msg_repo = AsyncMock()
-            mock_msg_repo.get_recent_messages.return_value = []
-            mock_msg_repo.create_message.return_value = MagicMock(id="msg-id")
-            MockMsgRepo.return_value = mock_msg_repo
-
-            mock_mem_repo = AsyncMock()
-            mock_mem_repo.search_similar.return_value = []
-            MockMemRepo.return_value = mock_mem_repo
-
+        with self._patch_repos():
             agent = AlfredAgent(
                 db=mock_db,
                 llm_provider=provider,

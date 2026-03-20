@@ -58,6 +58,8 @@ export interface Session {
 
 export interface SessionWithMessages extends Session {
   messages: Message[]
+  context_usage?: ContextUsage | null
+  conversation_summary?: string | null
 }
 
 export interface SessionList {
@@ -96,13 +98,25 @@ export interface ToolResultData {
   sources: ToolSource[]
 }
 
+export interface ContextUsage {
+  tokens_used: number
+  token_limit: number
+  percentage: number
+  model: string
+}
+
 export interface StreamEvent {
-  type: 'token' | 'tool_use' | 'tool_result' | 'done' | 'error'
+  type: 'token' | 'tool_use' | 'tool_result' | 'done' | 'error' | 'context_usage'
   content?: string
   message_id?: string
   tool_name?: string
   tool_args?: Record<string, unknown>
   tool_data?: ToolResultData
+  // Context usage fields
+  tokens_used?: number
+  token_limit?: number
+  percentage?: number
+  model?: string
 }
 
 // Memories

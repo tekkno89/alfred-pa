@@ -1,89 +1,24 @@
 import logging
-import re
 from datetime import datetime, timezone
 from typing import Any
-from zoneinfo import ZoneInfo
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_stream_writer
 
 from app.agents.state import AgentState
 from app.core.config import get_settings
-from app.core.embeddings import get_embedding_provider
 from app.core.llm import LLMMessage, LLMProvider, LLMResponse, ToolCall, get_llm_provider
-from app.db.repositories import MemoryRepository, MessageRepository
+from app.core.summarize import summarize_messages
+from app.core.tokens import count_messages_tokens, count_tokens, get_context_limit
+from app.db.repositories import MessageRepository, SessionRepository
 from app.tools.base import ToolContext
 from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
-# Pattern for /remember command
-REMEMBER_COMMAND_PATTERN = re.compile(r"^/remember\s+(.+)$", re.IGNORECASE | re.DOTALL)
-
-# Patterns for natural language memory save triggers
-NATURAL_REMEMBER_PATTERNS = [
-    re.compile(r"^remember\s+that\s+(.+)$", re.IGNORECASE | re.DOTALL),
-    re.compile(r"^please\s+remember\s+that\s+(.+)$", re.IGNORECASE | re.DOTALL),
-    re.compile(r"^save\s+to\s+memory[:\s]+(.+)$", re.IGNORECASE | re.DOTALL),
-    re.compile(r"^save\s+this[:\s]+(.+)$", re.IGNORECASE | re.DOTALL),
-    re.compile(r"^note\s+that\s+(.+)$", re.IGNORECASE | re.DOTALL),
-    re.compile(r"^keep\s+in\s+mind\s+that\s+(.+)$", re.IGNORECASE | re.DOTALL),
-]
-
 MAX_TOOL_ITERATIONS = 3
-
-
-def detect_remember_intent(message: str) -> tuple[bool, str | None]:
-    """
-    Detect if the message is a remember command or natural language save trigger.
-
-    Returns:
-        Tuple of (is_remember_intent, content_to_save)
-    """
-    message = message.strip()
-
-    # Check /remember command first
-    match = REMEMBER_COMMAND_PATTERN.match(message)
-    if match:
-        return True, match.group(1).strip()
-
-    # Check natural language patterns
-    for pattern in NATURAL_REMEMBER_PATTERNS:
-        match = pattern.match(message)
-        if match:
-            return True, match.group(1).strip()
-
-    return False, None
-
-
-def infer_memory_type(content: str) -> str:
-    """
-    Infer the memory type from the content.
-
-    Returns one of: 'preference', 'knowledge', 'summary'
-    """
-    content_lower = content.lower()
-
-    # Preference indicators
-    preference_keywords = [
-        "i prefer",
-        "i like",
-        "i don't like",
-        "i hate",
-        "i love",
-        "i want",
-        "i always",
-        "i never",
-        "my favorite",
-        "my preferred",
-    ]
-    for keyword in preference_keywords:
-        if keyword in content_lower:
-            return "preference"
-
-    # Default to knowledge for factual statements
-    return "knowledge"
 
 
 SYSTEM_PROMPT = """You are Alfred, a personal AI assistant inspired by Alfred Pennyworth — particularly Michael Caine's portrayal. Warm, capable, with the occasional dry observation.
@@ -163,11 +98,11 @@ def build_prompt_messages(state: AgentState, *, tz: str | None = None) -> list[L
         "use the manage_youtube tool. For add_video, only youtube_url is required — it defaults to the active playlist. "
         "If no playlist exists, one will be created automatically."
     )
-    if state.get("memories"):
-        memory_context = "\n\nRelevant context about the user:\n" + "\n".join(
-            f"- {m}" for m in state["memories"]
-        )
-        system_content += memory_context
+
+    # Inject conversation summary if present
+    summary = state.get("conversation_summary")
+    if summary:
+        system_content += f"\n\nSummary of earlier conversation:\n{summary}"
 
     todo_context = state.get("todo_context")
     if todo_context:
@@ -245,122 +180,119 @@ def _build_final_messages(messages: list[LLMMessage]) -> list[LLMMessage]:
 async def process_message_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
     """
     Process the incoming user message.
-    Validates input, detects /remember commands, and prepares state.
+    Validates input and prepares state.
     """
     user_message = state.get("user_message", "").strip()
 
     if not user_message:
         return {"error": "Empty message"}
 
-    # Detect remember intent
-    is_remember, remember_content = detect_remember_intent(user_message)
-
     return {
         "user_message": user_message,
         "user_message_id": str(uuid4()),
         "assistant_message_id": str(uuid4()),
-        "is_remember_command": is_remember,
-        "remember_content": remember_content,
         "error": None,
     }
 
 
-async def handle_remember_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
-    """
-    Handle a /remember command or natural language memory save.
-    Saves the content as a memory and returns a confirmation response.
-    """
-    db = config["configurable"]["db"]
-    memory_repo = MemoryRepository(db)
-
-    remember_content = state.get("remember_content")
-    if not remember_content:
-        return {"error": "No content to remember"}
-
-    user_id = state["user_id"]
-    session_id = state["session_id"]
-
-    # Infer memory type from content
-    memory_type = infer_memory_type(remember_content)
-
-    # Generate embedding
-    embedding_provider = get_embedding_provider()
-    embedding = embedding_provider.embed(remember_content)
-
-    # Check for duplicates
-    settings = get_settings()
-    existing = await memory_repo.find_duplicate(
-        user_id=user_id,
-        embedding=embedding,
-        threshold=settings.memory_similarity_threshold,
-    )
-
-    if existing:
-        response = f'I\'ve already got that one: "{existing.content}"'
-    else:
-        await memory_repo.create_memory(
-            user_id=user_id,
-            type=memory_type,
-            content=remember_content,
-            embedding=embedding,
-            source_session_id=session_id,
-        )
-        response = f'I\'ll remember that: "{remember_content}"'
-
-    # Stream the response if in streaming mode
-    streaming = config["configurable"].get("streaming", False)
-    if streaming:
-        writer = get_stream_writer()
-        writer({"type": "token", "content": response})
-
-    return {"response": response}
-
-
 async def retrieve_context_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
     """
-    Retrieve recent messages and relevant memories for context.
+    Retrieve conversation context with token-aware management.
+
+    1. Load session (get existing summary + summary_through_id)
+    2. Load messages after summary point (or all if no summary)
+    3. Compute token budget (threshold % of model context limit)
+    4. If over budget, summarize oldest messages and update session
+    5. Return context_messages, conversation_summary, and context_usage
     """
     db = config["configurable"]["db"]
     message_repo = MessageRepository(db)
-    memory_repo = MemoryRepository(db)
+    session_repo = SessionRepository(db)
 
     session_id = state["session_id"]
-    user_id = state["user_id"]
     user_message = state.get("user_message", "")
 
-    # Get recent messages from the session
-    recent_messages = await message_repo.get_recent_messages(
-        session_id=session_id,
-        limit=10,
-    )
+    # Load session to get existing summary
+    session = await session_repo.get(session_id)
+    existing_summary = session.conversation_summary if session else None
+    summary_through_id = session.summary_through_id if session else None
+
+    # Load messages: after summary point or all
+    if summary_through_id:
+        messages = await message_repo.get_messages_after(session_id, summary_through_id)
+    else:
+        messages = await message_repo.get_session_messages(session_id)
 
     context_messages = [
         {"role": msg.role, "content": msg.content}
-        for msg in recent_messages
+        for msg in messages
     ]
 
-    # Retrieve relevant memories via semantic search
-    memories: list[str] = []
-    if user_message:
-        settings = get_settings()
-        embedding_provider = get_embedding_provider()
+    # Get model context limit and compute budget
+    settings = get_settings()
+    model_name = settings.default_llm
+    context_limit = get_context_limit(model_name)
+    threshold = settings.context_usage_threshold
+    token_budget = int(context_limit * threshold)
 
-        # Generate embedding for the user's message
-        query_embedding = embedding_provider.embed(user_message)
+    # Estimate tokens: system_prompt + summary + history + user_message
+    # Use a rough system prompt size (the actual prompt gets built later)
+    system_tokens = count_tokens(SYSTEM_PROMPT) + 500  # overhead for dynamic parts
+    summary_tokens = count_tokens(existing_summary) if existing_summary else 0
+    user_msg_tokens = count_tokens(user_message)
+    history_tokens = sum(
+        count_tokens(m["content"]) + 4  # message overhead
+        for m in context_messages
+    )
+    total_tokens = system_tokens + summary_tokens + history_tokens + user_msg_tokens
 
-        # Search for similar memories
-        similar_memories = await memory_repo.search_similar(
-            user_id=user_id,
-            query_embedding=query_embedding,
-            limit=settings.memory_retrieval_limit,
+    # If over budget, summarize older messages
+    if total_tokens > token_budget and len(context_messages) > 4:
+        # Keep the most recent messages, summarize the rest
+        # Find a split point: keep at least 4 messages for recent context
+        keep_count = max(4, len(context_messages) // 4)
+        to_summarize = context_messages[:-keep_count]
+        context_messages = context_messages[-keep_count:]
+
+        # Summarize
+        new_summary = await summarize_messages(
+            to_summarize,
+            existing_summary=existing_summary,
         )
 
-        # Extract content from matched memories
-        memories = [memory.content for memory, _score in similar_memories]
+        # Update session with new summary
+        # Find the last message that was summarized
+        summarized_through_idx = len(messages) - keep_count - 1
+        if summarized_through_idx >= 0:
+            last_summarized_msg = messages[summarized_through_idx]
+            await session_repo.update(
+                session,
+                conversation_summary=new_summary,
+                summary_through_id=last_summarized_msg.id,
+            )
+
+        existing_summary = new_summary
+
+        # Recalculate tokens after summarization
+        summary_tokens = count_tokens(new_summary)
+        history_tokens = sum(
+            count_tokens(m["content"]) + 4
+            for m in context_messages
+        )
+        total_tokens = system_tokens + summary_tokens + history_tokens + user_msg_tokens
+
+    # Compute context usage
+    context_usage = {
+        "tokens_used": total_tokens,
+        "token_limit": context_limit,
+        "percentage": round(total_tokens / context_limit * 100, 1) if context_limit > 0 else 0,
+        "model": model_name,
+    }
 
     return {
         "context_messages": context_messages,
-        "memories": memories,
+        "conversation_summary": existing_summary,
+        "context_usage": context_usage,
     }
 
 
@@ -404,30 +336,13 @@ async def save_assistant_message_node(state: AgentState, config: RunnableConfig)
             metadata=metadata,
         )
 
-    return {}
-
-
-async def save_messages_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
-    """Save both user and assistant messages (for the remember path)."""
-    if state.get("error"):
-        return {}
-
-    db = config["configurable"]["db"]
-    message_repo = MessageRepository(db)
-
-    await message_repo.create_message(
-        session_id=state["session_id"],
-        role="user",
-        content=state["user_message"],
-    )
-
-    response = state.get("response", "")
-    if response:
-        await message_repo.create_message(
-            session_id=state["session_id"],
-            role="assistant",
-            content=response,
-        )
+    # Emit context_usage via stream writer if in streaming mode
+    streaming = config["configurable"].get("streaming", False)
+    if streaming:
+        context_usage = state.get("context_usage")
+        if context_usage:
+            writer = get_stream_writer()
+            writer({"type": "context_usage", **context_usage})
 
     return {}
 
@@ -631,26 +546,15 @@ async def tool_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]
     }
 
 
-async def extract_memories_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
-    """
-    Extract memories from the conversation.
-    TODO: Implement in Phase 4 (Memory System).
-    """
-    return {}
-
-
 # ---------------------------------------------------------------------------
 # Routing functions
 # ---------------------------------------------------------------------------
 
 
 def route_after_process(state: AgentState) -> str:
-    """Route after process_message: remember path or normal path."""
+    """Route after process_message: error or normal path."""
     if state.get("error"):
-        # Error state — go to END (handled by the graph edge)
         return "end"
-    if state.get("is_remember_command"):
-        return "handle_remember"
     return "retrieve_context"
 
 
@@ -658,7 +562,7 @@ def route_after_llm(state: AgentState) -> str:
     """Route after llm_node: tool execution or finish."""
     if state.get("tool_calls"):
         return "tool_node"
-    return "extract_memories"
+    return "save_assistant_message"
 
 
 # ---------------------------------------------------------------------------
@@ -669,21 +573,16 @@ def route_after_llm(state: AgentState) -> str:
 async def process_message(state: AgentState) -> dict[str, Any]:
     """
     Process the incoming user message (legacy wrapper).
-    Validates input, detects /remember commands, and prepares state.
+    Validates input and prepares state.
     """
     user_message = state.get("user_message", "").strip()
 
     if not user_message:
         return {"error": "Empty message"}
 
-    # Detect remember intent
-    is_remember, remember_content = detect_remember_intent(user_message)
-
     return {
         "user_message": user_message,
         "user_message_id": str(uuid4()),
         "assistant_message_id": str(uuid4()),
-        "is_remember_command": is_remember,
-        "remember_content": remember_content,
         "error": None,
     }

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiPost, apiPatch, apiDelete } from '@/lib/api'
-import type { Session, SessionList, SessionCreate, SessionUpdate, SessionWithMessages, DeleteResponse } from '@/types'
+import type { ContextUsage, Session, SessionList, SessionCreate, SessionUpdate, SessionWithMessages, DeleteResponse } from '@/types'
 
 export function useSessions(page = 1, size = 50, starred?: boolean) {
   const params = new URLSearchParams({ page: String(page), size: String(size) })
@@ -64,6 +64,17 @@ export function useDeleteSession() {
     mutationFn: (sessionId: string) => apiDelete<DeleteResponse>(`/sessions/${sessionId}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['sessions'] })
+    },
+  })
+}
+
+export function useCompactSession() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (sessionId: string) => apiPost<ContextUsage>(`/sessions/${sessionId}/compact`, {}),
+    onSuccess: (_data, sessionId) => {
+      queryClient.invalidateQueries({ queryKey: ['session', sessionId] })
     },
   })
 }

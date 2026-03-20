@@ -1,4 +1,3 @@
-import json
 import logging
 from typing import Annotated
 
@@ -8,8 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents import AlfredAgent
 from app.api.deps import CurrentUser, DbSession
+from app.core.config import get_settings
+from app.core.summarize import summarize_messages
+from app.core.tokens import count_tokens, get_context_limit
 from app.db.repositories import MessageRepository, SessionRepository
 from app.schemas import (
+    ContextUsage,
     DeleteResponse,
     MessageCreate,
     MessageList,
@@ -27,6 +30,47 @@ logger = logging.getLogger(__name__)
 
 
 router = APIRouter()
+
+
+def _compute_context_usage(
+    session,
+    messages,
+) -> ContextUsage:
+    """Compute context usage metrics for a session."""
+    from app.agents.nodes import SYSTEM_PROMPT
+
+    settings = get_settings()
+    model_name = settings.default_llm
+    context_limit = get_context_limit(model_name)
+
+    system_tokens = count_tokens(SYSTEM_PROMPT) + 500
+    summary_tokens = count_tokens(session.conversation_summary) if session.conversation_summary else 0
+
+    # Only count messages after the summary point
+    if session.summary_through_id:
+        # Find the summary point and count only messages after it
+        found_summary_point = False
+        history_tokens = 0
+        for msg in messages:
+            if found_summary_point:
+                history_tokens += count_tokens(msg.content) + 4
+            elif msg.id == session.summary_through_id:
+                found_summary_point = True
+        # If summary point not found (e.g., deleted), count all messages
+        if not found_summary_point:
+            history_tokens = sum(count_tokens(msg.content) + 4 for msg in messages)
+    else:
+        history_tokens = sum(count_tokens(msg.content) + 4 for msg in messages)
+
+    total_tokens = system_tokens + summary_tokens + history_tokens
+    percentage = round(total_tokens / context_limit * 100, 1) if context_limit > 0 else 0
+
+    return ContextUsage(
+        tokens_used=total_tokens,
+        token_limit=context_limit,
+        percentage=percentage,
+        model=model_name,
+    )
 
 
 @router.post("", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
@@ -95,7 +139,13 @@ async def get_session(
             detail="Not authorized to access this session",
         )
 
-    return SessionWithMessages.model_validate(session)
+    # Compute context usage for the progress bar on page load
+    context_usage = _compute_context_usage(session, session.messages)
+
+    result = SessionWithMessages.model_validate(session)
+    result.context_usage = context_usage
+    result.conversation_summary = session.conversation_summary
+    return result
 
 
 @router.patch("/{session_id}", response_model=SessionResponse)
@@ -230,7 +280,10 @@ async def send_message(
 
     Returns Server-Sent Events with the following format:
     - data: {"type": "token", "content": "..."}
+    - data: {"type": "tool_use", "tool_name": "..."}
+    - data: {"type": "tool_result", "tool_name": "...", "tool_data": {...}}
     - data: {"type": "done", "message_id": "..."}
+    - data: {"type": "context_usage", "tokens_used": ..., "token_limit": ..., "percentage": ..., "model": "..."}
     - data: {"type": "error", "content": "..."}
 
     If the session originated from Slack, the response will also be
@@ -287,6 +340,16 @@ async def send_message(
                         tool_name=event.get("tool_name"),
                         tool_data=event.get("tool_data"),
                     )
+                elif event["type"] == "context_usage":
+                    sse = StreamEvent(
+                        type="context_usage",
+                        tokens_used=event.get("tokens_used"),
+                        token_limit=event.get("token_limit"),
+                        percentage=event.get("percentage"),
+                        model=event.get("model"),
+                    )
+                    yield f"data: {sse.model_dump_json()}\n\n"
+                    continue
                 else:
                     continue
                 yield f"data: {sse.model_dump_json()}\n\n"
@@ -317,6 +380,81 @@ async def send_message(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/{session_id}/compact", response_model=ContextUsage)
+async def compact_session(
+    session_id: str,
+    db: DbSession,
+    user: CurrentUser,
+) -> ContextUsage:
+    """
+    Manually compact a session by summarizing messages.
+
+    Triggers summarization of all messages after the current summary point,
+    updates the session, and returns updated context usage.
+    """
+    session_repo = SessionRepository(db)
+    message_repo = MessageRepository(db)
+
+    session = await session_repo.get(session_id)
+
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found",
+        )
+
+    if session.user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this session",
+        )
+
+    # Load messages after summary point
+    if session.summary_through_id:
+        messages = await message_repo.get_messages_after(session_id, session.summary_through_id)
+    else:
+        messages = await message_repo.get_session_messages(session_id)
+
+    if len(messages) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Not enough messages to compact",
+        )
+
+    # Keep the last 2 messages, summarize the rest
+    keep_count = min(2, len(messages))
+    to_summarize_msgs = messages[:-keep_count]
+
+    if not to_summarize_msgs:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Not enough messages to compact",
+        )
+
+    to_summarize = [
+        {"role": msg.role, "content": msg.content}
+        for msg in to_summarize_msgs
+    ]
+
+    new_summary = await summarize_messages(
+        to_summarize,
+        existing_summary=session.conversation_summary,
+    )
+
+    # Update session with new summary
+    last_summarized = to_summarize_msgs[-1]
+    await session_repo.update(
+        session,
+        conversation_summary=new_summary,
+        summary_through_id=last_summarized.id,
+    )
+
+    # Reload session to recompute context usage
+    all_messages = await message_repo.get_session_messages(session_id)
+    session = await session_repo.get(session_id)
+    return _compute_context_usage(session, all_messages)
 
 
 async def _sync_user_message_to_slack(

@@ -23,6 +23,7 @@ from app.schemas.message import (
     StreamEvent,
 )
 from app.schemas.session import (
+    ContextUsage,
     DeleteResponse,
     SessionCreate,
     SessionList,
@@ -50,6 +51,7 @@ from app.schemas.webhook import (
 )
 
 __all__ = [
+    "ContextUsage",
     "DeleteResponse",
     "MemoryCreate",
     "MemoryList",

@@ -33,10 +33,21 @@ class SessionResponse(BaseModel):
     updated_at: datetime
 
 
+class ContextUsage(BaseModel):
+    """Context window usage metrics."""
+
+    tokens_used: int
+    token_limit: int
+    percentage: float
+    model: str
+
+
 class SessionWithMessages(SessionResponse):
     """Schema for session with messages included."""
 
     messages: list["MessageResponse"] = []
+    context_usage: ContextUsage | None = None
+    conversation_summary: str | None = None
 
 
 class SessionList(BaseModel):

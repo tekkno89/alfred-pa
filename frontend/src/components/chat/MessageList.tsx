@@ -3,6 +3,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { MessageBubble, StreamingBubble } from './MessageBubble'
 import { ToolStatusIndicator } from './ToolStatusIndicator'
 import { WebSearchResultsCard } from './WebSearchResultsCard'
+import { CompactionDivider } from './CompactionDivider'
 import type { ToolResult } from '@/hooks/useChat'
 import type { Message, ToolResultData } from '@/types'
 
@@ -12,6 +13,7 @@ interface MessageListProps {
   isStreaming: boolean
   activeToolName?: string | null
   completedToolResults?: ToolResult[]
+  conversationSummary?: string | null
 }
 
 /** Extract persisted tool results from message metadata (DB format). */
@@ -26,7 +28,7 @@ function getPersistedToolResults(message: Message): ToolResult[] | null {
     }))
 }
 
-export function MessageList({ messages, streamingContent, isStreaming, activeToolName, completedToolResults }: MessageListProps) {
+export function MessageList({ messages, streamingContent, isStreaming, activeToolName, completedToolResults, conversationSummary }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -47,6 +49,9 @@ export function MessageList({ messages, streamingContent, isStreaming, activeToo
   return (
     <ScrollArea className="flex-1 px-4">
       <div className="max-w-3xl mx-auto py-4">
+        {conversationSummary && (
+          <CompactionDivider summary={conversationSummary} />
+        )}
         {messages.map((message) => {
           // Render tool results from persisted message metadata
           const savedResults = message.role === 'assistant'

@@ -11,13 +11,12 @@ class AgentState(TypedDict):
     # User input
     user_message: str
 
-    # Remember command detection
-    is_remember_command: bool
-    remember_content: str | None
-
-    # Context from history and memories
+    # Context from history
     context_messages: list[dict[str, str]]
-    memories: list[str]
+    conversation_summary: str | None
+
+    # Context window usage metrics
+    context_usage: dict | None
 
     # LLM response
     response: str

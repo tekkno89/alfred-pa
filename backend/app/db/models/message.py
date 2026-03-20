@@ -25,7 +25,9 @@ class Message(Base, UUIDMixin, TimestampMixin):
     )  # interruption context, etc.
 
     # Relationships
-    session: Mapped["Session"] = relationship("Session", back_populates="messages")
+    session: Mapped["Session"] = relationship(
+        "Session", back_populates="messages", foreign_keys=[session_id]
+    )
 
     def __repr__(self) -> str:
         return f"<Message(id={self.id}, role={self.role})>"

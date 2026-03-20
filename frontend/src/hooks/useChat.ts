@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { apiStreamPost } from '@/lib/api'
-import type { Message, ToolResultData } from '@/types'
+import type { ContextUsage, Message, ToolResultData } from '@/types'
 
 export interface ToolResult {
   toolName: string
@@ -18,6 +18,7 @@ interface UseChatReturn {
   isStreaming: boolean
   activeToolName: string | null
   completedToolResults: ToolResult[]
+  contextUsage: ContextUsage | null
   sendMessage: (content: string) => void
   cancelStream: () => void
 }
@@ -28,6 +29,7 @@ export function useChat({ sessionId, onError }: UseChatOptions): UseChatReturn {
   const [isStreaming, setIsStreaming] = useState(false)
   const [activeToolName, setActiveToolName] = useState<string | null>(null)
   const [completedToolResults, setCompletedToolResults] = useState<ToolResult[]>([])
+  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null)
   const completedToolResultsRef = useRef<ToolResult[]>([])
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamingContentRef = useRef('')
@@ -64,7 +66,7 @@ export function useChat({ sessionId, onError }: UseChatOptions): UseChatReturn {
       setCompletedToolResults([])
       completedToolResultsRef.current = []
 
-      const handleEvent = (event: { type: string; content?: string; message_id?: string; tool_name?: string; tool_data?: ToolResultData }) => {
+      const handleEvent = (event: { type: string; content?: string; message_id?: string; tool_name?: string; tool_data?: ToolResultData; tokens_used?: number; token_limit?: number; percentage?: number; model?: string }) => {
         switch (event.type) {
           case 'token':
             if (event.content) {
@@ -90,6 +92,16 @@ export function useChat({ sessionId, onError }: UseChatOptions): UseChatReturn {
               updated.push(newResult)
               completedToolResultsRef.current = updated
               setCompletedToolResults([...updated])
+            }
+            break
+          case 'context_usage':
+            if (event.tokens_used != null && event.token_limit != null && event.percentage != null && event.model) {
+              setContextUsage({
+                tokens_used: event.tokens_used,
+                token_limit: event.token_limit,
+                percentage: event.percentage,
+                model: event.model,
+              })
             }
             break
           case 'done': {
@@ -188,6 +200,7 @@ export function useChat({ sessionId, onError }: UseChatOptions): UseChatReturn {
     isStreaming,
     activeToolName,
     completedToolResults,
+    contextUsage,
     sendMessage,
     cancelStream,
   }

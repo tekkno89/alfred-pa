@@ -35,6 +35,7 @@ class AlfredAgent:
         self.timezone = timezone
         self.todo_context = todo_context
         self.last_tool_results: list[dict] | None = None
+        self.last_context_usage: dict | None = None
         self.tools_used: set[str] = set()
         self.graph = create_agent_graph()
 
@@ -44,10 +45,9 @@ class AlfredAgent:
             "session_id": session_id,
             "user_id": user_id,
             "user_message": message,
-            "is_remember_command": False,
-            "remember_content": None,
             "context_messages": [],
-            "memories": [],
+            "conversation_summary": None,
+            "context_usage": None,
             "response": "",
             "llm_messages": [],
             "tool_calls": None,
@@ -95,6 +95,7 @@ class AlfredAgent:
         final_state = await self.graph.ainvoke(state, config)
 
         self.last_tool_results = final_state.get("tool_results_metadata")
+        self.last_context_usage = final_state.get("context_usage")
         self._extract_tools_used(final_state)
 
         if final_state.get("error"):

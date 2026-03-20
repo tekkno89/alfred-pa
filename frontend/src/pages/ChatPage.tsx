@@ -31,5 +31,12 @@ export function ChatPage() {
     )
   }
 
-  return <ChatContainer sessionId={sessionId} messages={session.messages} />
+  return (
+    <ChatContainer
+      sessionId={sessionId}
+      messages={session.messages}
+      initialContextUsage={session.context_usage}
+      conversationSummary={session.conversation_summary}
+    />
+  )
 }

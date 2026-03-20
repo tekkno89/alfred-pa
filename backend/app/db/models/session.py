@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, ForeignKey, String
+from sqlalchemy import Boolean, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -27,6 +27,12 @@ class Session(Base, UUIDMixin, TimestampMixin):
     is_starred: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     session_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
+    # Context window management
+    conversation_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary_through_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("messages.id"), nullable=True
+    )
+
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="sessions")
     messages: Mapped[list["Message"]] = relationship(
@@ -34,6 +40,7 @@ class Session(Base, UUIDMixin, TimestampMixin):
         back_populates="session",
         cascade="all, delete-orphan",
         order_by="Message.created_at.asc()",
+        foreign_keys="[Message.session_id]",
     )
     memories: Mapped[list["Memory"]] = relationship(
         "Memory", back_populates="source_session"

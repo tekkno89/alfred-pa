@@ -115,6 +115,10 @@ class Settings(BaseSettings):
     memory_retrieval_limit: int = 5
     memory_similarity_threshold: float = 0.7  # for deduplication
 
+    # Context window management
+    context_usage_threshold: float = 0.8  # trigger summarization at this % of context
+    context_summary_model: str = ""  # empty = use default_llm
+
     class Config:
         env_file = ".env"
         case_sensitive = False

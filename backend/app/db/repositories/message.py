@@ -48,6 +48,31 @@ class MessageRepository(BaseRepository[Message]):
         messages.reverse()
         return messages
 
+    async def get_messages_after(
+        self,
+        session_id: str,
+        after_message_id: str,
+    ) -> list[Message]:
+        """Get messages created after a specific message (by creation time)."""
+        # First get the reference message's created_at
+        ref_result = await self.db.execute(
+            select(Message.created_at).where(Message.id == after_message_id)
+        )
+        ref_time = ref_result.scalar_one_or_none()
+        if ref_time is None:
+            # If reference message not found, return all messages
+            return await self.get_session_messages(session_id)
+
+        result = await self.db.execute(
+            select(Message)
+            .where(
+                Message.session_id == session_id,
+                Message.created_at > ref_time,
+            )
+            .order_by(Message.created_at.asc())
+        )
+        return list(result.scalars().all())
+
     async def create_message(
         self,
         session_id: str,
