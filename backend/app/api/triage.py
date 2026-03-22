@@ -39,7 +39,7 @@ from app.schemas.triage import (
     TriageSettingsResponse,
     TriageSettingsUpdate,
 )
-from app.services.slack_user import SlackUserService
+from app.services.slack import SlackService
 from app.services.triage_cache import TriageCacheService
 
 logger = logging.getLogger(__name__)
@@ -402,13 +402,8 @@ async def list_available_slack_channels(
 ) -> list[SlackChannelInfo]:
     """List available Slack channels the user can monitor."""
     await _check_triage_access(current_user.id, db, current_user.role)
-    slack_user_service = SlackUserService(db)
-    client = await slack_user_service._get_user_client(current_user.id)
-    if not client:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No Slack account linked",
-        )
+    slack_service = SlackService()
+    client = slack_service.client
 
     channels: list[SlackChannelInfo] = []
     try:
