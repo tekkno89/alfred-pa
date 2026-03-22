@@ -674,7 +674,7 @@ export interface YouTubeDashboard {
 }
 
 // Triage
-export type UrgencyLevel = 'urgent' | 'review_at_break' | 'digest'
+export type UrgencyLevel = 'urgent' | 'digest' | 'noise' | 'review' | 'digest_summary'
 export type Sensitivity = 'low' | 'medium' | 'high'
 export type ChannelPriority = 'low' | 'medium' | 'high' | 'critical'
 export type MatchType = 'exact' | 'contains'
@@ -687,6 +687,7 @@ export interface TriageSettings {
   debug_mode: boolean
   slack_workspace_domain: string | null
   classification_retention_days: number
+  custom_classification_rules: string | null
 }
 
 export interface TriageSettingsUpdate {
@@ -694,6 +695,7 @@ export interface TriageSettingsUpdate {
   sensitivity?: Sensitivity
   debug_mode?: boolean
   classification_retention_days?: number
+  custom_classification_rules?: string | null
 }
 
 export interface MonitoredChannel {
@@ -768,7 +770,17 @@ export interface TriageClassification {
   escalated_by_sender: boolean
   surfaced_at_break: boolean
   keyword_matches: Record<string, unknown> | null
+  reviewed_at: string | null
+  focus_session_id: string | null
+  focus_started_at: string | null
+  digest_summary_id: string | null
+  child_count: number | null
   created_at: string | null
+}
+
+export interface MarkReviewedRequest {
+  classification_ids: string[]
+  reviewed: boolean
 }
 
 export interface ClassificationList {
@@ -780,6 +792,7 @@ export interface DigestResponse {
   session_id: string | null
   urgent_count: number
   review_count: number
+  noise_count: number
   digest_count: number
   items: TriageClassification[]
 }
@@ -799,7 +812,8 @@ export interface SlackChannelInfo {
 
 export interface TriageSessionStats {
   urgent: number
-  review_at_break: number
+  review: number
+  noise: number
   digest: number
   total: number
 }

@@ -87,6 +87,56 @@ class TestTriageSettings:
         assert data["sensitivity"] == "high"
         assert data["is_always_on"] is True
 
+    async def test_save_and_retrieve_custom_classification_rules(
+        self, client: AsyncClient, test_user
+    ):
+        # Save custom rules
+        response = await client.patch(
+            "/api/triage/settings",
+            json={"custom_classification_rules": "Requests to borrow items are never urgent"},
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["custom_classification_rules"] == "Requests to borrow items are never urgent"
+
+        # Retrieve and verify
+        response = await client.get(
+            "/api/triage/settings",
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 200
+        assert response.json()["custom_classification_rules"] == "Requests to borrow items are never urgent"
+
+    async def test_custom_classification_rules_max_length(
+        self, client: AsyncClient, test_user
+    ):
+        long_rules = "x" * 2001
+        response = await client.patch(
+            "/api/triage/settings",
+            json={"custom_classification_rules": long_rules},
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 422
+
+    async def test_custom_classification_rules_clear(
+        self, client: AsyncClient, test_user
+    ):
+        # Set rules
+        await client.patch(
+            "/api/triage/settings",
+            json={"custom_classification_rules": "some rule"},
+            headers=auth_headers(test_user),
+        )
+        # Clear rules
+        response = await client.patch(
+            "/api/triage/settings",
+            json={"custom_classification_rules": None},
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 200
+        assert response.json()["custom_classification_rules"] is None
+
     async def test_settings_requires_feature_access(
         self, client: AsyncClient, user_no_access
     ):

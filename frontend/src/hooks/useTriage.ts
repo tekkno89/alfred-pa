@@ -14,6 +14,8 @@ import type {
   ClassificationList,
   DigestResponse,
   TriageFeedbackCreate,
+  TriageClassification,
+  MarkReviewedRequest,
   SlackChannelInfo,
   TriageSessionStats,
 } from '@/types'
@@ -32,8 +34,8 @@ export function useUpdateTriageSettings() {
   return useMutation({
     mutationFn: (data: TriageSettingsUpdate) =>
       apiPatch<TriageSettings, TriageSettingsUpdate>('/triage/settings', data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['triage-settings'] })
+    onSuccess: (data) => {
+      queryClient.setQueryData(['triage-settings'], data)
     },
   })
 }
@@ -158,12 +160,16 @@ export function useAvailableSlackChannels() {
 export function useClassifications(params?: {
   urgency?: string
   channel_id?: string
+  reviewed?: boolean
+  hide_active_digest?: boolean
   limit?: number
   offset?: number
 }) {
   const searchParams = new URLSearchParams()
   if (params?.urgency) searchParams.set('urgency', params.urgency)
   if (params?.channel_id) searchParams.set('channel_id', params.channel_id)
+  if (params?.reviewed !== undefined) searchParams.set('reviewed', String(params.reviewed))
+  if (params?.hide_active_digest !== undefined) searchParams.set('hide_active_digest', String(params.hide_active_digest))
   if (params?.limit) searchParams.set('limit', String(params.limit))
   if (params?.offset) searchParams.set('offset', String(params.offset))
   const qs = searchParams.toString()
@@ -200,6 +206,31 @@ export function useSubmitFeedback() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['triage-classifications'] })
     },
+  })
+}
+
+// --- Review Status ---
+
+export function useMarkReviewed() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: MarkReviewedRequest) =>
+      apiPatch<{ updated: number }, MarkReviewedRequest>('/triage/classifications/reviewed', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['triage-classifications'] })
+      queryClient.invalidateQueries({ queryKey: ['triage-session-stats'] })
+    },
+  })
+}
+
+// --- Digest Children ---
+
+export function useDigestChildren(classificationId: string | null) {
+  return useQuery({
+    queryKey: ['triage-digest-children', classificationId],
+    queryFn: () =>
+      apiGet<TriageClassification[]>(`/triage/classifications/${classificationId}/digest-children`),
+    enabled: !!classificationId,
   })
 }
 

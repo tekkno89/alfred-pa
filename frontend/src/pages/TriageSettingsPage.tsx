@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import {
   useTriageSettings,
   useUpdateTriageSettings,
@@ -241,6 +242,9 @@ export function TriageSettingsPage() {
   const addChannel = useAddMonitoredChannel()
 
   const [selectedChannelId, setSelectedChannelId] = useState('')
+  const [customRules, setCustomRules] = useState<string | null>(null)
+  const hasRulesChanges =
+    customRules !== null && customRules !== (settings?.custom_classification_rules ?? '')
 
   if (settingsLoading) {
     return (
@@ -255,6 +259,7 @@ export function TriageSettingsPage() {
   const availableToAdd = slackChannels.filter((c) => !monitoredIds.has(c.id))
 
   return (
+    <div className="h-full overflow-y-auto">
     <div className="container max-w-3xl mx-auto py-6 space-y-6">
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
@@ -333,6 +338,41 @@ export function TriageSettingsPage() {
         </CardContent>
       </Card>
 
+      {/* Classification Rules */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Classification Rules</CardTitle>
+          <CardDescription>
+            Add custom rules to guide how messages are classified. These are injected into the AI classifier prompt.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea
+            rows={4}
+            placeholder={`e.g. Requests to borrow items are never urgent\nMessages from #random are always digest`}
+            value={customRules ?? settings?.custom_classification_rules ?? ''}
+            onChange={(e) => setCustomRules(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            Write natural-language rules, one per line. Max 2000 characters.
+          </p>
+          {hasRulesChanges && (
+            <Button
+              size="sm"
+              disabled={updateSettings.isPending}
+              onClick={() => {
+                updateSettings.mutate(
+                  { custom_classification_rules: customRules || null },
+                  { onSuccess: () => setCustomRules(null) }
+                )
+              }}
+            >
+              {updateSettings.isPending ? 'Saving...' : 'Save Rules'}
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Monitored Channels */}
       <Card>
         <CardHeader>
@@ -389,6 +429,7 @@ export function TriageSettingsPage() {
           ))}
         </div>
       )}
+    </div>
     </div>
   )
 }

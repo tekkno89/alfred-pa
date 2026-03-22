@@ -98,9 +98,10 @@ class FocusModeOrchestrator:
         await cancel_focus_expiration(user_id)
         await cancel_pomodoro_transition(user_id)
 
-        # Get focus session ID for triage digest before disabling
+        # Get focus session info for triage digest before disabling
         focus_state = await self.state_repo.get_by_user_id(user_id)
         focus_session_id = focus_state.id if focus_state and focus_state.is_active else None
+        focus_started_at = focus_state.started_at if focus_state and focus_state.is_active else None
 
         # Get previous status before disabling
         previous_status = await self.focus_service.get_previous_slack_status(user_id)
@@ -117,7 +118,7 @@ class FocusModeOrchestrator:
         if focus_session_id:
             try:
                 await self.triage_delivery.generate_and_send_digest(
-                    user_id, focus_session_id
+                    user_id, focus_session_id, focus_started_at
                 )
             except Exception:
                 logger.exception(f"Failed to send triage digest on disable for user={user_id}")
@@ -227,9 +228,10 @@ class FocusModeOrchestrator:
 
     async def transition_pomodoro_phase(self, user_id: str) -> dict[str, Any]:
         """Worker-triggered automatic phase transition."""
-        # Get focus session ID before transition (for triage digest on completion)
+        # Get focus session info before transition (for triage digest)
         focus_state = await self.state_repo.get_by_user_id(user_id)
         focus_session_id = focus_state.id if focus_state and focus_state.is_active else None
+        focus_started_at = focus_state.started_at if focus_state and focus_state.is_active else None
 
         new_phase = await self.focus_service.transition_pomodoro_phase(user_id)
 
@@ -250,7 +252,7 @@ class FocusModeOrchestrator:
             if focus_session_id:
                 try:
                     await self.triage_delivery.generate_and_send_digest(
-                        user_id, focus_session_id
+                        user_id, focus_session_id, focus_started_at
                     )
                 except Exception:
                     logger.exception(f"Failed to send triage digest on pomodoro complete for user={user_id}")
@@ -282,14 +284,14 @@ class FocusModeOrchestrator:
                     user_id, "pomodoro_work_started", {}
                 )
             else:
-                # Deliver review-at-break items during break
+                # Deliver session digest during break
                 if focus_session_id:
                     try:
-                        await self.triage_delivery.deliver_break_items(
-                            user_id, focus_session_id
+                        await self.triage_delivery.deliver_session_digest(
+                            user_id, focus_session_id, focus_started_at
                         )
                     except Exception:
-                        logger.exception(f"Failed to deliver triage break items for user={user_id}")
+                        logger.exception(f"Failed to deliver triage session digest for user={user_id}")
 
                 await self.slack_user_service.set_status(
                     user_id,

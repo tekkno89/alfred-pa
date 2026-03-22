@@ -45,7 +45,7 @@ def _parse_json_response(response: str) -> dict:
 class ClassificationResult:
     """Result of classifying a message."""
 
-    urgency: str  # urgent | review_at_break | digest
+    urgency: str  # urgent | digest | noise | review
     confidence: float
     reason: str
     abstract: str  # brief summary, never raw message text
@@ -55,8 +55,11 @@ class ClassificationResult:
 class TriageClassifier:
     """Classifies messages into urgency levels."""
 
-    def __init__(self, sensitivity: str = "medium") -> None:
+    def __init__(
+        self, sensitivity: str = "medium", custom_classification_rules: str | None = None
+    ) -> None:
         self.sensitivity = sensitivity
+        self.custom_classification_rules = custom_classification_rules
 
     async def classify(self, payload: EnrichedTriagePayload) -> ClassificationResult:
         """Classify a message based on enriched context."""
@@ -154,12 +157,15 @@ class TriageClassifier:
             "high": "Be liberal with urgent classification. Any message that could be important should be marked urgent.",
         }
 
-        system_prompt = f"""You are a message triage classifier. Classify the urgency of a Slack message.
+        system_prompt = f"""You are a message triage classifier. Classify a Slack message into one of the following levels.
 
 Classification levels:
-- urgent: Needs immediate attention. Emergencies, blocking issues, time-sensitive requests.
-- review_at_break: Important but can wait until the next break. Questions, requests, discussions needing input.
-- digest: Low priority. FYI messages, automated notifications, general chatter.
+- urgent: Needs immediate attention RIGHT NOW. Production incidents, emergencies, someone explicitly saying something is urgent/critical. Casual requests or favors (e.g. borrowing something, quick questions) are NOT urgent.
+- digest: Noteworthy work-related messages the user should review after their focus session. Questions needing their input, meaningful requests, project discussions, important updates. Only include messages that are genuinely worth the user's attention — be selective.
+- noise: Not noteworthy. Memes, casual chatter, social messages, non-work banter, automated notifications that need no action. When in doubt between digest and noise, lean toward noise.
+- review: ONLY use when you genuinely cannot decide between the other levels. This flags the message for manual review.
+
+DMs and @mentions raise the likelihood a message is urgent — but still evaluate the actual message content for urgency signals before classifying as urgent.
 
 Sensitivity: {self.sensitivity}
 {sensitivity_guidance.get(self.sensitivity, sensitivity_guidance['medium'])}
@@ -173,9 +179,15 @@ Context:
 - Thread reply: {bool(payload.thread_ts)}
 
 Respond with valid JSON only:
-{{"urgency": "urgent|review_at_break|digest", "confidence": 0.0-1.0, "reason": "brief explanation", "abstract": "1-sentence summary of the message topic without quoting the message"}}
+{{"urgency": "urgent|digest|noise|review", "confidence": 0.0-1.0, "reason": "brief explanation", "abstract": "1-sentence summary of the message topic without quoting the message"}}
 
 IMPORTANT: The "abstract" must be a brief topic summary. Do NOT reproduce the original message text."""
+
+        if self.custom_classification_rules:
+            system_prompt += f"""
+
+User-defined classification rules (follow these):
+{self.custom_classification_rules}"""
 
         user_prompt = f"Classify this message:\n\n{payload.message_text}"
 
@@ -190,9 +202,9 @@ IMPORTANT: The "abstract" must be a brief topic summary. Do NOT reproduce the or
             )
 
             result = _parse_json_response(response)
-            urgency = result.get("urgency", "review_at_break")
-            if urgency not in ("urgent", "review_at_break", "digest"):
-                urgency = "review_at_break"
+            urgency = result.get("urgency", "review")
+            if urgency not in ("urgent", "digest", "noise", "review"):
+                urgency = "review"
 
             return ClassificationResult(
                 urgency=urgency,
@@ -202,10 +214,10 @@ IMPORTANT: The "abstract" must be a brief topic summary. Do NOT reproduce the or
             )
 
         except Exception:
-            logger.exception("LLM classification failed (raw response: %r), defaulting to review_at_break", response if 'response' in dir() else 'N/A')
+            logger.exception("LLM classification failed (raw response: %r), defaulting to review", response if 'response' in dir() else 'N/A')
             return ClassificationResult(
-                urgency="review_at_break",
+                urgency="review",
                 confidence=0.3,
-                reason="LLM classification failed, defaulting to review_at_break",
+                reason="LLM classification failed, defaulting to review",
                 abstract="Message pending review (classification error)",
             )

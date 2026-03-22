@@ -6,6 +6,11 @@ from fastapi import APIRouter, HTTPException, Query, status
 from slack_sdk.errors import SlackApiError
 
 from app.api.deps import CurrentUser, DbSession
+from app.db.models.triage import (
+    ChannelKeywordRule,
+    ChannelSourceExclusion,
+    MonitoredChannel,
+)
 from app.db.repositories import FeatureAccessRepository
 from app.db.repositories.triage import (
     ChannelKeywordRuleRepository,
@@ -15,7 +20,6 @@ from app.db.repositories.triage import (
     TriageFeedbackRepository,
     TriageUserSettingsRepository,
 )
-from app.db.models.triage import ChannelKeywordRule, ChannelSourceExclusion, MonitoredChannel
 from app.schemas.triage import (
     ClassificationList,
     ClassificationResponse,
@@ -23,6 +27,7 @@ from app.schemas.triage import (
     KeywordRuleCreate,
     KeywordRuleResponse,
     KeywordRuleUpdate,
+    MarkReviewedRequest,
     MonitoredChannelCreate,
     MonitoredChannelList,
     MonitoredChannelResponse,
@@ -443,8 +448,10 @@ async def list_available_slack_channels(
 async def list_classifications(
     current_user: CurrentUser,
     db: DbSession,
-    urgency: str | None = Query(None, pattern="^(urgent|review_at_break|digest)$"),
+    urgency: str | None = Query(None, pattern="^(urgent|digest|noise|review|digest_summary)$"),
     channel_id: str | None = Query(None),
+    reviewed: bool | None = Query(None),
+    hide_active_digest: bool = Query(True),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> ClassificationList:
@@ -457,12 +464,62 @@ async def list_classifications(
         offset=offset,
         urgency_level=urgency,
         channel_id=channel_id,
+        reviewed=reviewed,
+        exclude_active_session_digest=hide_active_digest,
     )
-    total = await repo.count(user_id=current_user.id)
+    total = await repo.count_filtered(
+        current_user.id,
+        urgency_level=urgency,
+        channel_id=channel_id,
+        reviewed=reviewed,
+        exclude_active_session_digest=hide_active_digest,
+    )
     return ClassificationList(
         items=[ClassificationResponse.model_validate(i) for i in items],
         total=total,
     )
+
+
+@router.patch("/classifications/reviewed")
+async def mark_classifications_reviewed(
+    data: MarkReviewedRequest,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> dict:
+    """Bulk mark classifications as reviewed or unreviewed."""
+    await _check_triage_access(current_user.id, db, current_user.role)
+    repo = TriageClassificationRepository(db)
+    if data.reviewed:
+        count = await repo.mark_reviewed(data.classification_ids, current_user.id)
+    else:
+        count = await repo.mark_unreviewed(data.classification_ids, current_user.id)
+    return {"updated": count}
+
+
+@router.get(
+    "/classifications/{classification_id}/digest-children",
+    response_model=list[ClassificationResponse],
+)
+async def get_digest_children(
+    classification_id: str,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> list[ClassificationResponse]:
+    """Get individual items consolidated into a digest summary."""
+    await _check_triage_access(current_user.id, db, current_user.role)
+    repo = TriageClassificationRepository(db)
+    classification = await repo.get(classification_id)
+    if not classification or classification.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Classification not found",
+        )
+    if classification.urgency_level != "digest_summary":
+        return []
+    children = await repo.get_digest_children(
+        classification_id, current_user.id
+    )
+    return [ClassificationResponse.model_validate(c) for c in children]
 
 
 @router.get("/digest/{session_id}", response_model=DigestResponse)
@@ -478,8 +535,11 @@ async def get_session_digest(
     return DigestResponse(
         session_id=session_id,
         urgent_count=sum(1 for i in items if i.urgency_level == "urgent"),
-        review_count=sum(1 for i in items if i.urgency_level == "review_at_break"),
-        digest_count=sum(1 for i in items if i.urgency_level == "digest"),
+        review_count=sum(1 for i in items if i.urgency_level == "review"),
+        noise_count=sum(1 for i in items if i.urgency_level == "noise"),
+        digest_count=sum(
+            1 for i in items if i.urgency_level in ("digest", "digest_summary")
+        ),
         items=[ClassificationResponse.model_validate(i) for i in items],
     )
 
@@ -495,8 +555,11 @@ async def get_latest_digest(
     items = await repo.get_recent(current_user.id, limit=50)
     return DigestResponse(
         urgent_count=sum(1 for i in items if i.urgency_level == "urgent"),
-        review_count=sum(1 for i in items if i.urgency_level == "review_at_break"),
-        digest_count=sum(1 for i in items if i.urgency_level == "digest"),
+        review_count=sum(1 for i in items if i.urgency_level == "review"),
+        noise_count=sum(1 for i in items if i.urgency_level == "noise"),
+        digest_count=sum(
+            1 for i in items if i.urgency_level in ("digest", "digest_summary")
+        ),
         items=[ClassificationResponse.model_validate(i) for i in items],
     )
 
@@ -546,13 +609,13 @@ async def get_session_stats(
     await _check_triage_access(current_user.id, db, current_user.role)
     repo = TriageClassificationRepository(db)
     urgent = await repo.count(user_id=current_user.id, urgency_level="urgent")
-    review = await repo.count(
-        user_id=current_user.id, urgency_level="review_at_break"
-    )
+    review = await repo.count(user_id=current_user.id, urgency_level="review")
+    noise = await repo.count(user_id=current_user.id, urgency_level="noise")
     digest = await repo.count(user_id=current_user.id, urgency_level="digest")
     return {
         "urgent": urgent,
-        "review_at_break": review,
+        "review": review,
+        "noise": noise,
         "digest": digest,
-        "total": urgent + review + digest,
+        "total": urgent + review + noise + digest,
     }

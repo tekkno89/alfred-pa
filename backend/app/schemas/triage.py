@@ -27,6 +27,7 @@ class TriageSettingsUpdate(BaseModel):
     sensitivity: str | None = Field(None, pattern="^(low|medium|high)$")
     debug_mode: bool | None = None
     classification_retention_days: int | None = Field(None, ge=1, le=365)
+    custom_classification_rules: str | None = Field(None, max_length=2000)
 
 
 class TriageSettingsResponse(BaseModel):
@@ -39,6 +40,7 @@ class TriageSettingsResponse(BaseModel):
     debug_mode: bool = False
     slack_workspace_domain: str | None = None
     classification_retention_days: int = 30
+    custom_classification_rules: str | None = None
 
 
 # --- Monitored Channels ---
@@ -90,7 +92,7 @@ class KeywordRuleCreate(BaseModel):
     keyword_pattern: str = Field(..., min_length=1, max_length=255)
     match_type: str = Field("contains", pattern="^(exact|contains)$")
     urgency_override: str | None = Field(
-        None, pattern="^(urgent|review_at_break)$"
+        None, pattern="^(urgent|digest|review)$"
     )
 
 
@@ -100,7 +102,7 @@ class KeywordRuleUpdate(BaseModel):
     keyword_pattern: str | None = Field(None, min_length=1, max_length=255)
     match_type: str | None = Field(None, pattern="^(exact|contains)$")
     urgency_override: str | None = Field(
-        None, pattern="^(urgent|review_at_break)$"
+        None, pattern="^(urgent|digest|review)$"
     )
 
 
@@ -163,7 +165,19 @@ class ClassificationResponse(BaseModel):
     escalated_by_sender: bool = False
     surfaced_at_break: bool = False
     keyword_matches: dict | None = None
+    reviewed_at: UTCDatetime = None
+    focus_session_id: str | None = None
+    focus_started_at: UTCDatetime = None
+    digest_summary_id: str | None = None
+    child_count: int | None = None
     created_at: UTCDatetime = None
+
+
+class MarkReviewedRequest(BaseModel):
+    """Request to mark classifications as reviewed or unreviewed."""
+
+    classification_ids: list[str] = Field(..., min_length=1)
+    reviewed: bool = True
 
 
 class ClassificationList(BaseModel):
@@ -182,6 +196,7 @@ class DigestResponse(BaseModel):
     session_id: str | None = None
     urgent_count: int = 0
     review_count: int = 0
+    noise_count: int = 0
     digest_count: int = 0
     items: list[ClassificationResponse] = []
 
@@ -195,7 +210,7 @@ class TriageFeedbackCreate(BaseModel):
     classification_id: str = Field(..., min_length=1)
     was_correct: bool
     correct_urgency: str | None = Field(
-        None, pattern="^(urgent|review_at_break|digest)$"
+        None, pattern="^(urgent|digest|noise|review)$"
     )
 
 

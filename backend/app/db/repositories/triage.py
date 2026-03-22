@@ -2,9 +2,10 @@
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models.focus import FocusModeState
 from app.db.models.triage import (
     ChannelKeywordRule,
     ChannelSourceExclusion,
@@ -142,28 +143,45 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         super().__init__(TriageClassification, db)
 
     async def get_by_session(
-        self, user_id: str, focus_session_id: str
+        self,
+        user_id: str,
+        focus_session_id: str,
+        focus_started_at: "datetime | None" = None,
     ) -> list[TriageClassification]:
-        result = await self.db.execute(
+        query = (
             select(TriageClassification)
             .where(TriageClassification.user_id == user_id)
             .where(TriageClassification.focus_session_id == focus_session_id)
-            .order_by(TriageClassification.created_at.desc())
         )
+        if focus_started_at:
+            query = query.where(
+                TriageClassification.focus_started_at == focus_started_at
+            )
+        query = query.order_by(TriageClassification.created_at.desc())
+        result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def get_unsurfaced_break_items(
-        self, user_id: str, focus_session_id: str
+    async def get_unsurfaced_digest_items(
+        self,
+        user_id: str,
+        focus_session_id: str,
+        focus_started_at: "datetime | None" = None,
     ) -> list[TriageClassification]:
-        """Get review_at_break items not yet surfaced."""
-        result = await self.db.execute(
+        """Get digest items not yet surfaced/consolidated."""
+        query = (
             select(TriageClassification)
             .where(TriageClassification.user_id == user_id)
             .where(TriageClassification.focus_session_id == focus_session_id)
-            .where(TriageClassification.urgency_level == "review_at_break")
+            .where(TriageClassification.urgency_level == "digest")
             .where(TriageClassification.surfaced_at_break == False)  # noqa: E712
-            .order_by(TriageClassification.created_at.asc())
+            .where(TriageClassification.digest_summary_id.is_(None))
         )
+        if focus_started_at:
+            query = query.where(
+                TriageClassification.focus_started_at == focus_started_at
+            )
+        query = query.order_by(TriageClassification.created_at.asc())
+        result = await self.db.execute(query)
         return list(result.scalars().all())
 
     async def mark_surfaced_at_break(self, ids: list[str]) -> None:
@@ -176,18 +194,20 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         )
         await self.db.flush()
 
-    async def get_recent(
+    def _apply_filters(
         self,
+        query,
         user_id: str,
-        limit: int = 50,
-        offset: int = 0,
         urgency_level: str | None = None,
         channel_id: str | None = None,
-    ) -> list[TriageClassification]:
-        query = (
-            select(TriageClassification)
-            .where(TriageClassification.user_id == user_id)
-            .order_by(TriageClassification.created_at.desc())
+        reviewed: bool | None = None,
+        exclude_active_session_digest: bool = False,
+    ):
+        """Apply common filter logic to a query."""
+        query = query.where(TriageClassification.user_id == user_id)
+        # Hide items that have been consolidated into a digest summary
+        query = query.where(
+            TriageClassification.digest_summary_id.is_(None)
         )
         if urgency_level:
             query = query.where(
@@ -195,9 +215,116 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
             )
         if channel_id:
             query = query.where(TriageClassification.channel_id == channel_id)
+        if reviewed is True:
+            query = query.where(
+                TriageClassification.reviewed_at.isnot(None)
+            )
+        elif reviewed is False:
+            query = query.where(
+                TriageClassification.reviewed_at.is_(None)
+            )
+        if exclude_active_session_digest:
+            active_session_ids = select(FocusModeState.id).where(
+                FocusModeState.is_active == True  # noqa: E712
+            )
+            query = query.where(
+                ~(
+                    (TriageClassification.urgency_level.in_(["digest", "noise"]))
+                    & (TriageClassification.focus_session_id.in_(active_session_ids))
+                )
+            )
+        return query
+
+    async def get_recent(
+        self,
+        user_id: str,
+        limit: int = 50,
+        offset: int = 0,
+        urgency_level: str | None = None,
+        channel_id: str | None = None,
+        reviewed: bool | None = None,
+        exclude_active_session_digest: bool = False,
+    ) -> list[TriageClassification]:
+        query = select(TriageClassification).order_by(
+            TriageClassification.created_at.desc()
+        )
+        query = self._apply_filters(
+            query, user_id, urgency_level, channel_id,
+            reviewed, exclude_active_session_digest,
+        )
         query = query.offset(offset).limit(limit)
         result = await self.db.execute(query)
         return list(result.scalars().all())
+
+    async def count_filtered(
+        self,
+        user_id: str,
+        urgency_level: str | None = None,
+        channel_id: str | None = None,
+        reviewed: bool | None = None,
+        exclude_active_session_digest: bool = False,
+    ) -> int:
+        """Count classifications matching the same filters as get_recent."""
+        query = select(func.count()).select_from(TriageClassification)
+        query = self._apply_filters(
+            query, user_id, urgency_level, channel_id,
+            reviewed, exclude_active_session_digest,
+        )
+        result = await self.db.execute(query)
+        return result.scalar() or 0
+
+    async def mark_reviewed(
+        self, ids: list[str], user_id: str
+    ) -> int:
+        """Mark classifications as reviewed. Returns count updated."""
+        if not ids:
+            return 0
+        result = await self.db.execute(
+            update(TriageClassification)
+            .where(TriageClassification.id.in_(ids))
+            .where(TriageClassification.user_id == user_id)
+            .values(reviewed_at=func.now())
+        )
+        await self.db.flush()
+        return result.rowcount
+
+    async def mark_unreviewed(
+        self, ids: list[str], user_id: str
+    ) -> int:
+        """Mark classifications as unreviewed. Returns count updated."""
+        if not ids:
+            return 0
+        result = await self.db.execute(
+            update(TriageClassification)
+            .where(TriageClassification.id.in_(ids))
+            .where(TriageClassification.user_id == user_id)
+            .values(reviewed_at=None)
+        )
+        await self.db.flush()
+        return result.rowcount
+
+    async def get_digest_children(
+        self, summary_id: str, user_id: str
+    ) -> list[TriageClassification]:
+        """Get individual items consolidated into a digest summary."""
+        result = await self.db.execute(
+            select(TriageClassification)
+            .where(TriageClassification.digest_summary_id == summary_id)
+            .where(TriageClassification.user_id == user_id)
+            .order_by(TriageClassification.created_at.asc())
+        )
+        return list(result.scalars().all())
+
+    async def link_to_summary(self, ids: list[str], summary_id: str) -> None:
+        """Link digest items to their summary row."""
+        if not ids:
+            return
+        await self.db.execute(
+            update(TriageClassification)
+            .where(TriageClassification.id.in_(ids))
+            .values(digest_summary_id=summary_id)
+        )
+        await self.db.flush()
 
     async def delete_expired(self, user_id: str, retention_days: int) -> int:
         """Delete classifications older than retention_days. Returns count deleted."""

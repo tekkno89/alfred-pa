@@ -29,6 +29,9 @@ class TriageUserSettings(Base, UUIDMixin, TimestampMixin):
         String(255), nullable=True
     )
     classification_retention_days: Mapped[int] = mapped_column(Integer, default=30)
+    custom_classification_rules: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
 
     # Relationships
     user: Mapped["User"] = relationship("User")
@@ -78,7 +81,7 @@ class ChannelKeywordRule(Base, UUIDMixin, TimestampMixin):
     keyword_pattern: Mapped[str] = mapped_column(String(255), nullable=False)
     # exact | contains (semantic deferred to v2)
     match_type: Mapped[str] = mapped_column(String(20), default="contains")
-    # urgent | review_at_break | null (null = no override, use LLM)
+    # urgent | digest | null (null = no override, use LLM)
     urgency_override: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # Relationships
@@ -131,7 +134,8 @@ class TriageClassification(Base, UUIDMixin, TimestampMixin):
     message_ts: Mapped[str] = mapped_column(String(50), nullable=False)
     thread_ts: Mapped[str | None] = mapped_column(String(50), nullable=True)
     slack_permalink: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # urgent | review_at_break | digest
+    focus_started_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    # urgent | digest | noise | review | digest_summary
     urgency_level: Mapped[str] = mapped_column(String(20), nullable=False)
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     classification_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -141,6 +145,12 @@ class TriageClassification(Base, UUIDMixin, TimestampMixin):
     escalated_by_sender: Mapped[bool] = mapped_column(Boolean, default=False)
     surfaced_at_break: Mapped[bool] = mapped_column(Boolean, default=False)
     keyword_matches: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    # Digest consolidation
+    digest_summary_id: Mapped[str | None] = mapped_column(
+        ForeignKey("triage_classifications.id", ondelete="SET NULL"), nullable=True
+    )
+    child_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Relationships
     user: Mapped["User"] = relationship("User")
@@ -191,7 +201,7 @@ class TriageFeedback(Base, UUIDMixin, TimestampMixin):
     )
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     was_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    # urgent | review_at_break | digest (what it should have been)
+    # urgent | digest | noise | review (what it should have been)
     correct_urgency: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # Relationships

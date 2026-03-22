@@ -54,13 +54,17 @@ class TriagePipeline:
         )
 
         # 2. Classify
-        classifier = TriageClassifier(sensitivity=payload.sensitivity)
+        classifier = TriageClassifier(
+            sensitivity=payload.sensitivity,
+            custom_classification_rules=payload.custom_classification_rules,
+        )
         result = await classifier.classify(payload)
 
         # 3. Store classification (no message text)
         classification = TriageClassification(
             user_id=user_id,
             focus_session_id=payload.focus_session_id,
+            focus_started_at=payload.focus_started_at,
             sender_slack_id=sender_slack_id,
             sender_name=payload.sender_name or None,
             channel_id=channel_id,

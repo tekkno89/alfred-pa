@@ -8,13 +8,21 @@ const URGENCY_STYLES: Record<string, { bg: string; text: string }> = {
     bg: 'bg-red-100 dark:bg-red-900/40',
     text: 'text-red-800 dark:text-red-200',
   },
-  review_at_break: {
-    bg: 'bg-yellow-100 dark:bg-yellow-900/40',
-    text: 'text-yellow-800 dark:text-yellow-200',
-  },
   digest: {
     bg: 'bg-slate-100 dark:bg-slate-800',
     text: 'text-slate-700 dark:text-slate-300',
+  },
+  digest_summary: {
+    bg: 'bg-blue-100 dark:bg-blue-900/40',
+    text: 'text-blue-800 dark:text-blue-200',
+  },
+  noise: {
+    bg: 'bg-gray-100 dark:bg-gray-800',
+    text: 'text-gray-500 dark:text-gray-400',
+  },
+  review: {
+    bg: 'bg-yellow-100 dark:bg-yellow-900/40',
+    text: 'text-yellow-800 dark:text-yellow-200',
   },
 }
 
@@ -81,7 +89,7 @@ export function TriageCard() {
                 </span>
                 <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200">
                   <Clock className="h-3 w-3" />
-                  {stats.review_at_break}
+                  {stats.review}
                 </span>
                 <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                   <Archive className="h-3 w-3" />
@@ -100,7 +108,7 @@ export function TriageCard() {
                       <span
                         className={`shrink-0 mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium ${style.bg} ${style.text}`}
                       >
-                        {item.urgency_level === 'review_at_break' ? 'review' : item.urgency_level}
+                        {item.urgency_level === 'digest_summary' ? 'digest' : item.urgency_level}
                       </span>
                       <span className="text-sm truncate flex-1">
                         {item.abstract || 'Message'}

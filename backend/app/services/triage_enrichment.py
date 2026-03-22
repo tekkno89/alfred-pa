@@ -2,6 +2,7 @@
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +31,7 @@ class EnrichedTriagePayload:
     sender_name: str = ""
     is_vip: bool = False
     focus_session_id: str | None = None
+    focus_started_at: datetime | None = None
     is_in_focus: bool = False
     channel_priority: str = "medium"
     channel_name: str = ""
@@ -43,6 +45,9 @@ class EnrichedTriagePayload:
 
     # Keyword rules for this channel
     keyword_rules: list = field(default_factory=list)
+
+    # User-defined classification guidance
+    custom_classification_rules: str | None = None
 
 
 def generate_slack_permalink(
@@ -96,6 +101,7 @@ class TriageEnrichmentService:
         settings = await self.settings_repo.get_by_user_id(user_id)
         if settings:
             payload.sensitivity = settings.sensitivity
+            payload.custom_classification_rules = settings.custom_classification_rules
             payload.slack_permalink = generate_slack_permalink(
                 settings.slack_workspace_domain, channel_id, message_ts, thread_ts
             )
@@ -112,6 +118,7 @@ class TriageEnrichmentService:
             state = await state_repo.get_by_user_id(user_id)
             if state and state.is_active:
                 payload.focus_session_id = state.id
+                payload.focus_started_at = state.started_at
 
         # Channel config (for channel messages)
         if event_type == "channel":

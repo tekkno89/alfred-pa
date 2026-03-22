@@ -6,9 +6,11 @@ import {
   Clock,
   Archive,
   ExternalLink,
-  ThumbsUp,
-  ThumbsDown,
+  Check,
+  CheckCircle,
   Settings,
+  VolumeX,
+  Layers,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -19,14 +21,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { useClassifications, useTriageSessionStats, useSubmitFeedback } from '@/hooks/useTriage'
+import { useClassifications, useTriageSessionStats, useMarkReviewed } from '@/hooks/useTriage'
+import { ClassificationDetailModal } from '@/components/triage/ClassificationDetailModal'
 import type { TriageClassification } from '@/types'
 
 const URGENCY_OPTIONS = [
   { value: 'all', label: 'All' },
   { value: 'urgent', label: 'Urgent' },
-  { value: 'review_at_break', label: 'Review at Break' },
   { value: 'digest', label: 'Digest' },
+  { value: 'digest_summary', label: 'Session Digest' },
+  { value: 'noise', label: 'Noise' },
+  { value: 'review', label: 'Review' },
+] as const
+
+const STATUS_OPTIONS = [
+  { value: 'unreviewed', label: 'Unreviewed' },
+  { value: 'reviewed', label: 'Reviewed' },
+  { value: 'all', label: 'All' },
 ] as const
 
 const URGENCY_BADGE: Record<string, { icon: typeof AlertTriangle; className: string; label: string }> = {
@@ -35,30 +46,46 @@ const URGENCY_BADGE: Record<string, { icon: typeof AlertTriangle; className: str
     className: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200',
     label: 'Urgent',
   },
-  review_at_break: {
-    icon: Clock,
-    className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200',
-    label: 'Review',
-  },
   digest: {
     icon: Archive,
     className: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
     label: 'Digest',
   },
+  digest_summary: {
+    icon: Layers,
+    className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200',
+    label: 'Session Digest',
+  },
+  noise: {
+    icon: VolumeX,
+    className: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
+    label: 'Noise',
+  },
+  review: {
+    icon: Clock,
+    className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200',
+    label: 'Review',
+  },
 }
 
 function ClassificationItem({
   item,
-  onFeedback,
+  onClick,
+  onMarkReviewed,
 }: {
   item: TriageClassification
-  onFeedback: (id: string, wasCorrect: boolean) => void
+  onClick: () => void
+  onMarkReviewed: (id: string) => void
 }) {
   const badge = URGENCY_BADGE[item.urgency_level] ?? URGENCY_BADGE.digest
   const Icon = badge.icon
+  const isReviewed = !!item.reviewed_at
 
   return (
-    <Card>
+    <Card
+      className={`cursor-pointer hover:bg-accent/50 transition-colors ${isReviewed ? 'opacity-60' : ''}`}
+      onClick={onClick}
+    >
       <CardContent className="py-3 px-4">
         <div className="flex items-start gap-3">
           {/* Urgency badge */}
@@ -73,7 +100,11 @@ function ClassificationItem({
           <div className="flex-1 min-w-0 space-y-1">
             <p className="text-sm">{item.abstract || 'Message'}</p>
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              <span>From: {item.sender_name || item.sender_slack_id}</span>
+              {item.urgency_level === 'digest_summary' && item.child_count ? (
+                <span className="font-medium">{item.child_count} messages</span>
+              ) : (
+                <span>From: {item.sender_name || item.sender_slack_id}</span>
+              )}
               <span>{item.classification_path === 'dm' ? 'DM' : `#${item.channel_name || item.channel_id}`}</span>
               {item.created_at && (
                 <span>
@@ -83,6 +114,12 @@ function ClassificationItem({
                     hour: '2-digit',
                     minute: '2-digit',
                   })}
+                </span>
+              )}
+              {isReviewed && (
+                <span className="inline-flex items-center gap-0.5 text-green-600 dark:text-green-400">
+                  <CheckCircle className="h-3 w-3" />
+                  Reviewed
                 </span>
               )}
             </div>
@@ -101,24 +138,20 @@ function ClassificationItem({
                 <ExternalLink className="h-3.5 w-3.5" />
               </a>
             )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-green-600 hover:text-green-700"
-              onClick={() => onFeedback(item.id, true)}
-              title="Correct classification"
-            >
-              <ThumbsUp className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-red-600 hover:text-red-700"
-              onClick={() => onFeedback(item.id, false)}
-              title="Incorrect classification"
-            >
-              <ThumbsDown className="h-3.5 w-3.5" />
-            </Button>
+            {!isReviewed && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-muted-foreground hover:text-green-600"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onMarkReviewed(item.id)
+                }}
+                title="Mark as reviewed"
+              >
+                <Check className="h-3.5 w-3.5" />
+              </Button>
+            )}
           </div>
         </div>
       </CardContent>
@@ -129,22 +162,35 @@ function ClassificationItem({
 export function TriagePage() {
   const navigate = useNavigate()
   const [urgencyFilter, setUrgencyFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('unreviewed')
   const [offset, setOffset] = useState(0)
+  const [selectedItem, setSelectedItem] = useState<TriageClassification | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
   const limit = 20
+
+  const reviewed =
+    statusFilter === 'reviewed' ? true : statusFilter === 'unreviewed' ? false : undefined
 
   const { data: stats } = useTriageSessionStats()
   const { data: classifications, isLoading } = useClassifications({
     urgency: urgencyFilter === 'all' ? undefined : urgencyFilter,
+    reviewed,
+    hide_active_digest: false,
     limit,
     offset,
   })
-  const submitFeedback = useSubmitFeedback()
+  const markReviewed = useMarkReviewed()
 
-  const handleFeedback = (classificationId: string, wasCorrect: boolean) => {
-    submitFeedback.mutate({
-      classification_id: classificationId,
-      was_correct: wasCorrect,
+  const handleMarkReviewed = (id: string) => {
+    markReviewed.mutate({
+      classification_ids: [id],
+      reviewed: true,
     })
+  }
+
+  const handleCardClick = (item: TriageClassification) => {
+    setSelectedItem(item)
+    setModalOpen(true)
   }
 
   const totalItems = classifications?.total ?? 0
@@ -186,7 +232,7 @@ export function TriagePage() {
               </span>
               <span className="flex items-center gap-1.5">
                 <Clock className="h-4 w-4 text-yellow-500" />
-                <span className="font-medium">{stats.review_at_break}</span> review
+                <span className="font-medium">{stats.review}</span> review
               </span>
               <span className="flex items-center gap-1.5">
                 <Archive className="h-4 w-4 text-slate-500" />
@@ -195,21 +241,38 @@ export function TriagePage() {
             </div>
           )}
 
-          {/* Filter */}
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Filter:</span>
-            <Select value={urgencyFilter} onValueChange={(v) => { setUrgencyFilter(v); setOffset(0) }}>
-              <SelectTrigger className="w-[180px] h-8 text-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {URGENCY_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          {/* Filters */}
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Status:</span>
+              <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setOffset(0) }}>
+                <SelectTrigger className="w-[140px] h-8 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STATUS_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Urgency:</span>
+              <Select value={urgencyFilter} onValueChange={(v) => { setUrgencyFilter(v); setOffset(0) }}>
+                <SelectTrigger className="w-[160px] h-8 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {URGENCY_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             {totalItems > 0 && (
               <span className="text-xs text-muted-foreground ml-auto">
                 {totalItems} total
@@ -233,7 +296,8 @@ export function TriagePage() {
                 <ClassificationItem
                   key={item.id}
                   item={item}
-                  onFeedback={handleFeedback}
+                  onClick={() => handleCardClick(item)}
+                  onMarkReviewed={handleMarkReviewed}
                 />
               ))}
             </div>
@@ -262,6 +326,13 @@ export function TriagePage() {
           )}
         </div>
       </div>
+
+      {/* Detail modal */}
+      <ClassificationDetailModal
+        classification={selectedItem}
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+      />
     </div>
   )
 }
