@@ -419,21 +419,30 @@ class SlackChannelCacheRepository(BaseRepository[SlackChannelCache]):
         return list(result.scalars().all())
 
     async def upsert_batch(self, channels: list[dict]) -> int:
-        """Upsert channels and remove stale entries. Returns count upserted."""
-        if not channels:
+        """Upsert public channels and remove stale entries.
+
+        Private channels are excluded from the global cache for security —
+        they are fetched per-user at query time instead.
+        Returns count upserted.
+        """
+        public = [ch for ch in channels if not ch.get("is_private", False)]
+        if not public:
+            # Remove any stale public channels if the source list was empty
+            await self.db.execute(delete(SlackChannelCache))
+            await self.db.flush()
             return 0
 
-        # Upsert all channels
+        # Upsert public channels only
         stmt = pg_insert(SlackChannelCache).values(
             [
                 {
                     "id": str(uuid4()),
                     "slack_channel_id": ch["id"],
                     "name": ch["name"],
-                    "is_private": ch.get("is_private", False),
+                    "is_private": False,
                     "num_members": ch.get("num_members", 0),
                 }
-                for ch in channels
+                for ch in public
             ]
         )
         stmt = stmt.on_conflict_do_update(
@@ -447,15 +456,15 @@ class SlackChannelCacheRepository(BaseRepository[SlackChannelCache]):
         )
         await self.db.execute(stmt)
 
-        # Delete channels no longer in Slack
-        current_ids = {ch["id"] for ch in channels}
+        # Delete public channels no longer in Slack
+        current_ids = {ch["id"] for ch in public}
         await self.db.execute(
             delete(SlackChannelCache).where(
                 SlackChannelCache.slack_channel_id.notin_(current_ids)
             )
         )
         await self.db.flush()
-        return len(channels)
+        return len(public)
 
     async def count(self, **filters) -> int:
         query = select(func.count()).select_from(SlackChannelCache)

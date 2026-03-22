@@ -50,6 +50,9 @@ class UserOAuthToken(Base, UUIDMixin, TimestampMixin):
         String(20), nullable=False, default="oauth"
     )  # "oauth" or "pat"
 
+    # Tracks when a re-auth DM was sent for scope changes
+    reauth_dm_sent_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
     # Per-user GitHub App config (nullable; NULL = global config or PAT)
     github_app_config_id: Mapped[str | None] = mapped_column(
         ForeignKey("github_app_configs.id", ondelete="SET NULL"), nullable=True

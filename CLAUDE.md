@@ -210,6 +210,36 @@ Detailed implementation guides live in `.claude/guides/`. **You MUST read the re
 - Frontend: Jest + React Testing Library
 - Minimum 80% coverage for new code
 
+### Database Migrations
+- **When you create a new Alembic migration, run it immediately** against the dev database before moving on to the next task. Check whether Docker is running first (`docker-compose -f docker-compose.dev.yml ps`), then use the appropriate command:
+  - Docker: `docker-compose -f docker-compose.dev.yml exec backend alembic upgrade head`
+  - Local: `cd backend && uv run alembic upgrade head`
+- This ensures the schema stays in sync and integration tests pass.
+
+### Docker Dev Environment
+After making changes, **restart or rebuild the Docker containers as needed** and verify there are no startup errors:
+- **Code-only changes (backend):** Usually auto-reloaded by `uvicorn --reload`. However, changes to startup/lifespan code (e.g. `main.py`) require a restart to re-execute:
+  ```bash
+  docker-compose -f docker-compose.dev.yml restart backend
+  ```
+- **Backend dependency changes** (`pyproject.toml` / `uv.lock`): Restart backend + worker so `uv sync` runs:
+  ```bash
+  docker-compose -f docker-compose.dev.yml restart backend worker
+  ```
+- **Frontend dependency changes** (`package.json`): Rebuild the frontend container:
+  ```bash
+  docker-compose -f docker-compose.dev.yml up -d --build frontend
+  ```
+- **Dockerfile changes or full rebuild:**
+  ```bash
+  docker-compose -f docker-compose.dev.yml up -d --build
+  ```
+- **After any restart/rebuild, check logs for errors:**
+  ```bash
+  docker-compose -f docker-compose.dev.yml logs --tail=30 backend
+  ```
+  Verify you see `Application startup complete.` with no tracebacks.
+
 ### Git Workflow
 - Feature branches from main
 - Descriptive commit messages

@@ -3,6 +3,28 @@
 import secrets
 from urllib.parse import urlencode
 
+# All Slack user-token scopes required by Alfred.
+# When new scopes are added here, existing users will see a re-authorize prompt.
+REQUIRED_SLACK_USER_SCOPES: frozenset[str] = frozenset(
+    {
+        "users.profile:read",
+        "users.profile:write",
+        "im:history",
+        "im:read",
+        "dnd:write",
+        "channels:read",
+        "groups:read",
+    }
+)
+
+
+def _check_slack_reauth_required(stored_scope: str | None) -> bool:
+    """Return True if the stored scope string is missing any required scope."""
+    if not stored_scope:
+        return True
+    stored = frozenset(s.strip() for s in stored_scope.split(",") if s.strip())
+    return not REQUIRED_SLACK_USER_SCOPES.issubset(stored)
+
 import httpx
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
@@ -200,12 +222,7 @@ async def get_slack_oauth_url(current_user: CurrentUser) -> SlackOAuthUrlRespons
     state = secrets.token_urlsafe(32)
     store_oauth_state(state, current_user.id)
 
-    # Slack OAuth scopes for user token
-    # user_scope is for user token permissions, scope is for bot token
-    # - users.profile:* for setting status during focus mode
-    # - im:history,im:read for receiving DM events (focus mode auto-reply)
-    # - dnd:write for enabling Do Not Disturb during focus mode
-    user_scopes = "users.profile:read,users.profile:write,im:history,im:read,dnd:write"
+    user_scopes = ",".join(sorted(REQUIRED_SLACK_USER_SCOPES))
 
     params = {
         "client_id": settings.slack_client_id,
@@ -281,6 +298,13 @@ async def slack_oauth_callback(
         scope=scope,
     )
 
+    # Reset reauth_dm_sent_at so future scope additions can trigger a new DM
+    token_repo = OAuthTokenRepository(db)
+    token = await token_repo.get_by_user_and_provider(user_id, "slack")
+    if token:
+        token.reauth_dm_sent_at = None
+        await db.flush()
+
     # Auto-link Slack account if not already linked
     # This saves users from having to do the /alfred-link step separately
     if slack_user_id:
@@ -320,6 +344,21 @@ async def slack_oauth_callback(
             f"Failed to auto-detect workspace domain for user={user_id}"
         )
 
+    # Refresh the public-channel cache (private channels are fetched
+    # per-user at query time, so no need to cache them here).
+    try:
+        from app.db.repositories.triage import SlackChannelCacheRepository
+        from app.services.slack import fetch_all_slack_channels
+
+        raw_channels = await fetch_all_slack_channels()  # bot token
+        cache_repo = SlackChannelCacheRepository(db)
+        await cache_repo.upsert_batch(raw_channels)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception(
+            f"Failed to refresh Slack channel cache after OAuth for user={user_id}"
+        )
+
     # Redirect back to frontend settings page
     redirect_url = f"{settings.frontend_url}/settings?oauth=success"
     return RedirectResponse(url=redirect_url)
@@ -336,9 +375,13 @@ async def get_slack_oauth_status(
     token_repo = OAuthTokenRepository(db)
     token = await token_repo.get_by_user_and_provider(current_user.id, "slack")
 
+    if token is None:
+        return SlackOAuthStatusResponse(connected=False)
+
     return SlackOAuthStatusResponse(
-        connected=token is not None,
-        scope=token.scope if token else None,
+        connected=True,
+        scope=token.scope,
+        reauth_required=_check_slack_reauth_required(token.scope),
     )
 
 

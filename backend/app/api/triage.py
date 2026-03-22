@@ -401,7 +401,12 @@ async def list_available_slack_channels(
     db: DbSession,
     search: str = Query("", description="Filter channels by name"),
 ) -> list[SlackChannelInfo]:
-    """List available Slack channels from persistent DB cache."""
+    """List available Slack channels.
+
+    Public channels come from the persistent DB cache.
+    Private channels are fetched per-user via their Slack token so users
+    only see private channels they belong to.
+    """
     await _check_triage_access(current_user.id, db, current_user.role)
 
     cache_repo = SlackChannelCacheRepository(db)
@@ -411,7 +416,7 @@ async def list_available_slack_channels(
         try:
             from app.services.slack import fetch_all_slack_channels
 
-            raw_channels = await fetch_all_slack_channels()
+            raw_channels = await fetch_all_slack_channels()  # bot token
             await cache_repo.upsert_batch(raw_channels)
             await db.commit()
         except SlackApiError as e:
@@ -422,8 +427,10 @@ async def list_available_slack_channels(
             ) from e
 
     search_term = search.strip() or None
+
+    # 1. Public channels from DB cache
     rows = await cache_repo.get_all(search=search_term)
-    return [
+    results: list[SlackChannelInfo] = [
         SlackChannelInfo(
             id=r.slack_channel_id,
             name=r.name,
@@ -432,6 +439,45 @@ async def list_available_slack_channels(
         )
         for r in rows
     ]
+
+    # 2. Private channels fetched per-user via their Slack token
+    try:
+        from app.services.slack_user import SlackUserService
+
+        user_svc = SlackUserService(db)
+        user_token = await user_svc.get_raw_token(current_user.id)
+        if user_token:
+            from app.services.slack import _paginate_conversations
+            from slack_sdk.web.async_client import AsyncWebClient
+
+            client = AsyncWebClient(token=user_token)
+            try:
+                private_channels = await _paginate_conversations(
+                    client, "private_channel", max_retries=3
+                )
+            except SlackApiError:
+                private_channels = []
+
+            seen_ids = {r.id for r in results}
+            for ch in private_channels:
+                if ch["id"] in seen_ids:
+                    continue
+                name = ch.get("name", "")
+                if search_term and search_term.lower() not in name.lower():
+                    continue
+                results.append(
+                    SlackChannelInfo(
+                        id=ch["id"],
+                        name=name,
+                        is_private=True,
+                        num_members=ch.get("num_members", 0),
+                    )
+                )
+    except Exception:
+        logger.exception("Failed to fetch user's private channels")
+
+    results.sort(key=lambda c: c.name.lower())
+    return results
 
 
 @router.post(
@@ -451,9 +497,12 @@ async def refresh_slack_channels(
     from arq.connections import ArqRedis
 
     pool = ArqRedis(redis_client.connection_pool)
+    import uuid as _uuid
+
     await pool.enqueue_job(
         "refresh_slack_channel_cache",
-        _job_id="refresh_slack_channel_cache",
+        current_user.id,
+        _job_id=f"refresh_slack_channel_cache:{_uuid.uuid4().hex[:8]}",
     )
     return {"status": "queued"}
 

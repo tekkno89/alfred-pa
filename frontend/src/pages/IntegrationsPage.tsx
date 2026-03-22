@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams, Link as RouterLink } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { MessageSquare, ArrowLeft, CheckCircle2, XCircle, Link2, Unlink, ExternalLink } from 'lucide-react'
+import { MessageSquare, ArrowLeft, CheckCircle2, XCircle, Link2, Unlink, ExternalLink, AlertTriangle, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { GitHubConnectionCard } from '@/components/settings/GitHubConnectionCard'
@@ -94,7 +94,14 @@ export function IntegrationsPage() {
       setFeedback({ type: 'error', message })
       setSearchParams({}, { replace: true })
     }
-  }, [searchParams, setSearchParams])
+
+    const slackOAuth = searchParams.get('oauth')
+    if (slackOAuth === 'success') {
+      queryClient.invalidateQueries({ queryKey: ['slack-oauth-status'] })
+      setFeedback({ type: 'success', message: 'Slack permissions updated successfully.' })
+      setSearchParams({}, { replace: true })
+    }
+  }, [searchParams, setSearchParams, queryClient])
 
   // Auto-dismiss feedback after 5 seconds
   useEffect(() => {
@@ -209,17 +216,34 @@ export function IntegrationsPage() {
               ) : oauthStatus?.connected ? (
                 <div className="space-y-4">
                   <div className="flex items-center gap-2 text-sm">
-                    <div className="h-2 w-2 rounded-full bg-green-500" />
+                    <div className={`h-2 w-2 rounded-full ${oauthStatus.reauth_required ? 'bg-amber-500' : 'bg-green-500'}`} />
                     <span>Slack OAuth connected</span>
                   </div>
-                  <Button
-                    variant="outline"
-                    onClick={() => revokeOAuthMutation.mutate()}
-                    disabled={revokeOAuthMutation.isPending}
-                  >
-                    <Unlink className="h-4 w-4 mr-2" />
-                    {revokeOAuthMutation.isPending ? 'Revoking...' : 'Revoke Access'}
-                  </Button>
+                  {oauthStatus.reauth_required && (
+                    <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                      <span>
+                        Alfred needs updated Slack permissions for new features (e.g. triage channel listing).
+                        Please re-authorize to grant the missing scopes.
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    {oauthStatus.reauth_required && (
+                      <Button onClick={handleConnectSlackOAuth}>
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Re-authorize Slack
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      onClick={() => revokeOAuthMutation.mutate()}
+                      disabled={revokeOAuthMutation.isPending}
+                    >
+                      <Unlink className="h-4 w-4 mr-2" />
+                      {revokeOAuthMutation.isPending ? 'Revoking...' : 'Revoke Access'}
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-4">

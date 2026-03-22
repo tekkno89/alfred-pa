@@ -208,23 +208,47 @@ async def cleanup_expired_classifications(ctx: dict) -> dict:
         return {"status": "complete", "deleted_count": deleted_total}
 
 
-async def refresh_slack_channel_cache(ctx: dict) -> dict:
-    """Refresh the persistent Slack channel cache from the Slack API."""
+async def refresh_slack_channel_cache(ctx: dict, user_id: str | None = None) -> dict:
+    """Refresh the persistent Slack channel cache from the Slack API.
+
+    Only public channels are stored in the global cache.  Private channels
+    are fetched per-user at query time for security.
+    """
     from app.db.repositories.triage import SlackChannelCacheRepository
     from app.services.slack import fetch_all_slack_channels
 
-    logger.info("Refreshing Slack channel cache")
+    logger.info("Refreshing Slack channel cache (public channels only)")
     try:
-        raw_channels = await fetch_all_slack_channels()
+        raw_channels = await fetch_all_slack_channels()  # bot token
     except Exception:
         logger.exception("Failed to fetch Slack channels for cache refresh")
+        # Publish SSE so the frontend knows the refresh failed
+        if user_id:
+            try:
+                from app.services.notifications import NotificationService
+                await NotificationService.publish_to_sse(
+                    user_id, "slack_channels.refreshed", {"status": "error"}
+                )
+            except Exception:
+                pass
         return {"status": "error"}
 
     async with get_db_session() as db:
         repo = SlackChannelCacheRepository(db)
         count = await repo.upsert_batch(raw_channels)
 
-    logger.info(f"Slack channel cache refreshed: {count} channels")
+    logger.info(f"Slack channel cache refreshed: {count} public channels")
+
+    # Notify the frontend that the refresh is complete
+    if user_id:
+        try:
+            from app.services.notifications import NotificationService
+            await NotificationService.publish_to_sse(
+                user_id, "slack_channels.refreshed", {"status": "ok", "count": count}
+            )
+        except Exception:
+            logger.debug("Failed to publish SSE for channel refresh completion")
+
     return {"status": "ok", "count": count}
 
 

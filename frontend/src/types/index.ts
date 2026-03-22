@@ -366,6 +366,7 @@ export interface WebhookTestResponse {
 export interface SlackOAuthStatusResponse {
   connected: boolean
   scope?: string | null
+  reauth_required?: boolean
 }
 
 // Notification Events

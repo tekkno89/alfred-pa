@@ -30,6 +30,13 @@ class SlackUserService:
         access_token = await self.token_encryption.get_decrypted_access_token(token)
         return AsyncWebClient(token=access_token)
 
+    async def get_raw_token(self, user_id: str) -> str | None:
+        """Return the decrypted Slack OAuth access token string, or None."""
+        token = await self.token_repo.get_by_user_and_provider(user_id, "slack")
+        if not token:
+            return None
+        return await self.token_encryption.get_decrypted_access_token(token)
+
     async def has_oauth_token(self, user_id: str) -> bool:
         """Check if user has a Slack OAuth token."""
         token = await self.token_repo.get_by_user_and_provider(user_id, "slack")

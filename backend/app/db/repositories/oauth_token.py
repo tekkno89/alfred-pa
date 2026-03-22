@@ -111,6 +111,27 @@ class OAuthTokenRepository(BaseRepository[UserOAuthToken]):
             return True
         return False
 
+    async def get_stale_slack_tokens(
+        self, required_scopes: frozenset[str]
+    ) -> list[UserOAuthToken]:
+        """Return Slack tokens that are missing required scopes and haven't been DM-notified."""
+        result = await self.db.execute(
+            select(UserOAuthToken)
+            .where(UserOAuthToken.provider == "slack")
+            .where(UserOAuthToken.reauth_dm_sent_at.is_(None))
+        )
+        tokens = list(result.scalars().all())
+        # Filter in Python since scope comparison isn't practical in SQL
+        stale: list[UserOAuthToken] = []
+        for token in tokens:
+            if not token.scope:
+                stale.append(token)
+                continue
+            stored = frozenset(s.strip() for s in token.scope.split(",") if s.strip())
+            if not required_scopes.issubset(stored):
+                stale.append(token)
+        return stale
+
     async def delete_by_id(self, token_id: str, user_id: str) -> bool:
         """Delete OAuth token by ID with ownership check. Returns True if deleted."""
         token = await self.get(token_id)

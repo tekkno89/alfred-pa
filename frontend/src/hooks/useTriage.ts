@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiPatch, apiPost, apiDelete } from '@/lib/api'
 import type {
@@ -157,15 +158,35 @@ export function useAvailableSlackChannels() {
 
 export function useRefreshSlackChannels() {
   const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: () => apiPost<{ status: string }>('/triage/slack-channels/refresh'),
-    onSuccess: () => {
-      // Delay invalidation so the background job has time to finish
-      setTimeout(() => {
+  const [refreshing, setRefreshing] = useState(false)
+
+  // Call this when a notification event arrives so the hook can react
+  const onNotification = useCallback(
+    (event: { type: string }) => {
+      if (event.type === 'slack_channels.refreshed' && refreshing) {
+        setRefreshing(false)
         queryClient.invalidateQueries({ queryKey: ['triage-slack-channels'] })
-      }, 5000)
+      }
     },
+    [queryClient, refreshing],
+  )
+
+  // Safety timeout — if SSE event never arrives, re-enable after 30s
+  useEffect(() => {
+    if (!refreshing) return
+    const timer = setTimeout(() => {
+      setRefreshing(false)
+      queryClient.invalidateQueries({ queryKey: ['triage-slack-channels'] })
+    }, 30_000)
+    return () => clearTimeout(timer)
+  }, [refreshing, queryClient])
+
+  const mutation = useMutation({
+    mutationFn: () => apiPost<{ status: string }>('/triage/slack-channels/refresh'),
+    onSuccess: () => setRefreshing(true),
   })
+
+  return { ...mutation, refreshing, onNotification }
 }
 
 // --- Classifications ---

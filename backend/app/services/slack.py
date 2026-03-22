@@ -184,16 +184,25 @@ class SlackService:
 
 async def fetch_all_slack_channels(
     max_retries: int = 5,
+    token: str | None = None,
 ) -> list[dict]:
     """Fetch all Slack channels with pagination and rate-limit retry.
 
-    Tries public+private channels first; falls back to public-only if the bot
-    lacks the ``groups:read`` scope.
+    Tries public+private channels first; falls back to public-only if the
+    token lacks the ``groups:read`` scope.
+
+    Args:
+        max_retries: Number of rate-limit retries per page.
+        token: Slack token to use. When a user OAuth token is supplied the
+            response includes all channels the *user* belongs to (including
+            private channels). Falls back to the bot token when ``None``.
 
     Returns a list of dicts with keys: id, name, is_private, num_members.
     """
-    settings = get_settings()
-    client = AsyncWebClient(token=settings.slack_bot_token)
+    if token is None:
+        settings = get_settings()
+        token = settings.slack_bot_token
+    client = AsyncWebClient(token=token)
 
     channel_types = "public_channel,private_channel"
     try:

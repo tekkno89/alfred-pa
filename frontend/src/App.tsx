@@ -23,6 +23,7 @@ import { AppLayout } from '@/components/layout/AppLayout'
 import { AuthGuard } from '@/components/auth/AuthGuard'
 import { NotificationProvider } from '@/components/notifications/NotificationProvider'
 import { NotificationBanner } from '@/components/notifications/NotificationBanner'
+import { ReauthBanner } from '@/components/notifications/ReauthBanner'
 
 function App() {
   return (
@@ -38,6 +39,7 @@ function App() {
             <AuthGuard>
               <NotificationProvider>
                 <NotificationBanner />
+                <ReauthBanner />
                 <AppLayout />
               </NotificationProvider>
             </AuthGuard>

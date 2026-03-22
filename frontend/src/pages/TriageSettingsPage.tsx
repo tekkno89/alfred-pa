@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { ArrowLeft, Plus, Trash2, Hash, Lock, RefreshCw, ChevronsUpDown, Check } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -41,6 +41,7 @@ import {
   useAddSourceExclusion,
   useRemoveSourceExclusion,
 } from '@/hooks/useTriage'
+import { useNotificationContext } from '@/components/notifications/NotificationProvider'
 import type { MonitoredChannel, ChannelPriority } from '@/types'
 
 function ChannelConfig({ channel }: { channel: MonitoredChannel }) {
@@ -253,6 +254,14 @@ export function TriageSettingsPage() {
   const addChannel = useAddMonitoredChannel()
   const refreshChannels = useRefreshSlackChannels()
 
+  // Wire SSE events to the refresh hook so it knows when the job finishes
+  const { lastEvent } = useNotificationContext()
+  useEffect(() => {
+    if (lastEvent) {
+      refreshChannels.onNotification(lastEvent)
+    }
+  }, [lastEvent]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const [comboboxOpen, setComboboxOpen] = useState(false)
   const [selectedChannelId, setSelectedChannelId] = useState('')
   const [customRules, setCustomRules] = useState<string | null>(null)
@@ -404,11 +413,11 @@ export function TriageSettingsPage() {
               variant="ghost"
               size="icon"
               className="h-8 w-8"
-              disabled={refreshChannels.isPending}
+              disabled={refreshChannels.refreshing || refreshChannels.isPending}
               onClick={() => refreshChannels.mutate()}
               title="Refresh channel list from Slack"
             >
-              <RefreshCw className={`h-4 w-4 ${refreshChannels.isPending ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-4 w-4 ${refreshChannels.refreshing || refreshChannels.isPending ? 'animate-spin' : ''}`} />
             </Button>
           </div>
         </CardHeader>

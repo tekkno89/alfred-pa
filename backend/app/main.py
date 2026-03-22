@@ -39,6 +39,30 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Start Redis pub/sub subscriber for cross-process SSE delivery
     subscriber_task = asyncio.create_task(NotificationService.start_redis_subscriber())
 
+    # Send one-time reauth DMs to users with stale Slack scopes
+    try:
+        from app.api.auth import REQUIRED_SLACK_USER_SCOPES
+        from app.db.session import async_session_maker
+        from app.services.slack_reauth import send_reauth_notifications
+
+        async with async_session_maker() as db:
+            try:
+                sent = await send_reauth_notifications(db, REQUIRED_SLACK_USER_SCOPES)
+                await db.commit()
+                if sent:
+                    logging.getLogger(__name__).info(
+                        f"Sent {sent} Slack reauth notification(s)"
+                    )
+            except Exception:
+                await db.rollback()
+                logging.getLogger(__name__).exception(
+                    "Failed to send Slack reauth notifications"
+                )
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Failed to initialize Slack reauth check"
+        )
+
     yield
 
     # Shutdown

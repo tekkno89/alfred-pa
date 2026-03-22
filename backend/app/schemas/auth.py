@@ -56,6 +56,7 @@ class SlackOAuthStatusResponse(BaseModel):
 
     connected: bool
     scope: str | None = None
+    reauth_required: bool = False
 
 
 class SlackOAuthCallbackRequest(BaseModel):
