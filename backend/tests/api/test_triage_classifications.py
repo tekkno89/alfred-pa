@@ -465,6 +465,168 @@ class TestReviewableFilter:
         assert "noise" not in returned_levels
 
 
+class TestNeedsAttentionFilter:
+    """Test the 'needs_attention' pseudo-filter (alias for reviewable)."""
+
+    @pytest.mark.asyncio
+    async def test_needs_attention_returns_same_as_reviewable(
+        self, client: AsyncClient, test_user, classifications, db_session: AsyncSession
+    ):
+        # Add a digest_summary item
+        summary = TriageClassification(
+            user_id=test_user.id,
+            sender_slack_id="SYSTEM",
+            sender_name=None,
+            channel_id="C12345",
+            channel_name=None,
+            message_ts="1700099998.000000",
+            urgency_level="digest_summary",
+            confidence=1.0,
+            classification_reason="Consolidated 2 digest items",
+            abstract="2 noteworthy messages",
+            classification_path="simple",
+            child_count=2,
+        )
+        db_session.add(summary)
+        await db_session.commit()
+
+        resp = await client.get(
+            "/api/triage/classifications",
+            params={"urgency": "needs_attention", "hide_active_digest": "false"},
+            headers=auth_headers(test_user),
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # From fixtures: 2 urgent + 1 review + 1 digest_summary = 4
+        assert data["total"] == 4
+        returned_levels = {item["urgency_level"] for item in data["items"]}
+        assert returned_levels <= {"urgent", "review", "digest_summary"}
+        assert "digest" not in returned_levels
+        assert "noise" not in returned_levels
+
+
+class TestDigestFilterShowsConsolidated:
+    """Test that filtering by 'digest' shows consolidated items too."""
+
+    @pytest.mark.asyncio
+    async def test_digest_filter_includes_consolidated_items(
+        self, client: AsyncClient, test_user, db_session: AsyncSession
+    ):
+        # Create a digest_summary and link digest children to it
+        summary = TriageClassification(
+            user_id=test_user.id,
+            sender_slack_id="SYSTEM",
+            sender_name="Digest Summary",
+            channel_id="C12345",
+            channel_name=None,
+            message_ts="1700500000.000000",
+            urgency_level="digest_summary",
+            confidence=1.0,
+            classification_reason="Consolidated",
+            abstract="3 messages",
+            classification_path="channel",
+            child_count=3,
+        )
+        db_session.add(summary)
+        await db_session.commit()
+        await db_session.refresh(summary)
+
+        # Create digest items, some consolidated (linked to summary)
+        standalone = TriageClassification(
+            user_id=test_user.id,
+            sender_slack_id="U90001",
+            sender_name="Standalone",
+            channel_id="C12345",
+            channel_name="general",
+            message_ts="1700500001.000000",
+            urgency_level="digest",
+            confidence=0.8,
+            abstract="Standalone digest",
+            classification_path="channel",
+        )
+        consolidated = TriageClassification(
+            user_id=test_user.id,
+            sender_slack_id="U90002",
+            sender_name="Consolidated",
+            channel_id="C12345",
+            channel_name="general",
+            message_ts="1700500002.000000",
+            urgency_level="digest",
+            confidence=0.8,
+            abstract="Consolidated digest",
+            classification_path="channel",
+            digest_summary_id=summary.id,
+        )
+        db_session.add_all([standalone, consolidated])
+        await db_session.commit()
+        await db_session.refresh(standalone)
+        await db_session.refresh(consolidated)
+
+        # Filter by digest — should see both standalone and consolidated items
+        resp = await client.get(
+            "/api/triage/classifications",
+            params={"urgency": "digest", "hide_active_digest": "false"},
+            headers=auth_headers(test_user),
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        returned_ids = {item["id"] for item in data["items"]}
+        assert standalone.id in returned_ids
+        assert consolidated.id in returned_ids
+
+    @pytest.mark.asyncio
+    async def test_other_filters_still_hide_consolidated(
+        self, client: AsyncClient, test_user, db_session: AsyncSession
+    ):
+        # Create a consolidated digest item
+        summary = TriageClassification(
+            user_id=test_user.id,
+            sender_slack_id="SYSTEM",
+            sender_name="Summary",
+            channel_id="C12345",
+            channel_name=None,
+            message_ts="1700600000.000000",
+            urgency_level="digest_summary",
+            confidence=1.0,
+            abstract="Summary",
+            classification_path="channel",
+            child_count=1,
+        )
+        db_session.add(summary)
+        await db_session.commit()
+        await db_session.refresh(summary)
+
+        consolidated = TriageClassification(
+            user_id=test_user.id,
+            sender_slack_id="U80001",
+            sender_name="Hidden",
+            channel_id="C12345",
+            channel_name="general",
+            message_ts="1700600001.000000",
+            urgency_level="digest",
+            confidence=0.8,
+            abstract="Should be hidden",
+            classification_path="channel",
+            digest_summary_id=summary.id,
+        )
+        db_session.add(consolidated)
+        await db_session.commit()
+        await db_session.refresh(consolidated)
+
+        # Filter with no urgency (all) — consolidated items should be hidden
+        resp = await client.get(
+            "/api/triage/classifications",
+            params={"hide_active_digest": "false"},
+            headers=auth_headers(test_user),
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        returned_ids = {item["id"] for item in data["items"]}
+        assert consolidated.id not in returned_ids
+        # But the summary itself should be visible
+        assert summary.id in returned_ids
+
+
 class TestTotalCountAccuracy:
     """Verify total count reflects active filters."""
 

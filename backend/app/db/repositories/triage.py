@@ -205,10 +205,12 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
     ):
         """Apply common filter logic to a query."""
         query = query.where(TriageClassification.user_id == user_id)
-        # Hide items that have been consolidated into a digest summary
-        query = query.where(
-            TriageClassification.digest_summary_id.is_(None)
-        )
+        # Hide items that have been consolidated into a digest summary,
+        # unless the user is explicitly filtering by "digest" to see all digest messages
+        if urgency_level != "digest":
+            query = query.where(
+                TriageClassification.digest_summary_id.is_(None)
+            )
         if urgency_level:
             if isinstance(urgency_level, list):
                 query = query.where(

@@ -448,7 +448,7 @@ async def list_available_slack_channels(
 async def list_classifications(
     current_user: CurrentUser,
     db: DbSession,
-    urgency: str | None = Query(None, pattern="^(urgent|digest|noise|review|digest_summary|reviewable)$"),
+    urgency: str | None = Query(None, pattern="^(urgent|digest|noise|review|digest_summary|reviewable|needs_attention)$"),
     channel_id: str | None = Query(None),
     reviewed: bool | None = Query(None),
     hide_active_digest: bool = Query(True),
@@ -459,9 +459,9 @@ async def list_classifications(
     await _check_triage_access(current_user.id, db, current_user.role)
     repo = TriageClassificationRepository(db)
 
-    # Translate "reviewable" pseudo-filter into a list of urgency levels
+    # Translate "reviewable"/"needs_attention" pseudo-filter into a list of urgency levels
     urgency_filter: str | list[str] | None = urgency
-    if urgency == "reviewable":
+    if urgency in ("reviewable", "needs_attention"):
         urgency_filter = ["urgent", "review", "digest_summary"]
 
     items = await repo.get_recent(

@@ -27,12 +27,12 @@ import type { TriageClassification } from '@/types'
 
 const URGENCY_OPTIONS = [
   { value: 'all', label: 'All' },
-  { value: 'reviewable', label: 'Reviewable' },
+  { value: 'needs_attention', label: 'Needs Attention' },
   { value: 'urgent', label: 'Urgent' },
-  { value: 'digest', label: 'Digest' },
+  { value: 'digest', label: 'Digest Messages' },
   { value: 'digest_summary', label: 'Session Digest' },
   { value: 'noise', label: 'Noise' },
-  { value: 'review', label: 'Review' },
+  { value: 'review', label: 'Unclassified' },
 ] as const
 
 const STATUS_OPTIONS = [
@@ -65,7 +65,7 @@ const URGENCY_BADGE: Record<string, { icon: typeof AlertTriangle; className: str
   review: {
     icon: Clock,
     className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200',
-    label: 'Review',
+    label: 'Unclassified',
   },
 }
 
@@ -164,7 +164,7 @@ function ClassificationItem({
 
 export function TriagePage() {
   const navigate = useNavigate()
-  const [urgencyFilter, setUrgencyFilter] = useState('reviewable')
+  const [urgencyFilter, setUrgencyFilter] = useState('needs_attention')
   const [statusFilter, setStatusFilter] = useState('unreviewed')
   const [offset, setOffset] = useState(0)
   const [selectedItem, setSelectedItem] = useState<TriageClassification | null>(null)

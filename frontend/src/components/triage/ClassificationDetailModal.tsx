@@ -53,7 +53,7 @@ const URGENCY_CONFIG: Record<string, { icon: typeof AlertTriangle; className: st
   review: {
     icon: Clock,
     className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200',
-    label: 'Review',
+    label: 'Unclassified',
   },
 }
 
@@ -288,7 +288,7 @@ export function ClassificationDetailModal({
                     <SelectItem value="urgent">Urgent</SelectItem>
                     <SelectItem value="digest">Digest</SelectItem>
                     <SelectItem value="noise">Noise</SelectItem>
-                    <SelectItem value="review">Review</SelectItem>
+                    <SelectItem value="review">Unclassified</SelectItem>
                   </SelectContent>
                 </Select>
               )}
