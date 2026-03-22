@@ -13,9 +13,10 @@
 | Phase 7: Focus Mode | ✅ Complete | Focus mode, pomodoro, VIP bypass, notifications |
 | Phase 8: Web Search & Tools | ✅ Complete | Tool-calling ReAct loop, Tavily web search |
 | Phase 9: GitHub & Token Encryption | ✅ Complete | GitHub App integration, envelope encryption, integrations page |
-| Phase 10: Observability | 🔲 Not Started | Prometheus metrics, Loki logging, dashboards |
-| Phase 11: CI/CD | 🔲 Not Started | GitHub Actions, Cloud Run deployment |
-| Phase 12: Plugin System | 📋 Design | Installable feature modules from external repos |
+| Phase 10: Slack Triage | ✅ Complete | LLM-powered message classification, digest consolidation, real-time alerts |
+| Phase 11: Observability | 🔲 Not Started | Prometheus metrics, Loki logging, dashboards |
+| Phase 12: CI/CD | 🔲 Not Started | GitHub Actions, Cloud Run deployment |
+| Phase 13: Plugin System | 📋 Design | Installable feature modules from external repos |
 
 ---
 
@@ -192,7 +193,34 @@ Completed items:
 
 ---
 
-## Phase 10: Observability 🔲
+## Phase 10: Slack Triage ✅
+
+**Status:** Complete
+**Plan File:** [13-slack-triage.md](./13-slack-triage.md)
+**Diagrams:** [triage-flow.md](../diagrams/triage-flow.md)
+
+Completed items:
+- [x] Triage event router with Redis-cached monitored channel set
+- [x] Message enrichment pipeline (user settings, VIP, channel config, Slack names)
+- [x] LLM-powered classifier (Gemini/Claude via Vertex AI) with 4-level urgency system
+- [x] Classification paths: DM (VIP fast-path) and channel (keyword rules, priority escalation)
+- [x] Zero message persistence — only abstracts and metadata stored
+- [x] Real-time urgent notifications (Slack DM + SSE)
+- [x] Per-session digest consolidation with parent-child linking
+- [x] Break and end-of-session digest delivery via Slack DM
+- [x] Channel monitoring CRUD with keyword rules and source exclusions
+- [x] Triage settings (sensitivity, always-on, debug mode, custom rules)
+- [x] Classification feedback system (thumbs up/down + correction)
+- [x] Sender behavior model (response patterns, interaction frequency)
+- [x] Frontend: TriagePage with filters (Needs Attention, Urgent, Digest Messages, Session Digest, Noise, Unclassified)
+- [x] Frontend: TriageSettingsPage with channel management
+- [x] Frontend: Dashboard TriageCard with stats and recent items
+- [x] Frontend: ClassificationDetailModal with feedback UI
+- [x] 16 integration tests for classification endpoints
+
+---
+
+## Phase 11: Observability 🔲
 
 **Status:** Not Started
 
@@ -203,7 +231,7 @@ Key deliverables:
 
 ---
 
-## Phase 11: CI/CD 🔲
+## Phase 12: CI/CD 🔲
 
 **Status:** Not Started
 

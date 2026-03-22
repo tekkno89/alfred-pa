@@ -19,6 +19,16 @@ graph TD
     M -->|N:1| L
     B -->|1:N| D[Message]
     B -->|1:N| C
+
+    A -->|1:1| TUS[TriageUserSettings]
+    A -->|1:N| MC[MonitoredChannel]
+    A -->|1:N| TC[TriageClassification]
+    A -->|1:N| SBM[SenderBehaviorModel]
+    MC -->|1:N| CKR[ChannelKeywordRule]
+    MC -->|1:N| CSE[ChannelSourceExclusion]
+    TC -->|N:1| G
+    TC -->|self-ref| TC
+    TC -->|1:0..1| TF[TriageFeedback]
 ```
 
 ## Tables
@@ -145,3 +155,81 @@ graph TD
 - `encryption_key_id` FK → EncryptionKey
 - `github_app_id` string(100) nullable — for future app-level API
 - UNIQUE(user_id, label)
+
+### TriageUserSettings
+- `id` UUID PK
+- `user_id` FK → User (unique)
+- `is_always_on` boolean default false
+- `sensitivity` string(10) default "medium" — low | medium | high
+- `debug_mode` boolean default false
+- `slack_workspace_domain` string(255) nullable
+- `classification_retention_days` integer default 30
+- `custom_classification_rules` text nullable
+
+### MonitoredChannel
+- `id` UUID PK
+- `user_id` FK → User
+- `slack_channel_id` string(50)
+- `channel_name` string(255)
+- `channel_type` string(10) default "public" — public | private
+- `priority` string(10) default "medium" — low | medium | high | critical
+- `is_active` boolean default true
+
+### ChannelKeywordRule
+- `id` UUID PK
+- `monitored_channel_id` FK → MonitoredChannel (CASCADE)
+- `user_id` FK → User
+- `keyword_pattern` string(255)
+- `match_type` string(20) default "contains" — exact | contains
+- `urgency_override` string(20) nullable — urgent | digest | null
+
+### ChannelSourceExclusion
+- `id` UUID PK
+- `monitored_channel_id` FK → MonitoredChannel (CASCADE)
+- `user_id` FK → User
+- `slack_entity_id` string(50)
+- `entity_type` string(10) default "bot" — bot | user
+- `action` string(10) default "exclude" — exclude | include
+- `display_name` string(255) nullable
+
+### TriageClassification
+- `id` UUID PK
+- `user_id` FK → User
+- `focus_session_id` FK → FocusModeState nullable
+- `sender_slack_id` string(50)
+- `sender_name` string(200) nullable
+- `channel_id` string(50)
+- `channel_name` string(200) nullable
+- `message_ts` string(50)
+- `thread_ts` string(50) nullable
+- `slack_permalink` text nullable
+- `focus_started_at` datetime nullable
+- `urgency_level` string(20) — urgent | digest | noise | review | digest_summary
+- `confidence` float default 0.0
+- `classification_reason` text nullable
+- `abstract` text nullable — LLM-generated summary (no raw text stored)
+- `classification_path` string(10) — dm | channel
+- `escalated_by_sender` boolean default false
+- `surfaced_at_break` boolean default false
+- `keyword_matches` JSON nullable
+- `reviewed_at` datetime nullable
+- `digest_summary_id` FK → TriageClassification (self-ref, SET NULL) nullable
+- `child_count` integer nullable — set on digest_summary rows
+
+### SenderBehaviorModel
+- `id` UUID PK
+- `user_id` FK → User
+- `sender_slack_id` string(50)
+- `avg_response_time_seconds` float nullable
+- `response_pattern` string(20) default "normal" — immediate | quick | normal | slow
+- `interaction_frequency` string(20) default "medium" — high | medium | low | rare
+- `total_interactions` integer default 0
+- `last_computed_at` datetime nullable
+- UNIQUE(user_id, sender_slack_id)
+
+### TriageFeedback
+- `id` UUID PK
+- `classification_id` FK → TriageClassification (CASCADE)
+- `user_id` FK → User
+- `was_correct` boolean
+- `correct_urgency` string(20) nullable — urgent | digest | noise | review

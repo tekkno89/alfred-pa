@@ -174,6 +174,7 @@ graph TD
 - `encryption-flow.md` - Envelope encryption (DEK/KEK) for token storage
 - `github-flow.md` - GitHub App OAuth + PAT integration flow
 - `google-calendar-flow.md` - Google Calendar OAuth integration flow
+- `triage-flow.md` - Triage classification pipeline, urgency levels, digest consolidation
 - `frontend-architecture.md` - Frontend component architecture
 
 ### Development Guides
