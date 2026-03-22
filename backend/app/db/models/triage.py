@@ -191,6 +191,20 @@ class SenderBehaviorModel(Base, UUIDMixin, TimestampMixin):
         return f"<SenderBehaviorModel(user_id={self.user_id}, sender={self.sender_slack_id})>"
 
 
+class SlackChannelCache(Base, UUIDMixin, TimestampMixin):
+    """Cached Slack channel list (global, not per-user)."""
+
+    __tablename__ = "slack_channel_cache"
+
+    slack_channel_id: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    is_private: Mapped[bool] = mapped_column(Boolean, default=False)
+    num_members: Mapped[int] = mapped_column(Integer, default=0)
+
+    def __repr__(self) -> str:
+        return f"<SlackChannelCache(name={self.name}, id={self.slack_channel_id})>"
+
+
 class TriageFeedback(Base, UUIDMixin, TimestampMixin):
     """User feedback on a classification decision."""
 

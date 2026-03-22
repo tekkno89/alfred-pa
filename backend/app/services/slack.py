@@ -1,14 +1,14 @@
 """Slack service for API interactions."""
 
+import asyncio
 import hashlib
 import hmac
 import logging
 import time
 from typing import Any
 
-from fastapi import Request
-from slack_sdk.web.async_client import AsyncWebClient
 from slack_sdk.errors import SlackApiError
+from slack_sdk.web.async_client import AsyncWebClient
 
 from app.core.config import get_settings
 
@@ -180,6 +180,78 @@ class SlackService:
         except SlackApiError as e:
             logger.error(f"Error getting Slack user info: {e.response['error']}")
             raise
+
+
+async def fetch_all_slack_channels(
+    max_retries: int = 5,
+) -> list[dict]:
+    """Fetch all Slack channels with pagination and rate-limit retry.
+
+    Tries public+private channels first; falls back to public-only if the bot
+    lacks the ``groups:read`` scope.
+
+    Returns a list of dicts with keys: id, name, is_private, num_members.
+    """
+    settings = get_settings()
+    client = AsyncWebClient(token=settings.slack_bot_token)
+
+    channel_types = "public_channel,private_channel"
+    try:
+        return await _paginate_conversations(client, channel_types, max_retries)
+    except SlackApiError as e:
+        if e.response.get("error") == "missing_scope":
+            needed = e.response.get("needed", "")
+            logger.warning(
+                f"Slack missing scope '{needed}', falling back to public channels only. "
+                "Reinstall the Slack app to grant the missing scope."
+            )
+            return await _paginate_conversations(
+                client, "public_channel", max_retries
+            )
+        raise
+
+
+async def _paginate_conversations(
+    client: AsyncWebClient,
+    channel_types: str,
+    max_retries: int,
+) -> list[dict]:
+    """Paginate through conversations.list with rate-limit retry."""
+    raw_channels: list[dict] = []
+    cursor = None
+    while True:
+        for attempt in range(max_retries + 1):
+            try:
+                response = await client.conversations_list(
+                    types=channel_types,
+                    exclude_archived=True,
+                    limit=200,
+                    cursor=cursor,
+                )
+                break
+            except SlackApiError as e:
+                if e.response.get("error") != "ratelimited" or attempt == max_retries:
+                    raise
+                retry_after = int(e.response.headers.get("Retry-After", 3))
+                logger.warning(
+                    f"Slack rate limited, retrying in {retry_after}s "
+                    f"(attempt {attempt + 1}/{max_retries})"
+                )
+                await asyncio.sleep(retry_after)
+
+        for ch in response.get("channels", []):
+            raw_channels.append(
+                {
+                    "id": ch["id"],
+                    "name": ch.get("name", ""),
+                    "is_private": ch.get("is_private", False),
+                    "num_members": ch.get("num_members", 0),
+                }
+            )
+        cursor = response.get("response_metadata", {}).get("next_cursor")
+        if not cursor:
+            break
+    return raw_channels
 
 
 # Singleton instance

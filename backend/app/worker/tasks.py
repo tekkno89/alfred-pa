@@ -1,11 +1,11 @@
 """Background tasks for the ARQ worker."""
 
 import logging
-from datetime import datetime
 from contextlib import asynccontextmanager
+from datetime import datetime
 
-from app.db.session import async_session_maker
 from app.db.repositories import FocusModeStateRepository
+from app.db.session import async_session_maker
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +185,7 @@ async def cleanup_expired_classifications(ctx: dict) -> dict:
 
         # Get all users with triage settings
         from sqlalchemy import select
+
         from app.db.models.triage import TriageUserSettings
 
         result = await db.execute(select(TriageUserSettings))
@@ -205,6 +206,26 @@ async def cleanup_expired_classifications(ctx: dict) -> dict:
         await db.commit()
         logger.info(f"Cleaned up {deleted_total} expired triage classifications")
         return {"status": "complete", "deleted_count": deleted_total}
+
+
+async def refresh_slack_channel_cache(ctx: dict) -> dict:
+    """Refresh the persistent Slack channel cache from the Slack API."""
+    from app.db.repositories.triage import SlackChannelCacheRepository
+    from app.services.slack import fetch_all_slack_channels
+
+    logger.info("Refreshing Slack channel cache")
+    try:
+        raw_channels = await fetch_all_slack_channels()
+    except Exception:
+        logger.exception("Failed to fetch Slack channels for cache refresh")
+        return {"status": "error"}
+
+    async with get_db_session() as db:
+        repo = SlackChannelCacheRepository(db)
+        count = await repo.upsert_batch(raw_channels)
+
+    logger.info(f"Slack channel cache refreshed: {count} channels")
+    return {"status": "ok", "count": count}
 
 
 async def transition_pomodoro(ctx: dict, user_id: str) -> dict:

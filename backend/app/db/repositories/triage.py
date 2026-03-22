@@ -1,8 +1,10 @@
 """Repositories for triage system operations."""
 
 from datetime import datetime, timedelta
+from uuid import uuid4
 
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.focus import FocusModeState
@@ -11,6 +13,7 @@ from app.db.models.triage import (
     ChannelSourceExclusion,
     MonitoredChannel,
     SenderBehaviorModel,
+    SlackChannelCache,
     TriageClassification,
     TriageFeedback,
     TriageUserSettings,
@@ -398,3 +401,63 @@ class TriageFeedbackRepository(BaseRepository[TriageFeedback]):
             correct_urgency=correct_urgency,
         )
         return await self.create(feedback)
+
+
+class SlackChannelCacheRepository(BaseRepository[SlackChannelCache]):
+    """Repository for the global Slack channel cache."""
+
+    def __init__(self, db: AsyncSession):
+        super().__init__(SlackChannelCache, db)
+
+    async def get_all(self, search: str | None = None) -> list[SlackChannelCache]:
+        query = select(SlackChannelCache).order_by(SlackChannelCache.name)
+        if search:
+            query = query.where(
+                SlackChannelCache.name.ilike(f"%{search}%")
+            )
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def upsert_batch(self, channels: list[dict]) -> int:
+        """Upsert channels and remove stale entries. Returns count upserted."""
+        if not channels:
+            return 0
+
+        # Upsert all channels
+        stmt = pg_insert(SlackChannelCache).values(
+            [
+                {
+                    "id": str(uuid4()),
+                    "slack_channel_id": ch["id"],
+                    "name": ch["name"],
+                    "is_private": ch.get("is_private", False),
+                    "num_members": ch.get("num_members", 0),
+                }
+                for ch in channels
+            ]
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["slack_channel_id"],
+            set_={
+                "name": stmt.excluded.name,
+                "is_private": stmt.excluded.is_private,
+                "num_members": stmt.excluded.num_members,
+                "updated_at": func.now(),
+            },
+        )
+        await self.db.execute(stmt)
+
+        # Delete channels no longer in Slack
+        current_ids = {ch["id"] for ch in channels}
+        await self.db.execute(
+            delete(SlackChannelCache).where(
+                SlackChannelCache.slack_channel_id.notin_(current_ids)
+            )
+        )
+        await self.db.flush()
+        return len(channels)
+
+    async def count(self, **filters) -> int:
+        query = select(func.count()).select_from(SlackChannelCache)
+        result = await self.db.execute(query)
+        return result.scalar() or 0

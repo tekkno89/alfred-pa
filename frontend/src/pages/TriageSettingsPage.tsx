@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { ArrowLeft, Plus, Trash2, Hash, Lock } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { ArrowLeft, Plus, Trash2, Hash, Lock, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -23,6 +23,7 @@ import {
   useRemoveMonitoredChannel,
   useUpdateMonitoredChannel,
   useAvailableSlackChannels,
+  useRefreshSlackChannels,
   useKeywordRules,
   useAddKeywordRule,
   useRemoveKeywordRule,
@@ -240,8 +241,10 @@ export function TriageSettingsPage() {
   const { data: channelData, isLoading: channelsLoading } = useMonitoredChannels()
   const { data: slackChannels = [] } = useAvailableSlackChannels()
   const addChannel = useAddMonitoredChannel()
+  const refreshChannels = useRefreshSlackChannels()
 
   const [selectedChannelId, setSelectedChannelId] = useState('')
+  const [channelSearch, setChannelSearch] = useState('')
   const [customRules, setCustomRules] = useState<string | null>(null)
   const hasRulesChanges =
     customRules !== null && customRules !== (settings?.custom_classification_rules ?? '')
@@ -255,8 +258,13 @@ export function TriageSettingsPage() {
   }
 
   const channels = channelData?.channels ?? []
-  const monitoredIds = new Set(channels.map((c) => c.slack_channel_id))
-  const availableToAdd = slackChannels.filter((c) => !monitoredIds.has(c.id))
+  const availableToAdd = useMemo(() => {
+    const monitoredIds = new Set(channels.map((c) => c.slack_channel_id))
+    const notMonitored = slackChannels.filter((c) => !monitoredIds.has(c.id))
+    if (!channelSearch.trim()) return notMonitored
+    const q = channelSearch.toLowerCase()
+    return notMonitored.filter((c) => c.name.toLowerCase().includes(q))
+  }, [slackChannels, channels, channelSearch])
 
   return (
     <div className="h-full overflow-y-auto">
@@ -376,41 +384,63 @@ export function TriageSettingsPage() {
       {/* Monitored Channels */}
       <Card>
         <CardHeader>
-          <CardTitle>Monitored Channels</CardTitle>
-          <CardDescription>
-            Select Slack channels to monitor for important messages
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Monitored Channels</CardTitle>
+              <CardDescription>
+                Select Slack channels to monitor for important messages
+              </CardDescription>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              disabled={refreshChannels.isPending}
+              onClick={() => refreshChannels.mutate()}
+              title="Refresh channel list from Slack"
+            >
+              <RefreshCw className={`h-4 w-4 ${refreshChannels.isPending ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-2 mb-4">
-            <Select value={selectedChannelId} onValueChange={setSelectedChannelId}>
-              <SelectTrigger className="flex-1">
-                <SelectValue placeholder="Select a channel to add..." />
-              </SelectTrigger>
-              <SelectContent>
-                {availableToAdd.map((ch) => (
-                  <SelectItem key={ch.id} value={ch.id}>
-                    {ch.is_private ? '🔒' : '#'} {ch.name} ({ch.num_members} members)
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              disabled={!selectedChannelId || addChannel.isPending}
-              onClick={() => {
-                const ch = slackChannels.find((c) => c.id === selectedChannelId)
-                if (ch) {
-                  addChannel.mutate({
-                    slack_channel_id: ch.id,
-                    channel_name: ch.name,
-                    channel_type: ch.is_private ? 'private' : 'public',
-                  })
-                  setSelectedChannelId('')
-                }
-              }}
-            >
-              <Plus className="h-4 w-4 mr-1" /> Add
-            </Button>
+          <div className="space-y-2 mb-4">
+            <Input
+              placeholder="Search channels..."
+              value={channelSearch}
+              onChange={(e) => setChannelSearch(e.target.value)}
+              className="h-8"
+            />
+            <div className="flex gap-2">
+              <Select value={selectedChannelId} onValueChange={setSelectedChannelId}>
+                <SelectTrigger className="flex-1">
+                  <SelectValue placeholder="Select a channel to add..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableToAdd.map((ch) => (
+                    <SelectItem key={ch.id} value={ch.id}>
+                      {ch.is_private ? '🔒' : '#'} {ch.name} ({ch.num_members} members)
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                disabled={!selectedChannelId || addChannel.isPending}
+                onClick={() => {
+                  const ch = slackChannels.find((c) => c.id === selectedChannelId)
+                  if (ch) {
+                    addChannel.mutate({
+                      slack_channel_id: ch.id,
+                      channel_name: ch.name,
+                      channel_type: ch.is_private ? 'private' : 'public',
+                    })
+                    setSelectedChannelId('')
+                  }
+                }}
+              >
+                <Plus className="h-4 w-4 mr-1" /> Add
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

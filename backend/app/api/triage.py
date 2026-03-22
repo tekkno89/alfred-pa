@@ -16,6 +16,7 @@ from app.db.repositories.triage import (
     ChannelKeywordRuleRepository,
     ChannelSourceExclusionRepository,
     MonitoredChannelRepository,
+    SlackChannelCacheRepository,
     TriageClassificationRepository,
     TriageFeedbackRepository,
     TriageUserSettingsRepository,
@@ -39,7 +40,6 @@ from app.schemas.triage import (
     TriageSettingsResponse,
     TriageSettingsUpdate,
 )
-from app.services.slack import SlackService
 from app.services.triage_cache import TriageCacheService
 
 logger = logging.getLogger(__name__)
@@ -399,41 +399,63 @@ async def remove_source_exclusion(
 async def list_available_slack_channels(
     current_user: CurrentUser,
     db: DbSession,
+    search: str = Query("", description="Filter channels by name"),
 ) -> list[SlackChannelInfo]:
-    """List available Slack channels the user can monitor."""
+    """List available Slack channels from persistent DB cache."""
     await _check_triage_access(current_user.id, db, current_user.role)
-    slack_service = SlackService()
-    client = slack_service.client
 
-    channels: list[SlackChannelInfo] = []
-    try:
-        cursor = None
-        while True:
-            response = await client.conversations_list(
-                types="public_channel,private_channel",
-                limit=200,
-                cursor=cursor,
-            )
-            for ch in response.get("channels", []):
-                channels.append(
-                    SlackChannelInfo(
-                        id=ch["id"],
-                        name=ch.get("name", ""),
-                        is_private=ch.get("is_private", False),
-                        num_members=ch.get("num_members", 0),
-                    )
-                )
-            cursor = response.get("response_metadata", {}).get("next_cursor")
-            if not cursor:
-                break
-    except SlackApiError as e:
-        logger.error(f"Error listing Slack channels: {e.response['error']}")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to list Slack channels",
+    cache_repo = SlackChannelCacheRepository(db)
+
+    # If cache is empty (first deploy), populate synchronously from Slack
+    if await cache_repo.count() == 0:
+        try:
+            from app.services.slack import fetch_all_slack_channels
+
+            raw_channels = await fetch_all_slack_channels()
+            await cache_repo.upsert_batch(raw_channels)
+            await db.commit()
+        except SlackApiError as e:
+            logger.error(f"Error listing Slack channels: {e.response['error']}")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Failed to list Slack channels",
+            ) from e
+
+    search_term = search.strip() or None
+    rows = await cache_repo.get_all(search=search_term)
+    return [
+        SlackChannelInfo(
+            id=r.slack_channel_id,
+            name=r.name,
+            is_private=r.is_private,
+            num_members=r.num_members,
         )
+        for r in rows
+    ]
 
-    return channels
+
+@router.post(
+    "/slack-channels/refresh",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def refresh_slack_channels(
+    current_user: CurrentUser,
+    db: DbSession,
+) -> dict:
+    """Enqueue a background refresh of the Slack channel cache."""
+    await _check_triage_access(current_user.id, db, current_user.role)
+
+    from app.core.redis import get_redis
+
+    redis_client = await get_redis()
+    from arq.connections import ArqRedis
+
+    pool = ArqRedis(redis_client.connection_pool)
+    await pool.enqueue_job(
+        "refresh_slack_channel_cache",
+        _job_id="refresh_slack_channel_cache",
+    )
+    return {"status": "queued"}
 
 
 # --- Classifications ---

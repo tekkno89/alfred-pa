@@ -1,33 +1,37 @@
 from app.db.repositories.base import BaseRepository
-from app.db.repositories.memory import MemoryRepository
-from app.db.repositories.message import MessageRepository
-from app.db.repositories.session import SessionRepository
-from app.db.repositories.user import UserRepository
+from app.db.repositories.dashboard import (
+    DashboardPreferenceRepository,
+    FeatureAccessRepository,
+)
+from app.db.repositories.encryption_key import EncryptionKeyRepository
 from app.db.repositories.focus import (
     FocusModeStateRepository,
     FocusSettingsRepository,
     FocusVIPListRepository,
 )
-from app.db.repositories.webhook import WebhookRepository
-from app.db.repositories.oauth_token import OAuthTokenRepository
-from app.db.repositories.encryption_key import EncryptionKeyRepository
 from app.db.repositories.github_app_config import GitHubAppConfigRepository
+from app.db.repositories.memory import MemoryRepository
+from app.db.repositories.message import MessageRepository
 from app.db.repositories.note import NoteRepository
-from app.db.repositories.todo import TodoRepository
-from app.db.repositories.dashboard import (
-    DashboardPreferenceRepository,
-    FeatureAccessRepository,
-)
-from app.db.repositories.youtube import YouTubePlaylistRepository, YouTubeVideoRepository
+from app.db.repositories.oauth_token import OAuthTokenRepository
+from app.db.repositories.session import SessionRepository
 from app.db.repositories.system_settings import SystemSettingsRepository
+from app.db.repositories.todo import TodoRepository
 from app.db.repositories.triage import (
-    TriageUserSettingsRepository,
-    MonitoredChannelRepository,
     ChannelKeywordRuleRepository,
     ChannelSourceExclusionRepository,
-    TriageClassificationRepository,
+    MonitoredChannelRepository,
     SenderBehaviorModelRepository,
+    SlackChannelCacheRepository,
+    TriageClassificationRepository,
     TriageFeedbackRepository,
+    TriageUserSettingsRepository,
+)
+from app.db.repositories.user import UserRepository
+from app.db.repositories.webhook import WebhookRepository
+from app.db.repositories.youtube import (
+    YouTubePlaylistRepository,
+    YouTubeVideoRepository,
 )
 
 __all__ = [
@@ -57,4 +61,5 @@ __all__ = [
     "TriageClassificationRepository",
     "SenderBehaviorModelRepository",
     "TriageFeedbackRepository",
+    "SlackChannelCacheRepository",
 ]

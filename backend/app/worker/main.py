@@ -11,6 +11,7 @@ from app.worker.tasks import (
     cleanup_expired_classifications,
     expire_focus_session,
     process_triage_job,
+    refresh_slack_channel_cache,
     send_todo_reminder,
     transition_pomodoro,
 )
@@ -38,6 +39,12 @@ async def startup(ctx: dict) -> None:
             await cache.rebuild_set(db)
     except Exception:
         logger.exception("Failed to rebuild triage monitored channels set on startup")
+
+    # Pre-populate Slack channel cache on deploy
+    try:
+        await refresh_slack_channel_cache(ctx)
+    except Exception:
+        logger.exception("Failed to pre-populate Slack channel cache on startup")
 
 
 async def shutdown(ctx: dict) -> None:
@@ -68,6 +75,7 @@ class WorkerSettings:
         transition_pomodoro,
         send_todo_reminder,
         process_triage_job,
+        refresh_slack_channel_cache,
     ]
 
     # Cron jobs (optional - for periodic cleanup as backup)
@@ -85,6 +93,10 @@ class WorkerSettings:
             cleanup_expired_classifications,
             hour={3},
             minute={0},  # Daily at 3 AM
+        ),
+        cron(
+            refresh_slack_channel_cache,
+            minute={0},  # Hourly
         ),
     ]
 

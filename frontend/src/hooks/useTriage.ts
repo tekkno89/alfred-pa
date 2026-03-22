@@ -151,7 +151,20 @@ export function useAvailableSlackChannels() {
   return useQuery({
     queryKey: ['triage-slack-channels'],
     queryFn: () => apiGet<SlackChannelInfo[]>('/triage/slack-channels'),
-    staleTime: 60000,
+    staleTime: 5 * 60 * 1000, // 5 minutes — served from DB cache
+  })
+}
+
+export function useRefreshSlackChannels() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => apiPost<{ status: string }>('/triage/slack-channels/refresh'),
+    onSuccess: () => {
+      // Delay invalidation so the background job has time to finish
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['triage-slack-channels'] })
+      }, 5000)
+    },
   })
 }
 
