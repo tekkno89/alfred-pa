@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { ArrowLeft, Plus, Trash2, Hash, Lock, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, Hash, Lock, RefreshCw, ChevronsUpDown, Check } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -15,6 +15,16 @@ import {
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
+import { cn } from '@/lib/utils'
 import {
   useTriageSettings,
   useUpdateTriageSettings,
@@ -243,11 +253,19 @@ export function TriageSettingsPage() {
   const addChannel = useAddMonitoredChannel()
   const refreshChannels = useRefreshSlackChannels()
 
+  const [comboboxOpen, setComboboxOpen] = useState(false)
   const [selectedChannelId, setSelectedChannelId] = useState('')
-  const [channelSearch, setChannelSearch] = useState('')
   const [customRules, setCustomRules] = useState<string | null>(null)
   const hasRulesChanges =
     customRules !== null && customRules !== (settings?.custom_classification_rules ?? '')
+
+  const channels = channelData?.channels ?? []
+  const availableToAdd = useMemo(() => {
+    const monitoredIds = new Set(channels.map((c) => c.slack_channel_id))
+    return slackChannels.filter((c) => !monitoredIds.has(c.id))
+  }, [slackChannels, channels])
+
+  const selectedChannel = slackChannels.find((c) => c.id === selectedChannelId)
 
   if (settingsLoading) {
     return (
@@ -256,15 +274,6 @@ export function TriageSettingsPage() {
       </div>
     )
   }
-
-  const channels = channelData?.channels ?? []
-  const availableToAdd = useMemo(() => {
-    const monitoredIds = new Set(channels.map((c) => c.slack_channel_id))
-    const notMonitored = slackChannels.filter((c) => !monitoredIds.has(c.id))
-    if (!channelSearch.trim()) return notMonitored
-    const q = channelSearch.toLowerCase()
-    return notMonitored.filter((c) => c.name.toLowerCase().includes(q))
-  }, [slackChannels, channels, channelSearch])
 
   return (
     <div className="h-full overflow-y-auto">
@@ -404,43 +413,68 @@ export function TriageSettingsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2 mb-4">
-            <Input
-              placeholder="Search channels..."
-              value={channelSearch}
-              onChange={(e) => setChannelSearch(e.target.value)}
-              className="h-8"
-            />
-            <div className="flex gap-2">
-              <Select value={selectedChannelId} onValueChange={setSelectedChannelId}>
-                <SelectTrigger className="flex-1">
-                  <SelectValue placeholder="Select a channel to add..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableToAdd.map((ch) => (
-                    <SelectItem key={ch.id} value={ch.id}>
-                      {ch.is_private ? '🔒' : '#'} {ch.name} ({ch.num_members} members)
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                disabled={!selectedChannelId || addChannel.isPending}
-                onClick={() => {
-                  const ch = slackChannels.find((c) => c.id === selectedChannelId)
-                  if (ch) {
-                    addChannel.mutate({
-                      slack_channel_id: ch.id,
-                      channel_name: ch.name,
-                      channel_type: ch.is_private ? 'private' : 'public',
-                    })
-                    setSelectedChannelId('')
-                  }
-                }}
-              >
-                <Plus className="h-4 w-4 mr-1" /> Add
-              </Button>
-            </div>
+          <div className="flex gap-2 mb-4">
+            <Popover open={comboboxOpen} onOpenChange={setComboboxOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={comboboxOpen}
+                  className="flex-1 justify-between font-normal"
+                >
+                  {selectedChannel
+                    ? `${selectedChannel.is_private ? '🔒' : '#'} ${selectedChannel.name}`
+                    : 'Search channels...'}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                <Command>
+                  <CommandInput placeholder="Type to search channels..." />
+                  <CommandList>
+                    <CommandEmpty>No channels found.</CommandEmpty>
+                    <CommandGroup>
+                      {availableToAdd.map((ch) => (
+                        <CommandItem
+                          key={ch.id}
+                          value={ch.name}
+                          onSelect={() => {
+                            setSelectedChannelId(ch.id === selectedChannelId ? '' : ch.id)
+                            setComboboxOpen(false)
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              'mr-2 h-4 w-4',
+                              selectedChannelId === ch.id ? 'opacity-100' : 'opacity-0'
+                            )}
+                          />
+                          {ch.is_private ? '🔒' : '#'} {ch.name}
+                          <span className="ml-auto text-xs text-muted-foreground">
+                            {ch.num_members} members
+                          </span>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            <Button
+              disabled={!selectedChannelId || addChannel.isPending}
+              onClick={() => {
+                if (selectedChannel) {
+                  addChannel.mutate({
+                    slack_channel_id: selectedChannel.id,
+                    channel_name: selectedChannel.name,
+                    channel_type: selectedChannel.is_private ? 'private' : 'public',
+                  })
+                  setSelectedChannelId('')
+                }
+              }}
+            >
+              <Plus className="h-4 w-4 mr-1" /> Add
+            </Button>
           </div>
         </CardContent>
       </Card>
