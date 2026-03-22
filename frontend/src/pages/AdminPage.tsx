@@ -24,6 +24,7 @@ const FEATURE_KEYS = [
   { key: 'card:calendar', label: 'Calendar' },
   { key: 'card:youtube', label: 'YouTube' },
   { key: 'card:focus', label: 'Focus Mode' },
+  { key: 'card:triage', label: 'Slack Triage' },
 ] as const
 
 function UserFeatureToggles({ user }: { user: AdminUser }) {

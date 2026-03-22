@@ -672,3 +672,134 @@ export interface YouTubeDashboard {
   current_video: YouTubeVideo | null
   active_video_count: number
 }
+
+// Triage
+export type UrgencyLevel = 'urgent' | 'review_at_break' | 'digest'
+export type Sensitivity = 'low' | 'medium' | 'high'
+export type ChannelPriority = 'low' | 'medium' | 'high' | 'critical'
+export type MatchType = 'exact' | 'contains'
+export type EntityType = 'bot' | 'user'
+export type ExclusionAction = 'exclude' | 'include'
+
+export interface TriageSettings {
+  is_always_on: boolean
+  sensitivity: Sensitivity
+  debug_mode: boolean
+  slack_workspace_domain: string | null
+  classification_retention_days: number
+}
+
+export interface TriageSettingsUpdate {
+  is_always_on?: boolean
+  sensitivity?: Sensitivity
+  debug_mode?: boolean
+  classification_retention_days?: number
+}
+
+export interface MonitoredChannel {
+  id: string
+  slack_channel_id: string
+  channel_name: string
+  channel_type: 'public' | 'private'
+  priority: ChannelPriority
+  is_active: boolean
+  created_at: string | null
+}
+
+export interface MonitoredChannelCreate {
+  slack_channel_id: string
+  channel_name: string
+  channel_type?: 'public' | 'private'
+  priority?: ChannelPriority
+}
+
+export interface MonitoredChannelUpdate {
+  channel_name?: string
+  priority?: ChannelPriority
+  is_active?: boolean
+}
+
+export interface MonitoredChannelList {
+  channels: MonitoredChannel[]
+}
+
+export interface KeywordRule {
+  id: string
+  keyword_pattern: string
+  match_type: MatchType
+  urgency_override: UrgencyLevel | null
+}
+
+export interface KeywordRuleCreate {
+  keyword_pattern: string
+  match_type?: MatchType
+  urgency_override?: UrgencyLevel | null
+}
+
+export interface SourceExclusion {
+  id: string
+  slack_entity_id: string
+  entity_type: EntityType
+  action: ExclusionAction
+  display_name: string | null
+}
+
+export interface SourceExclusionCreate {
+  slack_entity_id: string
+  entity_type?: EntityType
+  action?: ExclusionAction
+  display_name?: string | null
+}
+
+export interface TriageClassification {
+  id: string
+  sender_slack_id: string
+  sender_name: string | null
+  channel_id: string
+  channel_name: string | null
+  message_ts: string
+  thread_ts: string | null
+  slack_permalink: string | null
+  urgency_level: UrgencyLevel
+  confidence: number
+  classification_reason: string | null
+  abstract: string | null
+  classification_path: 'dm' | 'channel'
+  escalated_by_sender: boolean
+  surfaced_at_break: boolean
+  keyword_matches: Record<string, unknown> | null
+  created_at: string | null
+}
+
+export interface ClassificationList {
+  items: TriageClassification[]
+  total: number
+}
+
+export interface DigestResponse {
+  session_id: string | null
+  urgent_count: number
+  review_count: number
+  digest_count: number
+  items: TriageClassification[]
+}
+
+export interface TriageFeedbackCreate {
+  classification_id: string
+  was_correct: boolean
+  correct_urgency?: UrgencyLevel | null
+}
+
+export interface SlackChannelInfo {
+  id: string
+  name: string
+  is_private: boolean
+  num_members: number
+}
+
+export interface TriageSessionStats {
+  urgent: number
+  review_at_break: number
+  digest: number
+  total: number
+}

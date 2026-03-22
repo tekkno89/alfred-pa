@@ -504,7 +504,7 @@ class VertexGeminiProvider(LLMProvider):
         model = self._create_model(temperature, max_tokens)
         lc_messages = _to_langchain_messages(messages)
         response = await model.ainvoke(lc_messages)
-        return str(response.content)
+        return _extract_text_content(response.content) or ""
 
     async def stream(
         self,
@@ -516,8 +516,9 @@ class VertexGeminiProvider(LLMProvider):
         model = self._create_model(temperature, max_tokens, streaming=True)
         lc_messages = _to_langchain_messages(messages)
         async for chunk in model.astream(lc_messages):
-            if chunk.content:
-                yield str(chunk.content)
+            text = _extract_text_content(chunk.content)
+            if text:
+                yield text
 
     async def generate_with_tools(
         self,
@@ -731,7 +732,10 @@ class VertexClaudeProvider(LLMProvider):
                 yield LLMResponse(tool_calls=tool_calls)
 
 
-def get_llm_provider(model_name: str | None = None) -> LLMProvider:
+def get_llm_provider(
+    model_name: str | None = None,
+    location: str | None = None,
+) -> LLMProvider:
     """
     Get an LLM provider based on model name.
 
@@ -743,6 +747,7 @@ def get_llm_provider(model_name: str | None = None) -> LLMProvider:
 
     Args:
         model_name: The model to use. If None, uses the default from settings.
+        location: Override the Vertex AI location. If None, uses VERTEX_LOCATION.
 
     Returns:
         An LLM provider instance.
@@ -758,9 +763,9 @@ def get_llm_provider(model_name: str | None = None) -> LLMProvider:
 
     # Vertex AI providers
     if model.startswith("gemini"):
-        return VertexGeminiProvider(model_name=model)
+        return VertexGeminiProvider(model_name=model, location=location)
     elif model.startswith("claude"):
-        return VertexClaudeProvider(model_name=model)
+        return VertexClaudeProvider(model_name=model, location=location)
 
     # Default to Gemini
-    return VertexGeminiProvider(model_name=model)
+    return VertexGeminiProvider(model_name=model, location=location)

@@ -33,11 +33,20 @@ if settings.slack_debug:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan handler for startup and shutdown."""
-    # Startup
-    # TODO: Initialize database connections, redis, etc.
+    import asyncio
+    from app.services.notifications import NotificationService
+
+    # Start Redis pub/sub subscriber for cross-process SSE delivery
+    subscriber_task = asyncio.create_task(NotificationService.start_redis_subscriber())
+
     yield
+
     # Shutdown
-    # TODO: Close database connections, redis, etc.
+    subscriber_task.cancel()
+    try:
+        await subscriber_task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(

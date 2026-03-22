@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from 'react-router-dom'
-import { Plus, PanelLeft, MessagesSquare, StickyNote, CheckSquare, CalendarDays, Youtube, Bell } from 'lucide-react'
+import { Plus, PanelLeft, MessagesSquare, StickyNote, CheckSquare, CalendarDays, Youtube, Bell, Inbox } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SessionList } from '@/components/sessions/SessionList'
@@ -23,6 +23,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const showCalendar = availableCards?.includes('calendar') ?? false
   const showYouTube = availableCards?.includes('youtube') ?? false
   const showFocus = availableCards?.includes('focus') ?? false
+  const showTriage = availableCards?.includes('triage') ?? false
 
   const handleNewChat = async () => {
     const title = new Date().toLocaleString(undefined, {
@@ -186,6 +187,25 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           >
             <Bell className="h-4 w-4 mr-2" />
             Focus
+          </Button>
+        ))}
+        {showTriage && (collapsed ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="mx-auto w-full text-muted-foreground hover:text-foreground"
+            onClick={() => navigate('/triage')}
+          >
+            <Inbox className="h-4 w-4" />
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            className="w-full justify-start text-sm text-muted-foreground hover:text-foreground"
+            onClick={() => navigate('/triage')}
+          >
+            <Inbox className="h-4 w-4 mr-2" />
+            Triage
           </Button>
         ))}
       </div>

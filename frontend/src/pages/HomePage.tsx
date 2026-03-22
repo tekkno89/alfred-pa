@@ -12,6 +12,7 @@ import { TodosCard } from '@/components/dashboard/TodosCard'
 import { CalendarCard } from '@/components/dashboard/CalendarCard'
 import { YouTubeCard } from '@/components/dashboard/YouTubeCard'
 import { FocusCard } from '@/components/dashboard/FocusCard'
+import { TriageCard } from '@/components/dashboard/TriageCard'
 import { DashboardConfigDialog } from '@/components/dashboard/DashboardConfigDialog'
 import type { BartStationPreference, DashboardPreference } from '@/types'
 
@@ -26,6 +27,7 @@ const CARD_RENDERERS: Record<string, (prefs: DashboardPreference | undefined) =>
   calendar: () => <CalendarCard />,
   youtube: () => <YouTubeCard />,
   focus: () => <FocusCard />,
+  triage: () => <TriageCard />,
 }
 
 export function HomePage() {

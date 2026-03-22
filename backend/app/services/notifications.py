@@ -14,6 +14,8 @@ from app.db.repositories import WebhookRepository
 
 logger = logging.getLogger(__name__)
 
+SSE_PUBSUB_CHANNEL = "alfred:sse_events"
+
 
 class NotificationService:
     """Service for managing notifications via SSE and webhooks."""
@@ -67,25 +69,46 @@ class NotificationService:
         """
         Publish an event to all SSE clients for a user.
 
+        Delivers to local in-memory queues AND publishes via Redis pub/sub
+        so that events from worker processes reach the backend's SSE clients.
+
         Args:
             user_id: The user's ID
             event_type: Type of event
             payload: Event payload
 
         Returns:
-            Number of clients notified
+            Number of local clients notified
         """
-        async with cls._lock:
-            clients = cls._sse_clients.get(user_id, []).copy()
-
-        if not clients:
-            return 0
-
         event = {
             "type": event_type,
             "timestamp": datetime.utcnow().isoformat(),
             **payload,
         }
+
+        # Deliver to local in-memory SSE clients
+        notified = await cls._deliver_to_local_clients(user_id, event)
+
+        # Also publish via Redis pub/sub for cross-process delivery
+        try:
+            from app.core.redis import get_redis
+
+            redis_client = await get_redis()
+            msg = json.dumps({"user_id": user_id, "event": event})
+            await redis_client.publish(SSE_PUBSUB_CHANNEL, msg)
+        except Exception:
+            logger.debug("Redis pub/sub publish failed (may be in-process only)")
+
+        return notified
+
+    @classmethod
+    async def _deliver_to_local_clients(cls, user_id: str, event: dict) -> int:
+        """Deliver event to in-memory SSE queues for this process."""
+        async with cls._lock:
+            clients = cls._sse_clients.get(user_id, []).copy()
+
+        if not clients:
+            return 0
 
         notified = 0
         for queue in clients:
@@ -96,6 +119,35 @@ class NotificationService:
                 logger.warning(f"SSE queue full for user {user_id}")
 
         return notified
+
+    @classmethod
+    async def start_redis_subscriber(cls) -> None:
+        """Subscribe to Redis pub/sub and relay events to local SSE clients.
+
+        Should be started as a background task in the backend process.
+        """
+        from app.core.redis import get_redis
+
+        redis_client = await get_redis()
+        pubsub = redis_client.pubsub()
+        await pubsub.subscribe(SSE_PUBSUB_CHANNEL)
+        logger.info("SSE Redis pub/sub subscriber started")
+
+        try:
+            async for message in pubsub.listen():
+                if message["type"] != "message":
+                    continue
+                try:
+                    data = json.loads(message["data"])
+                    user_id = data["user_id"]
+                    event = data["event"]
+                    await cls._deliver_to_local_clients(user_id, event)
+                except Exception:
+                    logger.debug("Failed to process pub/sub SSE message")
+        except asyncio.CancelledError:
+            await pubsub.unsubscribe(SSE_PUBSUB_CHANNEL)
+            await pubsub.close()
+            logger.info("SSE Redis pub/sub subscriber stopped")
 
     async def dispatch_webhooks(
         self, user_id: str, event_type: str, payload: dict
@@ -186,7 +238,11 @@ class NotificationService:
 
 
 async def format_sse_event(event: dict) -> str:
-    """Format an event for SSE transmission."""
-    event_type = event.get("type", "message")
+    """Format an event for SSE transmission.
+
+    Omits the SSE ``event:`` field so that native EventSource dispatches all
+    events to ``onmessage``.  The event type is carried inside the JSON
+    payload's ``type`` key instead.
+    """
     data = json.dumps(event)
-    return f"event: {event_type}\ndata: {data}\n\n"
+    return f"data: {data}\n\n"

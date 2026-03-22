@@ -111,6 +111,38 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       return
     }
 
+    // Triage urgent notification — looping alert + banner (same as bypass)
+    if (event.type === 'triage.urgent') {
+      setLoopingSound('urgent')
+      startTitleFlash('URGENT MESSAGE')
+
+      // Show browser notification
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const abstract = (event as Record<string, unknown>).abstract as string | undefined
+        new Notification('Urgent Triage Message', {
+          body: abstract || 'An urgent message needs your attention',
+          icon: '/favicon.ico',
+        })
+      }
+
+      // Invalidate triage queries
+      queryClient.invalidateQueries({ queryKey: ['triage-classifications'] })
+      queryClient.invalidateQueries({ queryKey: ['triage-session-stats'] })
+    }
+
+    // Triage break notification
+    if (event.type === 'triage.break_check_slack') {
+      queryClient.invalidateQueries({ queryKey: ['triage-classifications'] })
+    }
+
+    // Triage break notification clear
+    if (event.type === 'triage.break_notification_clear') {
+      // Clear triage-related notifications from the list
+      setNotifications((prev) =>
+        prev.filter((n) => n.type !== 'triage.break_check_slack')
+      )
+    }
+
     // Enhanced handling for bypass events
     if (event.type === 'focus_bypass') {
       // Read user's notification config from cache

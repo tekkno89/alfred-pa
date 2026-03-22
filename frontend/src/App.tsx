@@ -16,6 +16,8 @@ import { TodosPage } from '@/pages/TodosPage'
 import { CalendarPage } from '@/pages/CalendarPage'
 import { YouTubePage } from '@/pages/YouTubePage'
 import { AdminPage } from '@/pages/AdminPage'
+import { TriageSettingsPage } from '@/pages/TriageSettingsPage'
+import { TriagePage } from '@/pages/TriagePage'
 import { IntegrationsPage } from '@/pages/IntegrationsPage'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { AuthGuard } from '@/components/auth/AuthGuard'
@@ -57,6 +59,8 @@ function App() {
           <Route path="/notes/:noteId" element={<NoteEditorPage />} />
           <Route path="/youtube" element={<YouTubePage />} />
           <Route path="/dashboard/bart" element={<BartPage />} />
+          <Route path="/triage" element={<TriagePage />} />
+          <Route path="/settings/triage" element={<TriageSettingsPage />} />
           <Route path="/admin" element={<AdminPage />} />
         </Route>
       </Routes>

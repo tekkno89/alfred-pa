@@ -74,6 +74,8 @@ async def get_available_cards(
         cards.append("youtube")
     if await repo.is_enabled(user.id, "card:focus"):
         cards.append("focus")
+    if await repo.is_enabled(user.id, "card:triage"):
+        cards.append("triage")
     return cards
 
 

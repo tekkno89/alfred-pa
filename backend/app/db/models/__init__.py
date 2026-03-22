@@ -13,6 +13,15 @@ from app.db.models.todo import Todo
 from app.db.models.dashboard import UserDashboardPreference, UserFeatureAccess
 from app.db.models.youtube import YouTubePlaylist, YouTubeVideo
 from app.db.models.system_settings import SystemSetting
+from app.db.models.triage import (
+    TriageUserSettings,
+    MonitoredChannel,
+    ChannelKeywordRule,
+    ChannelSourceExclusion,
+    TriageClassification,
+    SenderBehaviorModel,
+    TriageFeedback,
+)
 
 __all__ = [
     "User",
@@ -34,4 +43,11 @@ __all__ = [
     "YouTubePlaylist",
     "YouTubeVideo",
     "SystemSetting",
+    "TriageUserSettings",
+    "MonitoredChannel",
+    "ChannelKeywordRule",
+    "ChannelSourceExclusion",
+    "TriageClassification",
+    "SenderBehaviorModel",
+    "TriageFeedback",
 ]

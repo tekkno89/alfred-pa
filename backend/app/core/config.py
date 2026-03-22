@@ -111,6 +111,10 @@ class Settings(BaseSettings):
     google_calendar_oauth_redirect_uri: str = ""
     google_calendar_webhook_url: str = ""  # Public URL for push notifications
 
+    # Triage
+    triage_classification_model: str = "gemini-2.5-flash"
+    triage_vertex_location: str = ""  # override VERTEX_LOCATION for triage (e.g. "us-central1")
+
     # Memory
     memory_retrieval_limit: int = 5
     memory_similarity_threshold: float = 0.7  # for deduplication

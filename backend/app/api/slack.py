@@ -378,7 +378,15 @@ async def handle_message_event(
         )
     elif not channel_id.startswith("D") and not _extract_mentioned_user_ids(original_text):
         # Channel message with no @mentions — nothing for focus mode to act on.
-        # Skip processing to avoid unnecessary DB lookups on every channel message.
+        # But still route to triage for monitored channels.
+        try:
+            from app.services.triage_router import TriageEventRouter
+
+            triage_router = TriageEventRouter(db)
+            await triage_router.route_event(event, authorizations)
+        except Exception:
+            logger.exception("Triage routing failed for channel message")
+
         sender_name = await _cached_slack_user_name(slack_service, sender_slack_id)
         channel_name = await _cached_slack_channel_name(slack_service, channel_id)
         logger.debug(
@@ -509,6 +517,15 @@ async def handle_message_event(
                             f"for user {mentioned_user.id}"
                         )
                         # Continue checking other mentions (don't return)
+
+        # Route to triage (DMs and @mentions)
+        try:
+            from app.services.triage_router import TriageEventRouter
+
+            triage_router = TriageEventRouter(db)
+            await triage_router.route_event(event, authorizations)
+        except Exception:
+            logger.exception("Triage routing failed for DM/@mention")
 
         # Not a bot DM — nothing more to do for user-token events
         if not has_bot_authorization:

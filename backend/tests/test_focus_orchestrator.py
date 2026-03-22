@@ -22,6 +22,9 @@ def orchestrator(mock_db):
         orch.slack_user_service = AsyncMock()
         orch.notification_service = AsyncMock()
         orch.settings_repo = AsyncMock()
+        orch.state_repo = AsyncMock()
+        orch.state_repo.get_by_user_id.return_value = None
+        orch.triage_delivery = AsyncMock()
         return orch
 
 

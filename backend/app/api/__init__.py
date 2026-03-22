@@ -15,6 +15,7 @@ from app.api.github import router as github_router
 from app.api.google_calendar import router as google_calendar_router
 from app.api.calendar import router as calendar_router
 from app.api.youtube import router as youtube_router
+from app.api.triage import router as triage_router
 
 router = APIRouter()
 
@@ -41,3 +42,4 @@ router.include_router(github_router, prefix="/github", tags=["github"])
 router.include_router(google_calendar_router, prefix="/google-calendar", tags=["google-calendar"])
 router.include_router(calendar_router, prefix="/calendar", tags=["calendar"])
 router.include_router(youtube_router, prefix="/youtube", tags=["youtube"])
+router.include_router(triage_router, prefix="/triage", tags=["triage"])

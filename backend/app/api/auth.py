@@ -293,6 +293,33 @@ async def slack_oauth_callback(
                 # Slack ID already linked to another account - ignore
                 pass
 
+    # Auto-detect workspace domain for triage permalink generation
+    try:
+        team = data.get("team", {})
+        workspace_domain = team.get("id")
+        # Use team.info API with user token for the actual domain
+        if access_token:
+            from slack_sdk.web.async_client import AsyncWebClient
+
+            user_client = AsyncWebClient(token=access_token)
+            team_info = await user_client.team_info()
+            if team_info.get("ok"):
+                workspace_domain = team_info["team"].get("domain")
+
+        if workspace_domain:
+            from app.db.repositories.triage import TriageUserSettingsRepository
+
+            triage_settings_repo = TriageUserSettingsRepository(db)
+            triage_settings = await triage_settings_repo.get_or_create(user_id)
+            if not triage_settings.slack_workspace_domain:
+                triage_settings.slack_workspace_domain = workspace_domain
+                await db.flush()
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception(
+            f"Failed to auto-detect workspace domain for user={user_id}"
+        )
+
     # Redirect back to frontend settings page
     redirect_url = f"{settings.frontend_url}/settings?oauth=success"
     return RedirectResponse(url=redirect_url)

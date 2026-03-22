@@ -10,11 +10,12 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.repositories import FocusSettingsRepository
+from app.db.repositories import FocusModeStateRepository, FocusSettingsRepository
 from app.schemas.focus import FocusStatusResponse
 from app.services.focus import FocusModeService
 from app.services.notifications import NotificationService
 from app.services.slack_user import SlackUserService
+from app.services.triage_delivery import TriageDeliveryService
 from app.worker.scheduler import (
     cancel_focus_expiration,
     cancel_pomodoro_transition,
@@ -34,6 +35,8 @@ class FocusModeOrchestrator:
         self.slack_user_service = SlackUserService(db)
         self.notification_service = NotificationService(db)
         self.settings_repo = FocusSettingsRepository(db)
+        self.state_repo = FocusModeStateRepository(db)
+        self.triage_delivery = TriageDeliveryService(db)
 
     # ------------------------------------------------------------------
     # Public operations
@@ -95,6 +98,10 @@ class FocusModeOrchestrator:
         await cancel_focus_expiration(user_id)
         await cancel_pomodoro_transition(user_id)
 
+        # Get focus session ID for triage digest before disabling
+        focus_state = await self.state_repo.get_by_user_id(user_id)
+        focus_session_id = focus_state.id if focus_state and focus_state.is_active else None
+
         # Get previous status before disabling
         previous_status = await self.focus_service.get_previous_slack_status(user_id)
 
@@ -105,6 +112,15 @@ class FocusModeOrchestrator:
 
         # Disable DND
         await self.slack_user_service.disable_dnd(user_id)
+
+        # Send triage digest for the ending focus session
+        if focus_session_id:
+            try:
+                await self.triage_delivery.generate_and_send_digest(
+                    user_id, focus_session_id
+                )
+            except Exception:
+                logger.exception(f"Failed to send triage digest on disable for user={user_id}")
 
         await self.db.commit()
 
@@ -211,6 +227,10 @@ class FocusModeOrchestrator:
 
     async def transition_pomodoro_phase(self, user_id: str) -> dict[str, Any]:
         """Worker-triggered automatic phase transition."""
+        # Get focus session ID before transition (for triage digest on completion)
+        focus_state = await self.state_repo.get_by_user_id(user_id)
+        focus_session_id = focus_state.id if focus_state and focus_state.is_active else None
+
         new_phase = await self.focus_service.transition_pomodoro_phase(user_id)
 
         if new_phase is None:
@@ -226,6 +246,15 @@ class FocusModeOrchestrator:
             except Exception as e:
                 logger.error(f"Error disabling Slack DND for {user_id}: {e}")
 
+            # Send triage digest for the completed pomodoro session
+            if focus_session_id:
+                try:
+                    await self.triage_delivery.generate_and_send_digest(
+                        user_id, focus_session_id
+                    )
+                except Exception:
+                    logger.exception(f"Failed to send triage digest on pomodoro complete for user={user_id}")
+
             await self.db.commit()
             await self.notification_service.publish(
                 user_id, "pomodoro_complete", {}
@@ -238,6 +267,12 @@ class FocusModeOrchestrator:
         settings = await self.settings_repo.get_or_create(user_id)
         try:
             if new_phase == "work":
+                # Clear break notification when returning to work
+                try:
+                    await self.triage_delivery.clear_break_notification(user_id)
+                except Exception:
+                    logger.exception(f"Failed to clear triage break notification for user={user_id}")
+
                 await self.slack_user_service.set_status(
                     user_id,
                     text=settings.pomodoro_work_status_text or "Pomodoro - Focus time",
@@ -247,6 +282,15 @@ class FocusModeOrchestrator:
                     user_id, "pomodoro_work_started", {}
                 )
             else:
+                # Deliver review-at-break items during break
+                if focus_session_id:
+                    try:
+                        await self.triage_delivery.deliver_break_items(
+                            user_id, focus_session_id
+                        )
+                    except Exception:
+                        logger.exception(f"Failed to deliver triage break items for user={user_id}")
+
                 await self.slack_user_service.set_status(
                     user_id,
                     text=settings.pomodoro_break_status_text or "Pomodoro - Break time",

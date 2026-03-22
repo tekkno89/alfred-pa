@@ -27,59 +27,35 @@ export function useNotifications(onNotification?: NotificationHandler) {
   const connect = useCallback(() => {
     if (!token || eventSourceRef.current) return
 
-    // EventSource doesn't support custom headers, so we need to use a different approach
-    // Use fetch with streaming instead
-    const controller = new AbortController()
+    const url = `${API_BASE_URL}/notifications/subscribe?token=${encodeURIComponent(token)}`
+    const es = new EventSource(url)
 
-    fetch(`${API_BASE_URL}/notifications/subscribe`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'text/event-stream',
-      },
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error('Failed to connect to notifications')
-        }
+    es.onopen = () => {
+      setIsConnected(true)
+    }
 
-        setIsConnected(true)
-        const reader = response.body?.getReader()
-        if (!reader) return
+    es.onmessage = (e) => {
+      try {
+        const event: NotificationEvent = JSON.parse(e.data)
+        setLastEvent(event)
+        handlersRef.current.forEach((handler) => handler(event))
+      } catch {
+        // Skip invalid JSON
+      }
+    }
 
-        const decoder = new TextDecoder()
-        let buffer = ''
+    es.onerror = () => {
+      // EventSource auto-reconnects; update connected state
+      if (es.readyState === EventSource.CLOSED) {
+        setIsConnected(false)
+        eventSourceRef.current = null
+      } else {
+        // CONNECTING state — auto-reconnecting
+        setIsConnected(false)
+      }
+    }
 
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const event: NotificationEvent = JSON.parse(line.slice(6))
-                setLastEvent(event)
-                handlersRef.current.forEach((handler) => handler(event))
-              } catch {
-                // Skip invalid JSON
-              }
-            }
-          }
-        }
-      })
-      .catch((error) => {
-        if (error.name !== 'AbortError') {
-          console.error('Notification stream error:', error)
-          setIsConnected(false)
-        }
-      })
-
-    // Store abort controller for cleanup
-    eventSourceRef.current = { close: () => controller.abort() } as EventSource
+    eventSourceRef.current = es
   }, [token])
 
   const disconnect = useCallback(() => {

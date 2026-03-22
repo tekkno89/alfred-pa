@@ -135,6 +135,78 @@ async def check_due_todo_reminders(ctx: dict) -> dict:
         return {"status": "cron_complete", "sent_count": sent_count}
 
 
+async def process_triage_job(
+    ctx: dict,
+    user_id: str,
+    event_type: str,
+    channel_id: str,
+    sender_slack_id: str,
+    message_ts: str,
+    thread_ts: str | None = None,
+    message_text: str = "",
+) -> dict:
+    """
+    Process a message through the triage pipeline.
+
+    message_text is used in-memory only and never persisted.
+    """
+    async with get_db_session() as db:
+        from app.services.triage_pipeline import TriagePipeline
+
+        pipeline = TriagePipeline(db)
+        await pipeline.process(
+            user_id=user_id,
+            event_type=event_type,
+            channel_id=channel_id,
+            sender_slack_id=sender_slack_id,
+            message_ts=message_ts,
+            thread_ts=thread_ts,
+            message_text=message_text,
+        )
+        logger.info(
+            f"Triage pipeline complete for user={user_id} channel={channel_id}"
+        )
+        return {"status": "processed", "user_id": user_id}
+
+
+async def cleanup_expired_classifications(ctx: dict) -> dict:
+    """
+    Cron job: delete triage classifications older than the user's retention period.
+    Runs daily at 3 AM.
+    """
+    async with get_db_session() as db:
+        from app.db.repositories.triage import (
+            TriageClassificationRepository,
+            TriageUserSettingsRepository,
+        )
+
+        settings_repo = TriageUserSettingsRepository(db)
+        class_repo = TriageClassificationRepository(db)
+
+        # Get all users with triage settings
+        from sqlalchemy import select
+        from app.db.models.triage import TriageUserSettings
+
+        result = await db.execute(select(TriageUserSettings))
+        all_settings = list(result.scalars().all())
+
+        deleted_total = 0
+        for settings in all_settings:
+            try:
+                deleted = await class_repo.delete_expired(
+                    settings.user_id, settings.classification_retention_days
+                )
+                deleted_total += deleted
+            except Exception as e:
+                logger.error(
+                    f"Error cleaning up classifications for user {settings.user_id}: {e}"
+                )
+
+        await db.commit()
+        logger.info(f"Cleaned up {deleted_total} expired triage classifications")
+        return {"status": "complete", "deleted_count": deleted_total}
+
+
 async def transition_pomodoro(ctx: dict, user_id: str) -> dict:
     """
     Transition pomodoro to the next phase (work -> break or break -> work).

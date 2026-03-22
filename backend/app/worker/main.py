@@ -8,7 +8,9 @@ from arq.connections import RedisSettings
 from app.core.config import get_settings
 from app.worker.tasks import (
     check_due_todo_reminders,
+    cleanup_expired_classifications,
     expire_focus_session,
+    process_triage_job,
     send_todo_reminder,
     transition_pomodoro,
 )
@@ -25,6 +27,17 @@ logging.basicConfig(
 async def startup(ctx: dict) -> None:
     """Called when worker starts."""
     logger.info("ARQ worker starting up")
+
+    # Rebuild triage monitored channels Redis set
+    try:
+        from app.db.session import async_session_maker
+        from app.services.triage_cache import TriageCacheService
+
+        async with async_session_maker() as db:
+            cache = TriageCacheService()
+            await cache.rebuild_set(db)
+    except Exception:
+        logger.exception("Failed to rebuild triage monitored channels set on startup")
 
 
 async def shutdown(ctx: dict) -> None:
@@ -54,6 +67,7 @@ class WorkerSettings:
         expire_focus_session,
         transition_pomodoro,
         send_todo_reminder,
+        process_triage_job,
     ]
 
     # Cron jobs (optional - for periodic cleanup as backup)
@@ -66,6 +80,11 @@ class WorkerSettings:
         cron(
             check_due_todo_reminders,
             minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},  # Every 5 minutes
+        ),
+        cron(
+            cleanup_expired_classifications,
+            hour={3},
+            minute={0},  # Daily at 3 AM
         ),
     ]
 

@@ -61,12 +61,13 @@ services:
       - DATABASE_URL=postgresql://alfred:alfred@postgres:5432/alfred
       - REDIS_URL=redis://redis:6379
       - DEBUG=true
-      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-/app/service-account-gcp.json}
+      # - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-/app/service-account-gcp.json}
     volumes:
       - ./backend:/app
       - backend_venv:/app/.venv
       - /app/__pycache__
-      - ./service-account-gcp.json:/app/service-account-gcp.json
+      - ~/.config/gcloud:/root/.config/gcloud
+      # - ./service-account-gcp.json:/app/service-account-gcp.json
     depends_on:
       postgres:
         condition: service_healthy

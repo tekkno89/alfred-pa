@@ -20,6 +20,15 @@ from app.db.repositories.dashboard import (
 )
 from app.db.repositories.youtube import YouTubePlaylistRepository, YouTubeVideoRepository
 from app.db.repositories.system_settings import SystemSettingsRepository
+from app.db.repositories.triage import (
+    TriageUserSettingsRepository,
+    MonitoredChannelRepository,
+    ChannelKeywordRuleRepository,
+    ChannelSourceExclusionRepository,
+    TriageClassificationRepository,
+    SenderBehaviorModelRepository,
+    TriageFeedbackRepository,
+)
 
 __all__ = [
     "BaseRepository",
@@ -41,4 +50,11 @@ __all__ = [
     "YouTubePlaylistRepository",
     "YouTubeVideoRepository",
     "SystemSettingsRepository",
+    "TriageUserSettingsRepository",
+    "MonitoredChannelRepository",
+    "ChannelKeywordRuleRepository",
+    "ChannelSourceExclusionRepository",
+    "TriageClassificationRepository",
+    "SenderBehaviorModelRepository",
+    "TriageFeedbackRepository",
 ]
