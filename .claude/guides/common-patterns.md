@@ -10,6 +10,7 @@ Broader patterns and design principles for the Alfred codebase. Reference this d
 - **Cross-feature invalidation**: `useSetFeatureAccess` invalidates both `admin-user-features` AND `available-cards` so the dashboard updates immediately.
 - **After OAuth redirects**: detect URL params (e.g., `?github_oauth=success`) and invalidate relevant queries.
 - **Manual refresh buttons**: call `queryClient.invalidateQueries` directly on a refresh icon click.
+- **SSE-driven invalidation (CRITICAL)**: When the backend publishes an SSE event that means data has changed, the `NotificationProvider` must invalidate the corresponding React Query keys so the UI updates in real time. Every new SSE event type needs a handler in `NotificationProvider.tsx` that invalidates the relevant query keys (e.g., `triage.debug` → invalidate `triage-classifications` and `triage-session-stats`). **Without this, users must manually refresh to see new data — this is a recurring issue.** When adding a new feature that publishes SSE events, always add the corresponding invalidation handler.
 
 ---
 

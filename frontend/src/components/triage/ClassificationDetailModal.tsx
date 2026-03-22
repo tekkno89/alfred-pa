@@ -128,94 +128,123 @@ export function ClassificationDetailModal({
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Abstract */}
-          <div>
-            <p className="text-sm">{classification.abstract || 'No summary available'}</p>
-          </div>
-
-          {/* Metadata */}
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <div>
-              <span className="text-muted-foreground">From:</span>{' '}
-              {classification.sender_name || classification.sender_slack_id}
-            </div>
-            <div>
-              <span className="text-muted-foreground">Channel:</span>{' '}
-              {classification.classification_path === 'dm'
-                ? 'DM'
-                : `#${classification.channel_name || classification.channel_id}`}
-            </div>
-            {classification.created_at && (
-              <div className="col-span-2">
-                <span className="text-muted-foreground">Time:</span>{' '}
-                {new Date(classification.created_at).toLocaleString()}
+          {isDigestSummary ? (
+            <>
+              {/* Digest summary metadata */}
+              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                <span>
+                  {classification.classification_path === 'pomodoro' ? 'Pomodoro' : 'Focus'} session
+                </span>
+                {classification.focus_started_at && (
+                  <span>
+                    Started {new Date(classification.focus_started_at).toLocaleString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                )}
               </div>
-            )}
-          </div>
 
-          {/* Classification reason */}
-          {classification.classification_reason && (
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">Classification reason</p>
-              <p className="text-sm bg-muted/50 rounded-md p-2">{classification.classification_reason}</p>
-            </div>
-          )}
-
-          {/* Slack link */}
-          {classification.slack_permalink && (
-            <a
-              href={classification.slack_permalink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              Open in Slack
-            </a>
-          )}
-
-          {/* Digest children */}
-          {isDigestSummary && digestChildren && digestChildren.length > 0 && (
-            <div className="border-t pt-3">
-              <p className="text-sm font-medium mb-2">
-                Messages ({digestChildren.length})
-              </p>
-              <div className="max-h-60 overflow-y-auto space-y-2">
-                {digestChildren.map((child) => (
-                  <div
-                    key={child.id}
-                    className="text-sm bg-muted/50 rounded-md p-2 space-y-1"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium truncate">
-                        {child.sender_name || child.sender_slack_id}
-                      </span>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {child.created_at && (
-                          <span className="text-xs text-muted-foreground">
-                            {new Date(child.created_at).toLocaleTimeString(undefined, {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
+              {/* Digest children as clickable cards */}
+              {digestChildren && digestChildren.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium mb-2">
+                    Messages ({digestChildren.length})
+                  </p>
+                  <div className="max-h-72 overflow-y-auto space-y-2">
+                    {digestChildren.map((child) => (
+                      <div
+                        key={child.id}
+                        role={child.slack_permalink ? 'link' : undefined}
+                        className={`text-sm bg-muted/50 rounded-md p-2 space-y-1 transition-colors ${
+                          child.slack_permalink ? 'hover:bg-muted cursor-pointer' : ''
+                        }`}
+                        onClick={() => {
+                          if (child.slack_permalink) {
+                            window.open(child.slack_permalink, '_blank', 'noopener,noreferrer')
+                          }
+                        }}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium truncate">
+                            {child.sender_name || child.sender_slack_id}
                           </span>
-                        )}
-                        {child.slack_permalink && (
-                          <a
-                            href={child.slack_permalink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary hover:underline"
-                          >
-                            <ExternalLink className="h-3 w-3" />
-                          </a>
-                        )}
+                          <div className="flex items-center gap-2 shrink-0 text-xs text-muted-foreground">
+                            <span>
+                              {child.classification_path === 'dm'
+                                ? 'DM'
+                                : `#${child.channel_name || child.channel_id}`}
+                            </span>
+                            {child.created_at && (
+                              <span>
+                                {new Date(child.created_at).toLocaleTimeString(undefined, {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </span>
+                            )}
+                            {child.slack_permalink && (
+                              <ExternalLink className="h-3 w-3 text-primary" />
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-muted-foreground">{child.abstract || 'Message'}</p>
                       </div>
-                    </div>
-                    <p className="text-muted-foreground">{child.abstract || 'Message'}</p>
+                    ))}
                   </div>
-                ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              {/* Abstract */}
+              <div>
+                <p className="text-sm">{classification.abstract || 'No summary available'}</p>
               </div>
-            </div>
+
+              {/* Metadata */}
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                  <span className="text-muted-foreground">From:</span>{' '}
+                  {classification.sender_name || classification.sender_slack_id}
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Channel:</span>{' '}
+                  {classification.classification_path === 'dm'
+                    ? 'DM'
+                    : `#${classification.channel_name || classification.channel_id}`}
+                </div>
+                {classification.created_at && (
+                  <div className="col-span-2">
+                    <span className="text-muted-foreground">Time:</span>{' '}
+                    {new Date(classification.created_at).toLocaleString()}
+                  </div>
+                )}
+              </div>
+
+              {/* Classification reason */}
+              {classification.classification_reason && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Classification reason</p>
+                  <p className="text-sm bg-muted/50 rounded-md p-2">{classification.classification_reason}</p>
+                </div>
+              )}
+
+              {/* Slack link */}
+              {classification.slack_permalink && (
+                <a
+                  href={classification.slack_permalink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Open in Slack
+                </a>
+              )}
+            </>
           )}
 
           {/* Feedback section */}

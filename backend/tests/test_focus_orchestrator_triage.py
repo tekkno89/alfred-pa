@@ -29,7 +29,7 @@ def _make_orchestrator(mock_db, **overrides):
 class TestDisableTriageIntegration:
     async def test_sends_digest_on_disable(self, mock_db):
         """Disabling focus should send a triage digest for the session."""
-        focus_state = MagicMock(id="session-1", is_active=True, started_at="2024-01-01T00:00:00")
+        focus_state = MagicMock(id="session-1", is_active=True, started_at="2024-01-01T00:00:00", mode="simple")
         state_repo = AsyncMock()
         state_repo.get_by_user_id.return_value = focus_state
 
@@ -52,7 +52,8 @@ class TestDisableTriageIntegration:
             await orch.disable("user-1")
 
         triage_delivery.generate_and_send_digest.assert_called_once_with(
-            "user-1", "session-1", "2024-01-01T00:00:00"
+            "user-1", "session-1", "2024-01-01T00:00:00",
+            focus_mode="simple",
         )
 
     async def test_disable_skips_digest_when_no_active_session(self, mock_db):
@@ -82,7 +83,7 @@ class TestDisableTriageIntegration:
 
     async def test_disable_handles_digest_error_gracefully(self, mock_db):
         """Digest error should not prevent focus mode from disabling."""
-        focus_state = MagicMock(id="session-1", is_active=True, started_at="2024-01-01T00:00:00")
+        focus_state = MagicMock(id="session-1", is_active=True, started_at="2024-01-01T00:00:00", mode="simple")
         state_repo = AsyncMock()
         state_repo.get_by_user_id.return_value = focus_state
 
@@ -113,7 +114,7 @@ class TestDisableTriageIntegration:
 class TestTransitionPomodoroTriageIntegration:
     async def test_break_delivers_session_digest(self, mock_db):
         """Transitioning to break should deliver session digest."""
-        focus_state = MagicMock(id="session-1", is_active=True, started_at="2024-01-01T00:00:00")
+        focus_state = MagicMock(id="session-1", is_active=True, started_at="2024-01-01T00:00:00", mode="pomodoro")
         state_repo = AsyncMock()
         state_repo.get_by_user_id.return_value = focus_state
 
@@ -134,13 +135,14 @@ class TestTransitionPomodoroTriageIntegration:
         result = await orch.transition_pomodoro_phase("user-1")
 
         triage_delivery.deliver_session_digest.assert_called_once_with(
-            "user-1", "session-1", "2024-01-01T00:00:00"
+            "user-1", "session-1", "2024-01-01T00:00:00",
+            focus_mode="pomodoro",
         )
         assert result["new_phase"] == "break"
 
     async def test_work_clears_break_notification(self, mock_db):
         """Transitioning to work should clear break notification."""
-        focus_state = MagicMock(id="session-1", is_active=True, started_at="2024-01-01T00:00:00")
+        focus_state = MagicMock(id="session-1", is_active=True, started_at="2024-01-01T00:00:00", mode="pomodoro")
         state_repo = AsyncMock()
         state_repo.get_by_user_id.return_value = focus_state
 
@@ -165,7 +167,7 @@ class TestTransitionPomodoroTriageIntegration:
 
     async def test_complete_sends_digest(self, mock_db):
         """Pomodoro completion should send triage digest."""
-        focus_state = MagicMock(id="session-1", is_active=True, started_at="2024-01-01T00:00:00")
+        focus_state = MagicMock(id="session-1", is_active=True, started_at="2024-01-01T00:00:00", mode="pomodoro")
         state_repo = AsyncMock()
         state_repo.get_by_user_id.return_value = focus_state
 
@@ -184,13 +186,14 @@ class TestTransitionPomodoroTriageIntegration:
         result = await orch.transition_pomodoro_phase("user-1")
 
         triage_delivery.generate_and_send_digest.assert_called_once_with(
-            "user-1", "session-1", "2024-01-01T00:00:00"
+            "user-1", "session-1", "2024-01-01T00:00:00",
+            focus_mode="pomodoro",
         )
         assert result["status"] == "complete"
 
     async def test_break_delivery_error_does_not_break_transition(self, mock_db):
         """Error delivering session digest should not prevent phase transition."""
-        focus_state = MagicMock(id="session-1", is_active=True, started_at="2024-01-01T00:00:00")
+        focus_state = MagicMock(id="session-1", is_active=True, started_at="2024-01-01T00:00:00", mode="pomodoro")
         state_repo = AsyncMock()
         state_repo.get_by_user_id.return_value = focus_state
 

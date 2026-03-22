@@ -84,6 +84,7 @@ Use this checklist when building a new feature service (e.g., todos, notes, BART
   ```
   Use a broad queryKey prefix to invalidate list, summary, and dashboard queries together.
 - [ ] Add `refetchInterval: 60_000` for dashboard/real-time data queries
+- [ ] **COMMONLY MISSED — SSE-driven cache invalidation**: If the backend publishes SSE events when data changes (e.g., new classifications, todo updates), add a handler in `frontend/src/components/notifications/NotificationProvider.tsx` that calls `queryClient.invalidateQueries` for the relevant query keys. Without this, users must manually refresh to see real-time updates.
 
 ### 9. Dashboard Card
 
@@ -162,4 +163,5 @@ Use this checklist when building a new feature service (e.g., todos, notes, BART
 | Admin feature toggle in `FEATURE_KEYS` | `frontend/src/pages/AdminPage.tsx` |
 | Card metadata in `CARD_META` | `frontend/src/components/dashboard/DashboardConfigDialog.tsx` |
 | Cache invalidation in mutation `onSuccess` | `frontend/src/hooks/use{Feature}.ts` |
+| SSE-driven cache invalidation for real-time updates | `frontend/src/components/notifications/NotificationProvider.tsx` |
 | Tool display mapping in `TOOL_DISPLAY` | `frontend/src/components/chat/ToolStatusIndicator.tsx` |

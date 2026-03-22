@@ -448,7 +448,7 @@ async def list_available_slack_channels(
 async def list_classifications(
     current_user: CurrentUser,
     db: DbSession,
-    urgency: str | None = Query(None, pattern="^(urgent|digest|noise|review|digest_summary)$"),
+    urgency: str | None = Query(None, pattern="^(urgent|digest|noise|review|digest_summary|reviewable)$"),
     channel_id: str | None = Query(None),
     reviewed: bool | None = Query(None),
     hide_active_digest: bool = Query(True),
@@ -458,18 +458,24 @@ async def list_classifications(
     """List recent classifications."""
     await _check_triage_access(current_user.id, db, current_user.role)
     repo = TriageClassificationRepository(db)
+
+    # Translate "reviewable" pseudo-filter into a list of urgency levels
+    urgency_filter: str | list[str] | None = urgency
+    if urgency == "reviewable":
+        urgency_filter = ["urgent", "review", "digest_summary"]
+
     items = await repo.get_recent(
         current_user.id,
         limit=limit,
         offset=offset,
-        urgency_level=urgency,
+        urgency_level=urgency_filter,
         channel_id=channel_id,
         reviewed=reviewed,
         exclude_active_session_digest=hide_active_digest,
     )
     total = await repo.count_filtered(
         current_user.id,
-        urgency_level=urgency,
+        urgency_level=urgency_filter,
         channel_id=channel_id,
         reviewed=reviewed,
         exclude_active_session_digest=hide_active_digest,
@@ -493,6 +499,8 @@ async def mark_classifications_reviewed(
         count = await repo.mark_reviewed(data.classification_ids, current_user.id)
     else:
         count = await repo.mark_unreviewed(data.classification_ids, current_user.id)
+    # Commit before returning so the refetch triggered by onSuccess sees the update
+    await db.commit()
     return {"updated": count}
 
 

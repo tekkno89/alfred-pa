@@ -102,6 +102,22 @@ class TriageEnrichmentService:
         if settings:
             payload.sensitivity = settings.sensitivity
             payload.custom_classification_rules = settings.custom_classification_rules
+
+            # Auto-detect workspace domain if missing
+            if not settings.slack_workspace_domain:
+                try:
+                    from app.services.slack import SlackService
+
+                    slack_service = SlackService()
+                    team_info = await slack_service.client.team_info()
+                    if team_info.get("ok"):
+                        domain = team_info["team"].get("domain")
+                        if domain:
+                            settings.slack_workspace_domain = domain
+                            await self.db.flush()
+                except Exception:
+                    pass
+
             payload.slack_permalink = generate_slack_permalink(
                 settings.slack_workspace_domain, channel_id, message_ts, thread_ts
             )

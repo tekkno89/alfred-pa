@@ -32,6 +32,7 @@ class TriageDeliveryService:
         user_id: str,
         focus_session_id: str,
         focus_started_at: datetime | None = None,
+        focus_mode: str | None = None,
     ) -> int:
         """Consolidate and deliver digest items for a focus/pomodoro session.
 
@@ -50,7 +51,8 @@ class TriageDeliveryService:
 
         # Create consolidated digest summary
         summary = await self._create_digest_summary(
-            user_id, focus_session_id, focus_started_at, items
+            user_id, focus_session_id, focus_started_at, items,
+            focus_mode=focus_mode,
         )
 
         await self.db.commit()
@@ -86,6 +88,7 @@ class TriageDeliveryService:
         user_id: str,
         focus_session_id: str,
         focus_started_at: datetime | None = None,
+        focus_mode: str | None = None,
     ) -> None:
         """Generate and send a post-focus digest for a session."""
         # Get all items for the session (for stats in the DM)
@@ -103,7 +106,8 @@ class TriageDeliveryService:
             ids = [item.id for item in unconsolidated]
             await self.class_repo.mark_surfaced_at_break(ids)
             await self._create_digest_summary(
-                user_id, focus_session_id, focus_started_at, unconsolidated
+                user_id, focus_session_id, focus_started_at, unconsolidated,
+                focus_mode=focus_mode,
             )
 
         urgent_count = sum(1 for i in all_items if i.urgency_level == "urgent")
@@ -170,38 +174,17 @@ class TriageDeliveryService:
         focus_session_id: str,
         focus_started_at: datetime | None,
         items: list[TriageClassification],
+        focus_mode: str | None = None,
     ) -> TriageClassification:
         """Create a consolidated digest_summary row from individual digest items."""
-        senders: set[str] = set()
-        channels: set[str] = set()
-        summary_lines: list[str] = []
-
-        for item in items:
-            senders.add(item.sender_name or item.sender_slack_id)
-            if item.channel_name:
-                channels.add(item.channel_name)
-            if item.abstract:
-                sender_label = item.sender_name or item.sender_slack_id
-                summary_lines.append(f"- {sender_label}: {item.abstract}")
-
-        channel_list = (
-            ", ".join(f"#{c}" for c in sorted(channels)) if channels else "DMs"
-        )
-        abstract = (
-            f"{len(items)} noteworthy message(s) from "
-            f"{len(senders)} sender(s) in {channel_list}."
-        )
-        if summary_lines:
-            abstract += "\n" + "\n".join(summary_lines[:10])
-            if len(summary_lines) > 10:
-                abstract += f"\n...and {len(summary_lines) - 10} more"
+        abstract = f"{len(items)} noteworthy messages"
 
         summary = TriageClassification(
             user_id=user_id,
             focus_session_id=focus_session_id,
             focus_started_at=focus_started_at,
             sender_slack_id="SYSTEM",
-            sender_name="Digest Summary",
+            sender_name=None,
             channel_id=items[0].channel_id,
             channel_name=None,
             message_ts=items[-1].message_ts,
@@ -209,7 +192,7 @@ class TriageDeliveryService:
             confidence=1.0,
             classification_reason=f"Consolidated {len(items)} digest items",
             abstract=abstract,
-            classification_path=items[0].classification_path,
+            classification_path=focus_mode or "simple",
             child_count=len(items),
         )
         summary = await self.class_repo.create(summary)

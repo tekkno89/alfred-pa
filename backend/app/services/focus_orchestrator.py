@@ -102,6 +102,7 @@ class FocusModeOrchestrator:
         focus_state = await self.state_repo.get_by_user_id(user_id)
         focus_session_id = focus_state.id if focus_state and focus_state.is_active else None
         focus_started_at = focus_state.started_at if focus_state and focus_state.is_active else None
+        focus_mode = focus_state.mode if focus_state and focus_state.is_active else None
 
         # Get previous status before disabling
         previous_status = await self.focus_service.get_previous_slack_status(user_id)
@@ -118,7 +119,8 @@ class FocusModeOrchestrator:
         if focus_session_id:
             try:
                 await self.triage_delivery.generate_and_send_digest(
-                    user_id, focus_session_id, focus_started_at
+                    user_id, focus_session_id, focus_started_at,
+                    focus_mode=focus_mode,
                 )
             except Exception:
                 logger.exception(f"Failed to send triage digest on disable for user={user_id}")
@@ -232,6 +234,7 @@ class FocusModeOrchestrator:
         focus_state = await self.state_repo.get_by_user_id(user_id)
         focus_session_id = focus_state.id if focus_state and focus_state.is_active else None
         focus_started_at = focus_state.started_at if focus_state and focus_state.is_active else None
+        focus_mode = focus_state.mode if focus_state and focus_state.is_active else None
 
         new_phase = await self.focus_service.transition_pomodoro_phase(user_id)
 
@@ -252,7 +255,8 @@ class FocusModeOrchestrator:
             if focus_session_id:
                 try:
                     await self.triage_delivery.generate_and_send_digest(
-                        user_id, focus_session_id, focus_started_at
+                        user_id, focus_session_id, focus_started_at,
+                        focus_mode=focus_mode,
                     )
                 except Exception:
                     logger.exception(f"Failed to send triage digest on pomodoro complete for user={user_id}")
@@ -288,7 +292,8 @@ class FocusModeOrchestrator:
                 if focus_session_id:
                     try:
                         await self.triage_delivery.deliver_session_digest(
-                            user_id, focus_session_id, focus_started_at
+                            user_id, focus_session_id, focus_started_at,
+                            focus_mode=focus_mode,
                         )
                     except Exception:
                         logger.exception(f"Failed to deliver triage session digest for user={user_id}")

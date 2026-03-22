@@ -198,7 +198,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         self,
         query,
         user_id: str,
-        urgency_level: str | None = None,
+        urgency_level: str | list[str] | None = None,
         channel_id: str | None = None,
         reviewed: bool | None = None,
         exclude_active_session_digest: bool = False,
@@ -210,9 +210,14 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
             TriageClassification.digest_summary_id.is_(None)
         )
         if urgency_level:
-            query = query.where(
-                TriageClassification.urgency_level == urgency_level
-            )
+            if isinstance(urgency_level, list):
+                query = query.where(
+                    TriageClassification.urgency_level.in_(urgency_level)
+                )
+            else:
+                query = query.where(
+                    TriageClassification.urgency_level == urgency_level
+                )
         if channel_id:
             query = query.where(TriageClassification.channel_id == channel_id)
         if reviewed is True:
@@ -240,7 +245,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         user_id: str,
         limit: int = 50,
         offset: int = 0,
-        urgency_level: str | None = None,
+        urgency_level: str | list[str] | None = None,
         channel_id: str | None = None,
         reviewed: bool | None = None,
         exclude_active_session_digest: bool = False,
@@ -259,7 +264,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
     async def count_filtered(
         self,
         user_id: str,
-        urgency_level: str | None = None,
+        urgency_level: str | list[str] | None = None,
         channel_id: str | None = None,
         reviewed: bool | None = None,
         exclude_active_session_digest: bool = False,

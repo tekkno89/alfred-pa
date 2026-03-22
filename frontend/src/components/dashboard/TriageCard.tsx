@@ -30,7 +30,7 @@ export function TriageCard() {
   const navigate = useNavigate()
   const { data: settings, isLoading: loadingSettings } = useTriageSettings()
   const { data: stats, isLoading: loadingStats } = useTriageSessionStats()
-  const { data: recent } = useClassifications({ limit: 5 })
+  const { data: recent } = useClassifications({ limit: 5, urgency: 'reviewable', reviewed: false })
 
   const isActive = settings?.is_always_on ?? false
 
@@ -51,12 +51,12 @@ export function TriageCard() {
   }
 
   return (
-    <Card className="hover:shadow-md transition-shadow h-full flex flex-col">
+    <Card
+      className="hover:shadow-md transition-shadow h-full flex flex-col cursor-pointer"
+      onClick={() => navigate('/triage')}
+    >
       <CardHeader className="pb-2">
-        <CardTitle
-          className="flex items-center gap-2 text-base cursor-pointer"
-          onClick={() => navigate('/triage')}
-        >
+        <CardTitle className="flex items-center gap-2 text-base">
           <Inbox className="h-4 w-4" />
           Slack Triage
         </CardTitle>

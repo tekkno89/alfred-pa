@@ -82,12 +82,12 @@ export function useAlertSound() {
         ctxRef.current = new AudioContext()
       }
       const ctx = ctxRef.current
-      if (ctx.state === 'suspended') {
-        ctx.resume()
-      }
-
       const play = SOUND_MAP[soundName as SoundName] ?? SOUND_MAP.chime
-      play(ctx)
+      if (ctx.state === 'suspended') {
+        ctx.resume().then(() => play(ctx)).catch(() => {})
+      } else {
+        play(ctx)
+      }
     } catch {
       // Web Audio API not available
     }

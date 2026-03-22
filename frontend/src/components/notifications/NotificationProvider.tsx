@@ -113,8 +113,17 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
 
     // Triage urgent notification — looping alert + banner (same as bypass)
     if (event.type === 'triage.urgent') {
-      setLoopingSound('urgent')
-      startTitleFlash('URGENT MESSAGE')
+      // Read user's notification config from cache (same as focus_bypass)
+      const settings = queryClient.getQueryData<FocusSettingsResponse>(['focus-settings'])
+      const config = settings?.bypass_notification_config ?? DEFAULT_CONFIG
+
+      if (config.alert_sound_enabled) {
+        setLoopingSound(config.alert_sound_name)
+      }
+
+      if (config.alert_title_flash_enabled) {
+        startTitleFlash('URGENT MESSAGE')
+      }
 
       // Show browser notification
       if ('Notification' in window && Notification.permission === 'granted') {
@@ -130,9 +139,16 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       queryClient.invalidateQueries({ queryKey: ['triage-session-stats'] })
     }
 
+    // Any new triage classification — refresh the list and stats
+    if (event.type === 'triage.debug') {
+      queryClient.invalidateQueries({ queryKey: ['triage-classifications'] })
+      queryClient.invalidateQueries({ queryKey: ['triage-session-stats'] })
+    }
+
     // Triage break notification
     if (event.type === 'triage.break_check_slack') {
       queryClient.invalidateQueries({ queryKey: ['triage-classifications'] })
+      queryClient.invalidateQueries({ queryKey: ['triage-session-stats'] })
     }
 
     // Triage break notification clear

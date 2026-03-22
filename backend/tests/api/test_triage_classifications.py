@@ -424,6 +424,47 @@ class TestDigestChildren:
         assert resp.json() == []
 
 
+class TestReviewableFilter:
+    """Test the 'reviewable' pseudo-filter returns urgent + review + digest_summary."""
+
+    @pytest.mark.asyncio
+    async def test_reviewable_returns_correct_levels(
+        self, client: AsyncClient, test_user, classifications, db_session: AsyncSession
+    ):
+        # Add a digest_summary item
+        summary = TriageClassification(
+            user_id=test_user.id,
+            sender_slack_id="SYSTEM",
+            sender_name=None,
+            channel_id="C12345",
+            channel_name=None,
+            message_ts="1700099999.000000",
+            urgency_level="digest_summary",
+            confidence=1.0,
+            classification_reason="Consolidated 2 digest items",
+            abstract="2 noteworthy messages",
+            classification_path="simple",
+            child_count=2,
+        )
+        db_session.add(summary)
+        await db_session.commit()
+
+        resp = await client.get(
+            "/api/triage/classifications",
+            params={"urgency": "reviewable", "hide_active_digest": "false"},
+            headers=auth_headers(test_user),
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # From fixtures: 2 urgent + 1 review + 1 digest_summary = 4
+        assert data["total"] == 4
+        returned_levels = {item["urgency_level"] for item in data["items"]}
+        assert returned_levels <= {"urgent", "review", "digest_summary"}
+        # Ensure no digest or noise items
+        assert "digest" not in returned_levels
+        assert "noise" not in returned_levels
+
+
 class TestTotalCountAccuracy:
     """Verify total count reflects active filters."""
 

@@ -766,7 +766,7 @@ export interface TriageClassification {
   confidence: number
   classification_reason: string | null
   abstract: string | null
-  classification_path: 'dm' | 'channel'
+  classification_path: string
   escalated_by_sender: boolean
   surfaced_at_break: boolean
   keyword_matches: Record<string, unknown> | null

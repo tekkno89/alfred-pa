@@ -27,6 +27,7 @@ import type { TriageClassification } from '@/types'
 
 const URGENCY_OPTIONS = [
   { value: 'all', label: 'All' },
+  { value: 'reviewable', label: 'Reviewable' },
   { value: 'urgent', label: 'Urgent' },
   { value: 'digest', label: 'Digest' },
   { value: 'digest_summary', label: 'Session Digest' },
@@ -105,7 +106,9 @@ function ClassificationItem({
               ) : (
                 <span>From: {item.sender_name || item.sender_slack_id}</span>
               )}
-              <span>{item.classification_path === 'dm' ? 'DM' : `#${item.channel_name || item.channel_id}`}</span>
+              <span>{item.urgency_level === 'digest_summary'
+                ? (item.classification_path === 'pomodoro' ? 'Pomodoro' : 'Focus')
+                : (item.classification_path === 'dm' ? 'DM' : `#${item.channel_name || item.channel_id}`)}</span>
               {item.created_at && (
                 <span>
                   {new Date(item.created_at).toLocaleString(undefined, {
@@ -161,7 +164,7 @@ function ClassificationItem({
 
 export function TriagePage() {
   const navigate = useNavigate()
-  const [urgencyFilter, setUrgencyFilter] = useState('all')
+  const [urgencyFilter, setUrgencyFilter] = useState('reviewable')
   const [statusFilter, setStatusFilter] = useState('unreviewed')
   const [offset, setOffset] = useState(0)
   const [selectedItem, setSelectedItem] = useState<TriageClassification | null>(null)
