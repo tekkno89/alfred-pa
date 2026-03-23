@@ -237,8 +237,9 @@ async def get_slack_oauth_url(current_user: CurrentUser) -> SlackOAuthUrlRespons
 
 @router.get("/slack/oauth/callback")
 async def slack_oauth_callback(
-    code: str = Query(...),
+    code: str | None = Query(default=None),
     state: str = Query(...),
+    error: str | None = Query(default=None),
     db: DbSession = None,
 ) -> RedirectResponse:
     """
@@ -247,6 +248,17 @@ async def slack_oauth_callback(
     Exchanges the authorization code for an access token.
     """
     settings = get_settings()
+
+    # Handle user-denied or other error responses from Slack
+    if error:
+        redirect_url = f"{settings.frontend_url}/settings?oauth=error&reason={error}"
+        return RedirectResponse(url=redirect_url)
+
+    if not code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing authorization code",
+        )
 
     # Validate state
     state_data = consume_oauth_state(state)
@@ -319,16 +331,14 @@ async def slack_oauth_callback(
 
     # Auto-detect workspace domain for triage permalink generation
     try:
-        team = data.get("team", {})
-        workspace_domain = team.get("id")
-        # Use team.info API with user token for the actual domain
-        if access_token:
-            from slack_sdk.web.async_client import AsyncWebClient
+        workspace_domain = None
+        # Use bot token for team.info (bot has team:read scope, user token may not)
+        from app.services.slack import SlackService
 
-            user_client = AsyncWebClient(token=access_token)
-            team_info = await user_client.team_info()
-            if team_info.get("ok"):
-                workspace_domain = team_info["team"].get("domain")
+        slack_service = SlackService()
+        team_info = await slack_service.client.team_info()
+        if team_info.get("ok"):
+            workspace_domain = team_info["team"].get("domain")
 
         if workspace_domain:
             from app.db.repositories.triage import TriageUserSettingsRepository
