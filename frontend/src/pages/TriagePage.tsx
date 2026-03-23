@@ -238,6 +238,10 @@ export function TriagePage() {
                 <span className="font-medium">{stats.review}</span> review
               </span>
               <span className="flex items-center gap-1.5">
+                <Layers className="h-4 w-4 text-blue-500" />
+                <span className="font-medium">{stats.digest_summary}</span> summaries
+              </span>
+              <span className="flex items-center gap-1.5">
                 <Archive className="h-4 w-4 text-slate-500" />
                 <span className="font-medium">{stats.digest}</span> digest
               </span>

@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { Inbox, AlertTriangle, Clock, Archive, Settings } from 'lucide-react'
+import { Inbox, AlertTriangle, Clock, Archive, Layers, Settings } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { useTriageSettings, useTriageSessionStats, useClassifications } from '@/hooks/useTriage'
 
@@ -90,6 +90,10 @@ export function TriageCard() {
                 <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200">
                   <Clock className="h-3 w-3" />
                   {stats.review}
+                </span>
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
+                  <Layers className="h-3 w-3" />
+                  {stats.digest_summary}
                 </span>
                 <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                   <Archive className="h-3 w-3" />

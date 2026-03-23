@@ -682,14 +682,26 @@ async def get_session_stats(
     """Get classification stats for the current user."""
     await _check_triage_access(current_user.id, db, current_user.role)
     repo = TriageClassificationRepository(db)
-    urgent = await repo.count(user_id=current_user.id, urgency_level="urgent")
-    review = await repo.count(user_id=current_user.id, urgency_level="review")
-    noise = await repo.count(user_id=current_user.id, urgency_level="noise")
-    digest = await repo.count(user_id=current_user.id, urgency_level="digest")
+    urgent = await repo.count_filtered(
+        current_user.id, urgency_level="urgent", reviewed=False,
+    )
+    review = await repo.count_filtered(
+        current_user.id, urgency_level="review", reviewed=False,
+    )
+    noise = await repo.count_filtered(
+        current_user.id, urgency_level="noise", reviewed=False,
+    )
+    digest = await repo.count_filtered(
+        current_user.id, urgency_level="digest", reviewed=False,
+    )
+    digest_summary = await repo.count_filtered(
+        current_user.id, urgency_level="digest_summary", reviewed=False,
+    )
     return {
         "urgent": urgent,
         "review": review,
         "noise": noise,
         "digest": digest,
-        "total": urgent + review + noise + digest,
+        "digest_summary": digest_summary,
+        "total": urgent + review + noise + digest + digest_summary,
     }

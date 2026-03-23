@@ -816,5 +816,6 @@ export interface TriageSessionStats {
   review: number
   noise: number
   digest: number
+  digest_summary: number
   total: number
 }
