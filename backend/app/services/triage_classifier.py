@@ -15,14 +15,17 @@ logger = logging.getLogger(__name__)
 def _parse_json_response(response: str) -> dict:
     """Extract and parse JSON from an LLM response.
 
-    Handles markdown code fences, single quotes, and extra text around JSON.
+    Handles markdown code fences, single quotes, extra text around JSON,
+    and truncated responses (e.g. from thinking models exceeding token budget).
     """
     text = response.strip()
-    # Strip markdown code fences
-    if text.startswith("```"):
+    # Strip markdown code fences (```json ... ```)
+    fence_match = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
+    if fence_match:
+        text = fence_match.group(1).strip()
+    elif text.startswith("```"):
+        # Opening fence without closing — likely truncated response
         text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
         text = text.strip()
     # Try direct parse first
     try:
@@ -38,7 +41,32 @@ def _parse_json_response(response: str) -> dict:
             # Try replacing single quotes with double quotes
             fixed = match.group().replace("'", '"')
             return json.loads(fixed)
+    # Last resort: extract individual fields from truncated JSON
+    result = _extract_fields_from_truncated(text)
+    if result:
+        return result
     raise json.JSONDecodeError("No JSON object found in response", text, 0)
+
+
+def _extract_fields_from_truncated(text: str) -> dict | None:
+    """Best-effort field extraction from truncated JSON.
+
+    When thinking models (e.g. gemini-2.5-flash) exhaust their token budget,
+    the JSON response may be cut off mid-field.  We can still salvage the
+    classification if urgency and confidence were emitted before truncation.
+    """
+    urgency_m = re.search(r'"urgency"\s*:\s*"(\w+)"', text)
+    if not urgency_m:
+        return None
+    confidence_m = re.search(r'"confidence"\s*:\s*([\d.]+)', text)
+    reason_m = re.search(r'"reason"\s*:\s*"((?:[^"\\]|\\.)*)"?', text, re.DOTALL)
+    abstract_m = re.search(r'"abstract"\s*:\s*"((?:[^"\\]|\\.)*)"?', text, re.DOTALL)
+    return {
+        "urgency": urgency_m.group(1),
+        "confidence": float(confidence_m.group(1)) if confidence_m else 0.5,
+        "reason": reason_m.group(1) if reason_m else "LLM classification (truncated response)",
+        "abstract": abstract_m.group(1) if abstract_m else "Message classified by AI",
+    }
 
 
 @dataclass
@@ -198,7 +226,7 @@ User-defined classification rules (follow these):
                     LLMMessage(role="user", content=user_prompt),
                 ],
                 temperature=0.1,
-                max_tokens=1024,
+                max_tokens=8192,
             )
 
             result = _parse_json_response(response)

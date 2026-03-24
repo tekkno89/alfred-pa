@@ -5,7 +5,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.services.triage_classifier import TriageClassifier
+from app.services.triage_classifier import (
+    TriageClassifier,
+    _parse_json_response,
+)
 from app.services.triage_enrichment import EnrichedTriagePayload
 
 
@@ -113,6 +116,56 @@ class TestCustomClassificationRules:
         messages = call_args.kwargs.get("messages") or call_args[0][0]
         system_content = messages[0].content
         assert "User-defined classification rules" not in system_content
+
+
+class TestParseJsonResponse:
+    """Test JSON parsing including truncated / code-fenced responses."""
+
+    def test_plain_json(self):
+        result = _parse_json_response('{"urgency": "digest", "confidence": 0.9}')
+        assert result["urgency"] == "digest"
+
+    def test_code_fenced_json(self):
+        raw = '```json\n{"urgency": "urgent", "confidence": 0.85, "reason": "test", "abstract": "summary"}\n```'
+        result = _parse_json_response(raw)
+        assert result["urgency"] == "urgent"
+        assert result["confidence"] == 0.85
+
+    def test_truncated_code_fenced_json(self):
+        """Simulates gemini-2.5-flash exhausting token budget mid-response."""
+        raw = (
+            '```json\n{\n  "urgency": "digest",\n  "confidence": 0.9,\n'
+            '  "reason": "The message discusses significant risks associated with '
+            'production database writes",\n  "abstract": "A discussion about prod DB'
+        )
+        result = _parse_json_response(raw)
+        assert result["urgency"] == "digest"
+        assert result["confidence"] == 0.9
+        assert "production database" in result["reason"]
+
+    def test_truncated_mid_reason(self):
+        """Response truncated before abstract field even starts."""
+        raw = (
+            '```json\n{\n  "urgency": "urgent",\n  "confidence": 0.85,\n'
+            '  "reason": "The message reports a failing Storybook deploy due to a'
+        )
+        result = _parse_json_response(raw)
+        assert result["urgency"] == "urgent"
+        assert result["confidence"] == 0.85
+
+    def test_preamble_before_json(self):
+        """Model writes text before the JSON block."""
+        raw = (
+            'I cannot classify because the content was not provided.\n\n'
+            '```json\n{"urgency": "review", "confidence": 0.5, "reason": "no content", '
+            '"abstract": "unclassifiable"}\n```'
+        )
+        result = _parse_json_response(raw)
+        assert result["urgency"] == "review"
+
+    def test_no_json_at_all_raises(self):
+        with pytest.raises(json.JSONDecodeError):
+            _parse_json_response("This is just plain text with no JSON.")
 
 
 class TestTightenedUrgentDefinition:
