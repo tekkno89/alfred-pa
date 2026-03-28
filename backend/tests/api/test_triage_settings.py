@@ -137,6 +137,37 @@ class TestTriageSettings:
         assert response.status_code == 200
         assert response.json()["custom_classification_rules"] is None
 
+    async def test_always_on_min_priority_default(
+        self, client: AsyncClient, test_user
+    ):
+        response = await client.get(
+            "/api/triage/settings",
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 200
+        assert response.json()["always_on_min_priority"] == "p3"
+
+    async def test_update_always_on_min_priority(
+        self, client: AsyncClient, test_user
+    ):
+        response = await client.patch(
+            "/api/triage/settings",
+            json={"always_on_min_priority": "p1"},
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 200
+        assert response.json()["always_on_min_priority"] == "p1"
+
+    async def test_always_on_min_priority_validation(
+        self, client: AsyncClient, test_user
+    ):
+        response = await client.patch(
+            "/api/triage/settings",
+            json={"always_on_min_priority": "invalid"},
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 422
+
     async def test_settings_requires_feature_access(
         self, client: AsyncClient, user_no_access
     ):

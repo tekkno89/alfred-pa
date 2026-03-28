@@ -345,6 +345,35 @@ export function TriageSettingsPage() {
             />
           </div>
 
+          {settings?.is_always_on && (
+            <div className="pl-4 border-l-2 border-muted">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label>Minimum Priority</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Only store messages at or above this priority
+                  </p>
+                </div>
+                <Select
+                  value={settings?.always_on_min_priority ?? 'p3'}
+                  onValueChange={(val) =>
+                    updateSettings.mutate({ always_on_min_priority: val as 'p0' | 'p1' | 'p2' | 'p3' })
+                  }
+                >
+                  <SelectTrigger className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="p0">P0 only</SelectItem>
+                    <SelectItem value="p1">P1 and above</SelectItem>
+                    <SelectItem value="p2">P2 and above</SelectItem>
+                    <SelectItem value="p3">All priorities</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center justify-between">
             <div>
               <Label>Sensitivity</Label>

@@ -24,6 +24,7 @@ class TriageSettingsUpdate(BaseModel):
     """Request to update triage settings."""
 
     is_always_on: bool | None = None
+    always_on_min_priority: str | None = Field(None, pattern="^(p0|p1|p2|p3)$")
     sensitivity: str | None = Field(None, pattern="^(low|medium|high)$")
     debug_mode: bool | None = None
     classification_retention_days: int | None = Field(None, ge=1, le=365)
@@ -41,6 +42,7 @@ class TriageSettingsResponse(BaseModel):
     model_config = {"from_attributes": True}
 
     is_always_on: bool = False
+    always_on_min_priority: str = "p3"
     sensitivity: str = "medium"
     debug_mode: bool = False
     slack_workspace_domain: str | None = None

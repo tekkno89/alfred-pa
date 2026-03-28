@@ -16,6 +16,8 @@ from app.services.triage_enrichment import TriageEnrichmentService
 
 logger = logging.getLogger(__name__)
 
+PRIORITY_ORDER = {"p0": 0, "p1": 1, "p2": 2, "p3": 3}
+
 
 class TriagePipeline:
     """Orchestrates the full triage flow: enrich -> classify -> store -> notify."""
@@ -53,6 +55,9 @@ class TriagePipeline:
             message_text=message_text,
         )
 
+        # Fetch settings once (used for filtering + debug mode)
+        settings = await self.settings_repo.get_by_user_id(user_id)
+
         # 2. Classify
         classifier = TriageClassifier(
             sensitivity=payload.sensitivity,
@@ -63,6 +68,20 @@ class TriagePipeline:
             p3_definition=payload.p3_definition,
         )
         result = await classifier.classify(payload)
+
+        # 2b. Always-on priority filter: drop items below threshold
+        if payload.focus_session_id is None and result.priority != "review":
+            min_priority = (
+                settings.always_on_min_priority if settings else "p3"
+            )
+            result_order = PRIORITY_ORDER.get(result.priority)
+            threshold_order = PRIORITY_ORDER.get(min_priority, 3)
+            if result_order is not None and result_order > threshold_order:
+                logger.debug(
+                    f"[TRIAGE] Dropping {result.priority} (below threshold {min_priority}) "
+                    f"for user={user_id}"
+                )
+                return
 
         # 3. Store classification (no message text)
         classification = TriageClassification(
@@ -96,7 +115,6 @@ class TriagePipeline:
             )
 
         # 5. Debug mode: enhanced logging and SSE payload (no raw text)
-        settings = await self.settings_repo.get_by_user_id(user_id)
         if settings and settings.debug_mode:
             logger.debug(
                 f"[TRIAGE DEBUG] user={user_id} "
