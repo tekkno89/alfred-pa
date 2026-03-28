@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
   AlertTriangle,
-  Clock,
   Eye,
   ExternalLink,
   ThumbsUp,

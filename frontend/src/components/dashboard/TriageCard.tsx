@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { Inbox, AlertTriangle, Eye, Archive, Layers, Settings, AlertCircle } from 'lucide-react'
+import { Inbox, AlertTriangle, Eye, Layers, Settings, AlertCircle } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { useTriageSettings, useTriageSessionStats, useClassifications } from '@/hooks/useTriage'
 
