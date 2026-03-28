@@ -57,6 +57,10 @@ class TriagePipeline:
         classifier = TriageClassifier(
             sensitivity=payload.sensitivity,
             custom_classification_rules=payload.custom_classification_rules,
+            p0_definition=payload.p0_definition,
+            p1_definition=payload.p1_definition,
+            p2_definition=payload.p2_definition,
+            p3_definition=payload.p3_definition,
         )
         result = await classifier.classify(payload)
 
@@ -72,7 +76,7 @@ class TriagePipeline:
             message_ts=message_ts,
             thread_ts=thread_ts,
             slack_permalink=payload.slack_permalink,
-            urgency_level=result.urgency,
+            priority_level=result.priority,
             confidence=result.confidence,
             classification_reason=result.reason,
             abstract=result.abstract,
@@ -82,8 +86,8 @@ class TriagePipeline:
         classification = await self.class_repo.create(classification)
         await self.db.commit()
 
-        # 4. Deliver urgent notifications
-        if result.urgency == "urgent":
+        # 4. Deliver P0 notifications
+        if result.priority == "p0":
             await self._deliver_urgent(
                 user_id=user_id,
                 classification=classification,
@@ -96,7 +100,7 @@ class TriagePipeline:
         if settings and settings.debug_mode:
             logger.debug(
                 f"[TRIAGE DEBUG] user={user_id} "
-                f"urgency={result.urgency} confidence={result.confidence:.2f} "
+                f"priority={result.priority} confidence={result.confidence:.2f} "
                 f"reason={result.reason} path={event_type} "
                 f"sender={sender_slack_id} channel={channel_id}"
             )
@@ -106,7 +110,7 @@ class TriagePipeline:
                     "triage.debug",
                     {
                         "classification_id": classification.id,
-                        "urgency": result.urgency,
+                        "priority": result.priority,
                         "confidence": result.confidence,
                         "reason": result.reason,
                         "path": event_type,
@@ -124,7 +128,7 @@ class TriagePipeline:
         payload,
         result,
     ) -> None:
-        """Send urgent notification via Slack DM and SSE."""
+        """Send P0 notification via Slack DM and SSE."""
         # Slack DM
         try:
             from app.db.repositories import UserRepository
@@ -144,7 +148,7 @@ class TriagePipeline:
                     channel_info = f" in #{payload.channel_name}"
 
                 dm_text = (
-                    f"*Urgent message from {sender_label}{channel_info}*\n"
+                    f"*P0 — Urgent message from {sender_label}{channel_info}*\n"
                     f"{result.abstract}{permalink_text}"
                 )
                 await slack_service.send_message(
@@ -164,7 +168,7 @@ class TriagePipeline:
                     "sender_slack_id": classification.sender_slack_id,
                     "sender_name": payload.sender_name,
                     "channel_id": classification.channel_id,
-                    "urgency_level": "urgent",
+                    "priority_level": "p0",
                     "abstract": result.abstract,
                     "slack_permalink": classification.slack_permalink,
                 },

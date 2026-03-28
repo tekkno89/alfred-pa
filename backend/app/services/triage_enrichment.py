@@ -49,6 +49,12 @@ class EnrichedTriagePayload:
     # User-defined classification guidance
     custom_classification_rules: str | None = None
 
+    # Per-priority definitions (user-customizable)
+    p0_definition: str | None = None
+    p1_definition: str | None = None
+    p2_definition: str | None = None
+    p3_definition: str | None = None
+
 
 def generate_slack_permalink(
     workspace_domain: str | None,
@@ -102,6 +108,10 @@ class TriageEnrichmentService:
         if settings:
             payload.sensitivity = settings.sensitivity
             payload.custom_classification_rules = settings.custom_classification_rules
+            payload.p0_definition = settings.p0_definition
+            payload.p1_definition = settings.p1_definition
+            payload.p2_definition = settings.p2_definition
+            payload.p3_definition = settings.p3_definition
 
             # Auto-detect workspace domain if missing
             if not settings.slack_workspace_domain:

@@ -19,6 +19,8 @@ import type {
   MarkReviewedRequest,
   SlackChannelInfo,
   TriageSessionStats,
+  GenerateDefinitionsRequest,
+  GenerateDefinitionsResponse,
 } from '@/types'
 
 // --- Settings ---
@@ -192,7 +194,7 @@ export function useRefreshSlackChannels() {
 // --- Classifications ---
 
 export function useClassifications(params?: {
-  urgency?: string
+  priority?: string
   channel_id?: string
   reviewed?: boolean
   hide_active_digest?: boolean
@@ -200,7 +202,7 @@ export function useClassifications(params?: {
   offset?: number
 }) {
   const searchParams = new URLSearchParams()
-  if (params?.urgency) searchParams.set('urgency', params.urgency)
+  if (params?.priority) searchParams.set('priority', params.priority)
   if (params?.channel_id) searchParams.set('channel_id', params.channel_id)
   if (params?.reviewed !== undefined) searchParams.set('reviewed', String(params.reviewed))
   if (params?.hide_active_digest !== undefined) searchParams.set('hide_active_digest', String(params.hide_active_digest))
@@ -274,5 +276,17 @@ export function useTriageSessionStats() {
   return useQuery({
     queryKey: ['triage-session-stats'],
     queryFn: () => apiGet<TriageSessionStats>('/triage/analytics/session-stats'),
+  })
+}
+
+// --- AI Wizard ---
+
+export function useGenerateDefinitions() {
+  return useMutation({
+    mutationFn: (data: GenerateDefinitionsRequest) =>
+      apiPost<GenerateDefinitionsResponse, GenerateDefinitionsRequest>(
+        '/triage/settings/generate-definitions',
+        data
+      ),
   })
 }

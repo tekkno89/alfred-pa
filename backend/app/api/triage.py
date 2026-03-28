@@ -25,6 +25,8 @@ from app.schemas.triage import (
     ClassificationList,
     ClassificationResponse,
     DigestResponse,
+    GenerateDefinitionsRequest,
+    GenerateDefinitionsResponse,
     KeywordRuleCreate,
     KeywordRuleResponse,
     KeywordRuleUpdate,
@@ -245,7 +247,7 @@ async def add_keyword_rule(
         user_id=current_user.id,
         keyword_pattern=data.keyword_pattern,
         match_type=data.match_type,
-        urgency_override=data.urgency_override,
+        priority_override=data.priority_override,
     )
     rule = await repo.create(rule)
     return KeywordRuleResponse.model_validate(rule)
@@ -514,7 +516,7 @@ async def refresh_slack_channels(
 async def list_classifications(
     current_user: CurrentUser,
     db: DbSession,
-    urgency: str | None = Query(None, pattern="^(urgent|digest|noise|review|digest_summary|reviewable|needs_attention)$"),
+    priority: str | None = Query(None, pattern="^(p0|p1|p2|p3|review|digest_summary|needs_attention)$"),
     channel_id: str | None = Query(None),
     reviewed: bool | None = Query(None),
     hide_active_digest: bool = Query(True),
@@ -525,23 +527,23 @@ async def list_classifications(
     await _check_triage_access(current_user.id, db, current_user.role)
     repo = TriageClassificationRepository(db)
 
-    # Translate "reviewable"/"needs_attention" pseudo-filter into a list of urgency levels
-    urgency_filter: str | list[str] | None = urgency
-    if urgency in ("reviewable", "needs_attention"):
-        urgency_filter = ["urgent", "review", "digest_summary"]
+    # Translate "needs_attention" pseudo-filter into a list of priority levels
+    priority_filter: str | list[str] | None = priority
+    if priority == "needs_attention":
+        priority_filter = ["p0", "review", "digest_summary"]
 
     items = await repo.get_recent(
         current_user.id,
         limit=limit,
         offset=offset,
-        urgency_level=urgency_filter,
+        priority_level=priority_filter,
         channel_id=channel_id,
         reviewed=reviewed,
         exclude_active_session_digest=hide_active_digest,
     )
     total = await repo.count_filtered(
         current_user.id,
-        urgency_level=urgency_filter,
+        priority_level=priority_filter,
         channel_id=channel_id,
         reviewed=reviewed,
         exclude_active_session_digest=hide_active_digest,
@@ -588,7 +590,7 @@ async def get_digest_children(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Classification not found",
         )
-    if classification.urgency_level != "digest_summary":
+    if classification.priority_level != "digest_summary":
         return []
     children = await repo.get_digest_children(
         classification_id, current_user.id
@@ -608,12 +610,11 @@ async def get_session_digest(
     items = await repo.get_by_session(current_user.id, session_id)
     return DigestResponse(
         session_id=session_id,
-        urgent_count=sum(1 for i in items if i.urgency_level == "urgent"),
-        review_count=sum(1 for i in items if i.urgency_level == "review"),
-        noise_count=sum(1 for i in items if i.urgency_level == "noise"),
-        digest_count=sum(
-            1 for i in items if i.urgency_level in ("digest", "digest_summary")
-        ),
+        p0_count=sum(1 for i in items if i.priority_level == "p0"),
+        p1_count=sum(1 for i in items if i.priority_level == "p1"),
+        p2_count=sum(1 for i in items if i.priority_level == "p2"),
+        p3_count=sum(1 for i in items if i.priority_level == "p3"),
+        review_count=sum(1 for i in items if i.priority_level == "review"),
         items=[ClassificationResponse.model_validate(i) for i in items],
     )
 
@@ -628,12 +629,11 @@ async def get_latest_digest(
     repo = TriageClassificationRepository(db)
     items = await repo.get_recent(current_user.id, limit=50)
     return DigestResponse(
-        urgent_count=sum(1 for i in items if i.urgency_level == "urgent"),
-        review_count=sum(1 for i in items if i.urgency_level == "review"),
-        noise_count=sum(1 for i in items if i.urgency_level == "noise"),
-        digest_count=sum(
-            1 for i in items if i.urgency_level in ("digest", "digest_summary")
-        ),
+        p0_count=sum(1 for i in items if i.priority_level == "p0"),
+        p1_count=sum(1 for i in items if i.priority_level == "p1"),
+        p2_count=sum(1 for i in items if i.priority_level == "p2"),
+        p3_count=sum(1 for i in items if i.priority_level == "p3"),
+        review_count=sum(1 for i in items if i.priority_level == "review"),
         items=[ClassificationResponse.model_validate(i) for i in items],
     )
 
@@ -666,7 +666,8 @@ async def submit_feedback(
         classification_id=data.classification_id,
         user_id=current_user.id,
         was_correct=data.was_correct,
-        correct_urgency=data.correct_urgency,
+        correct_priority=data.correct_priority,
+        feedback_text=data.feedback_text,
     )
     return {"status": "ok"}
 
@@ -682,26 +683,56 @@ async def get_session_stats(
     """Get classification stats for the current user."""
     await _check_triage_access(current_user.id, db, current_user.role)
     repo = TriageClassificationRepository(db)
-    urgent = await repo.count_filtered(
-        current_user.id, urgency_level="urgent", reviewed=False,
+    p0 = await repo.count_filtered(
+        current_user.id, priority_level="p0", reviewed=False,
+    )
+    p1 = await repo.count_filtered(
+        current_user.id, priority_level="p1", reviewed=False,
+    )
+    p2 = await repo.count_filtered(
+        current_user.id, priority_level="p2", reviewed=False,
+    )
+    p3 = await repo.count_filtered(
+        current_user.id, priority_level="p3", reviewed=False,
     )
     review = await repo.count_filtered(
-        current_user.id, urgency_level="review", reviewed=False,
-    )
-    noise = await repo.count_filtered(
-        current_user.id, urgency_level="noise", reviewed=False,
-    )
-    digest = await repo.count_filtered(
-        current_user.id, urgency_level="digest", reviewed=False,
+        current_user.id, priority_level="review", reviewed=False,
     )
     digest_summary = await repo.count_filtered(
-        current_user.id, urgency_level="digest_summary", reviewed=False,
+        current_user.id, priority_level="digest_summary", reviewed=False,
     )
     return {
-        "urgent": urgent,
+        "p0": p0,
+        "p1": p1,
+        "p2": p2,
+        "p3": p3,
         "review": review,
-        "noise": noise,
-        "digest": digest,
         "digest_summary": digest_summary,
-        "total": urgent + review + noise + digest + digest_summary,
+        "total": p0 + p1 + p2 + p3 + review + digest_summary,
     }
+
+
+# --- AI Wizard ---
+
+
+@router.post(
+    "/settings/generate-definitions",
+    response_model=GenerateDefinitionsResponse,
+)
+async def generate_definitions(
+    data: GenerateDefinitionsRequest,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> GenerateDefinitionsResponse:
+    """Generate priority definitions using AI based on user answers."""
+    await _check_triage_access(current_user.id, db, current_user.role)
+    from app.services.triage_wizard import TriageWizardService
+
+    wizard = TriageWizardService()
+    result = await wizard.generate_definitions(
+        role=data.role,
+        critical_messages=data.critical_messages,
+        can_wait=data.can_wait,
+        priority_senders=data.priority_senders,
+    )
+    return GenerateDefinitionsResponse(**result)

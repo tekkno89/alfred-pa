@@ -56,12 +56,12 @@ async def classifications(db_session: AsyncSession, test_user):
     """Create sample classifications with different review states."""
     now = datetime.utcnow()
     items = []
-    for i, (urgency, reviewed) in enumerate([
-        ("urgent", True),
+    for i, (priority, reviewed) in enumerate([
+        ("p0", True),
         ("review", False),
-        ("digest", False),
-        ("urgent", False),
-        ("digest", True),
+        ("p2", False),
+        ("p0", False),
+        ("p2", True),
     ]):
         c = TriageClassification(
             user_id=test_user.id,
@@ -70,7 +70,7 @@ async def classifications(db_session: AsyncSession, test_user):
             channel_id="C12345",
             channel_name="general",
             message_ts=f"1700000{i}.000000",
-            urgency_level=urgency,
+            priority_level=priority,
             confidence=0.9,
             classification_reason="test",
             abstract=f"Message {i}",
@@ -122,7 +122,7 @@ async def ended_focus_session(db_session: AsyncSession, test_user):
 async def digest_in_active_session(
     db_session: AsyncSession, test_user, active_focus_session
 ):
-    """Create digest classifications linked to an active focus session."""
+    """Create P1/P2 classifications linked to an active focus session."""
     items = []
     for i in range(3):
         c = TriageClassification(
@@ -133,7 +133,7 @@ async def digest_in_active_session(
             channel_id="C12345",
             channel_name="general",
             message_ts=f"1700100{i}.000000",
-            urgency_level="digest",
+            priority_level="p2",
             confidence=0.8,
             abstract=f"Active digest {i}",
             classification_path="channel",
@@ -150,7 +150,7 @@ async def digest_in_active_session(
 async def digest_in_ended_session(
     db_session: AsyncSession, test_user, ended_focus_session
 ):
-    """Create digest classifications linked to an ended focus session."""
+    """Create P2 classifications linked to an ended focus session."""
     items = []
     for i in range(2):
         c = TriageClassification(
@@ -161,7 +161,7 @@ async def digest_in_ended_session(
             channel_id="C12345",
             channel_name="general",
             message_ts=f"1700200{i}.000000",
-            urgency_level="digest",
+            priority_level="p2",
             confidence=0.7,
             abstract=f"Ended digest {i}",
             classification_path="channel",
@@ -304,7 +304,7 @@ class TestMarkReviewed:
     async def test_mark_unreviewed(
         self, client: AsyncClient, test_user, classifications
     ):
-        reviewed_id = classifications[0].id  # urgent, reviewed
+        reviewed_id = classifications[0].id  # p0, reviewed
         resp = await client.patch(
             "/api/triage/classifications/reviewed",
             json={
@@ -354,7 +354,7 @@ class TestDigestChildren:
             channel_id="C12345",
             channel_name=None,
             message_ts="1700200999.000000",
-            urgency_level="digest_summary",
+            priority_level="digest_summary",
             confidence=1.0,
             classification_reason="Consolidated 2 digest items",
             abstract="2 noteworthy messages",
@@ -392,7 +392,7 @@ class TestDigestChildren:
             sender_name="Digest Summary",
             channel_id="C12345",
             message_ts="1700300000.000000",
-            urgency_level="digest_summary",
+            priority_level="digest_summary",
             confidence=1.0,
             abstract="Summary",
             classification_path="channel",
@@ -415,7 +415,7 @@ class TestDigestChildren:
         classifications,
     ):
         # Regular classification (not digest_summary) should return empty
-        target = classifications[2]  # digest, not a summary
+        target = classifications[2]  # p2, not a summary
         resp = await client.get(
             f"/api/triage/classifications/{target.id}/digest-children",
             headers=auth_headers(test_user),
@@ -424,52 +424,11 @@ class TestDigestChildren:
         assert resp.json() == []
 
 
-class TestReviewableFilter:
-    """Test the 'reviewable' pseudo-filter returns urgent + review + digest_summary."""
-
-    @pytest.mark.asyncio
-    async def test_reviewable_returns_correct_levels(
-        self, client: AsyncClient, test_user, classifications, db_session: AsyncSession
-    ):
-        # Add a digest_summary item
-        summary = TriageClassification(
-            user_id=test_user.id,
-            sender_slack_id="SYSTEM",
-            sender_name=None,
-            channel_id="C12345",
-            channel_name=None,
-            message_ts="1700099999.000000",
-            urgency_level="digest_summary",
-            confidence=1.0,
-            classification_reason="Consolidated 2 digest items",
-            abstract="2 noteworthy messages",
-            classification_path="simple",
-            child_count=2,
-        )
-        db_session.add(summary)
-        await db_session.commit()
-
-        resp = await client.get(
-            "/api/triage/classifications",
-            params={"urgency": "reviewable", "hide_active_digest": "false"},
-            headers=auth_headers(test_user),
-        )
-        assert resp.status_code == 200
-        data = resp.json()
-        # From fixtures: 2 urgent + 1 review + 1 digest_summary = 4
-        assert data["total"] == 4
-        returned_levels = {item["urgency_level"] for item in data["items"]}
-        assert returned_levels <= {"urgent", "review", "digest_summary"}
-        # Ensure no digest or noise items
-        assert "digest" not in returned_levels
-        assert "noise" not in returned_levels
-
-
 class TestNeedsAttentionFilter:
-    """Test the 'needs_attention' pseudo-filter (alias for reviewable)."""
+    """Test the 'needs_attention' pseudo-filter returns p0 + review + digest_summary."""
 
     @pytest.mark.asyncio
-    async def test_needs_attention_returns_same_as_reviewable(
+    async def test_needs_attention_returns_correct_levels(
         self, client: AsyncClient, test_user, classifications, db_session: AsyncSession
     ):
         # Add a digest_summary item
@@ -480,7 +439,7 @@ class TestNeedsAttentionFilter:
             channel_id="C12345",
             channel_name=None,
             message_ts="1700099998.000000",
-            urgency_level="digest_summary",
+            priority_level="digest_summary",
             confidence=1.0,
             classification_reason="Consolidated 2 digest items",
             abstract="2 noteworthy messages",
@@ -492,27 +451,29 @@ class TestNeedsAttentionFilter:
 
         resp = await client.get(
             "/api/triage/classifications",
-            params={"urgency": "needs_attention", "hide_active_digest": "false"},
+            params={"priority": "needs_attention", "hide_active_digest": "false"},
             headers=auth_headers(test_user),
         )
         assert resp.status_code == 200
         data = resp.json()
-        # From fixtures: 2 urgent + 1 review + 1 digest_summary = 4
+        # From fixtures: 2 p0 + 1 review + 1 digest_summary = 4
         assert data["total"] == 4
-        returned_levels = {item["urgency_level"] for item in data["items"]}
-        assert returned_levels <= {"urgent", "review", "digest_summary"}
-        assert "digest" not in returned_levels
-        assert "noise" not in returned_levels
+        returned_levels = {item["priority_level"] for item in data["items"]}
+        assert returned_levels <= {"p0", "review", "digest_summary"}
+        # Ensure no p1/p2/p3 items
+        assert "p1" not in returned_levels
+        assert "p2" not in returned_levels
+        assert "p3" not in returned_levels
 
 
-class TestDigestFilterShowsConsolidated:
-    """Test that filtering by 'digest' shows consolidated items too."""
+class TestP2FilterShowsConsolidated:
+    """Test that filtering by 'p2' shows consolidated items too."""
 
     @pytest.mark.asyncio
-    async def test_digest_filter_includes_consolidated_items(
+    async def test_p2_filter_includes_consolidated_items(
         self, client: AsyncClient, test_user, db_session: AsyncSession
     ):
-        # Create a digest_summary and link digest children to it
+        # Create a digest_summary and link p2 children to it
         summary = TriageClassification(
             user_id=test_user.id,
             sender_slack_id="SYSTEM",
@@ -520,7 +481,7 @@ class TestDigestFilterShowsConsolidated:
             channel_id="C12345",
             channel_name=None,
             message_ts="1700500000.000000",
-            urgency_level="digest_summary",
+            priority_level="digest_summary",
             confidence=1.0,
             classification_reason="Consolidated",
             abstract="3 messages",
@@ -531,7 +492,7 @@ class TestDigestFilterShowsConsolidated:
         await db_session.commit()
         await db_session.refresh(summary)
 
-        # Create digest items, some consolidated (linked to summary)
+        # Create p2 items, some consolidated (linked to summary)
         standalone = TriageClassification(
             user_id=test_user.id,
             sender_slack_id="U90001",
@@ -539,9 +500,9 @@ class TestDigestFilterShowsConsolidated:
             channel_id="C12345",
             channel_name="general",
             message_ts="1700500001.000000",
-            urgency_level="digest",
+            priority_level="p2",
             confidence=0.8,
-            abstract="Standalone digest",
+            abstract="Standalone p2",
             classification_path="channel",
         )
         consolidated = TriageClassification(
@@ -551,9 +512,9 @@ class TestDigestFilterShowsConsolidated:
             channel_id="C12345",
             channel_name="general",
             message_ts="1700500002.000000",
-            urgency_level="digest",
+            priority_level="p2",
             confidence=0.8,
-            abstract="Consolidated digest",
+            abstract="Consolidated p2",
             classification_path="channel",
             digest_summary_id=summary.id,
         )
@@ -562,10 +523,10 @@ class TestDigestFilterShowsConsolidated:
         await db_session.refresh(standalone)
         await db_session.refresh(consolidated)
 
-        # Filter by digest — should see both standalone and consolidated items
+        # Filter by p2 - should see both standalone and consolidated items
         resp = await client.get(
             "/api/triage/classifications",
-            params={"urgency": "digest", "hide_active_digest": "false"},
+            params={"priority": "p2", "hide_active_digest": "false"},
             headers=auth_headers(test_user),
         )
         assert resp.status_code == 200
@@ -578,7 +539,7 @@ class TestDigestFilterShowsConsolidated:
     async def test_other_filters_still_hide_consolidated(
         self, client: AsyncClient, test_user, db_session: AsyncSession
     ):
-        # Create a consolidated digest item
+        # Create a consolidated p2 item
         summary = TriageClassification(
             user_id=test_user.id,
             sender_slack_id="SYSTEM",
@@ -586,7 +547,7 @@ class TestDigestFilterShowsConsolidated:
             channel_id="C12345",
             channel_name=None,
             message_ts="1700600000.000000",
-            urgency_level="digest_summary",
+            priority_level="digest_summary",
             confidence=1.0,
             abstract="Summary",
             classification_path="channel",
@@ -603,7 +564,7 @@ class TestDigestFilterShowsConsolidated:
             channel_id="C12345",
             channel_name="general",
             message_ts="1700600001.000000",
-            urgency_level="digest",
+            priority_level="p2",
             confidence=0.8,
             abstract="Should be hidden",
             classification_path="channel",
@@ -613,7 +574,7 @@ class TestDigestFilterShowsConsolidated:
         await db_session.commit()
         await db_session.refresh(consolidated)
 
-        # Filter with no urgency (all) — consolidated items should be hidden
+        # Filter with no priority (all) - consolidated items should be hidden
         resp = await client.get(
             "/api/triage/classifications",
             params={"hide_active_digest": "false"},
@@ -634,11 +595,11 @@ class TestTotalCountAccuracy:
     async def test_total_matches_filtered_count(
         self, client: AsyncClient, test_user, classifications
     ):
-        # Filter by urgency=urgent and unreviewed
+        # Filter by priority=p0 and unreviewed
         resp = await client.get(
             "/api/triage/classifications",
             params={
-                "urgency": "urgent",
+                "priority": "p0",
                 "reviewed": "false",
                 "hide_active_digest": "false",
             },
@@ -646,8 +607,8 @@ class TestTotalCountAccuracy:
         )
         assert resp.status_code == 200
         data = resp.json()
-        # Only 1 urgent + unreviewed (index 3)
+        # Only 1 p0 + unreviewed (index 3)
         assert data["total"] == 1
         assert len(data["items"]) == 1
-        assert data["items"][0]["urgency_level"] == "urgent"
+        assert data["items"][0]["priority_level"] == "p0"
         assert data["items"][0]["reviewed_at"] is None

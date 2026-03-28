@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { ArrowLeft, Plus, Trash2, Hash, Lock, RefreshCw, ChevronsUpDown, Check } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, Hash, Lock, RefreshCw, ChevronsUpDown, Check, Sparkles } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -42,6 +42,7 @@ import {
   useRemoveSourceExclusion,
 } from '@/hooks/useTriage'
 import { useNotificationContext } from '@/components/notifications/NotificationProvider'
+import { ClassifierWizardModal } from '@/components/triage/ClassifierWizardModal'
 import type { MonitoredChannel, ChannelPriority } from '@/types'
 
 function ChannelConfig({ channel }: { channel: MonitoredChannel }) {
@@ -128,7 +129,7 @@ function ChannelConfig({ channel }: { channel: MonitoredChannel }) {
                     channelId: channel.id,
                     data: {
                       keyword_pattern: newKeyword.trim(),
-                      urgency_override: 'urgent',
+                      priority_override: 'p0',
                     },
                   })
                   setNewKeyword('')
@@ -145,7 +146,7 @@ function ChannelConfig({ channel }: { channel: MonitoredChannel }) {
                   channelId: channel.id,
                   data: {
                     keyword_pattern: newKeyword.trim(),
-                    urgency_override: 'urgent',
+                    priority_override: 'p0',
                   },
                 })
                 setNewKeyword('')
@@ -245,6 +246,11 @@ function ChannelConfig({ channel }: { channel: MonitoredChannel }) {
   )
 }
 
+const DEFAULT_P0 = 'Needs immediate attention RIGHT NOW. Production incidents, emergencies, someone explicitly saying something is urgent/critical.'
+const DEFAULT_P1 = 'Time-sensitive requests that need action soon. Direct asks requiring a response, important questions needing input.'
+const DEFAULT_P2 = 'Noteworthy but not time-sensitive. Project updates, FYI items, relevant discussions worth reviewing later.'
+const DEFAULT_P3 = 'Low priority. General chatter, memes, social messages, automated notifications that need no action.'
+
 export function TriageSettingsPage() {
   const navigate = useNavigate()
   const { data: settings, isLoading: settingsLoading } = useTriageSettings()
@@ -265,8 +271,24 @@ export function TriageSettingsPage() {
   const [comboboxOpen, setComboboxOpen] = useState(false)
   const [selectedChannelId, setSelectedChannelId] = useState('')
   const [customRules, setCustomRules] = useState<string | null>(null)
+  const [wizardOpen, setWizardOpen] = useState(false)
+
+  // Priority definition local state
+  const [p0Def, setP0Def] = useState<string | null>(null)
+  const [p1Def, setP1Def] = useState<string | null>(null)
+  const [p2Def, setP2Def] = useState<string | null>(null)
+  const [p3Def, setP3Def] = useState<string | null>(null)
+  const [digestInstr, setDigestInstr] = useState<string | null>(null)
+
   const hasRulesChanges =
     customRules !== null && customRules !== (settings?.custom_classification_rules ?? '')
+  const hasDefChanges =
+    (p0Def !== null && p0Def !== (settings?.p0_definition ?? '')) ||
+    (p1Def !== null && p1Def !== (settings?.p1_definition ?? '')) ||
+    (p2Def !== null && p2Def !== (settings?.p2_definition ?? '')) ||
+    (p3Def !== null && p3Def !== (settings?.p3_definition ?? ''))
+  const hasDigestChanges =
+    digestInstr !== null && digestInstr !== (settings?.digest_instructions ?? '')
 
   const channels = channelData?.channels ?? []
   const availableToAdd = useMemo(() => {
@@ -327,7 +349,7 @@ export function TriageSettingsPage() {
             <div>
               <Label>Sensitivity</Label>
               <p className="text-sm text-muted-foreground">
-                Higher = more messages classified as urgent
+                Higher = more messages classified as P0/P1
               </p>
             </div>
             <Select
@@ -364,10 +386,132 @@ export function TriageSettingsPage() {
         </CardContent>
       </Card>
 
+      {/* Priority Definitions */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Priority Definitions</CardTitle>
+              <CardDescription>
+                Customize what each priority level means for your workflow
+              </CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setWizardOpen(true)}
+            >
+              <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+              Generate with AI
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <Label className="text-sm font-medium">P0 — Urgent (immediate notification)</Label>
+            <Textarea
+              rows={2}
+              className="mt-1"
+              placeholder={DEFAULT_P0}
+              value={p0Def ?? settings?.p0_definition ?? ''}
+              onChange={(e) => setP0Def(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label className="text-sm font-medium">P1 — Important (digest at break)</Label>
+            <Textarea
+              rows={2}
+              className="mt-1"
+              placeholder={DEFAULT_P1}
+              value={p1Def ?? settings?.p1_definition ?? ''}
+              onChange={(e) => setP1Def(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label className="text-sm font-medium">P2 — Notable (session digest)</Label>
+            <Textarea
+              rows={2}
+              className="mt-1"
+              placeholder={DEFAULT_P2}
+              value={p2Def ?? settings?.p2_definition ?? ''}
+              onChange={(e) => setP2Def(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label className="text-sm font-medium">P3 — Low priority</Label>
+            <Textarea
+              rows={2}
+              className="mt-1"
+              placeholder={DEFAULT_P3}
+              value={p3Def ?? settings?.p3_definition ?? ''}
+              onChange={(e) => setP3Def(e.target.value)}
+            />
+          </div>
+          {hasDefChanges && (
+            <Button
+              size="sm"
+              disabled={updateSettings.isPending}
+              onClick={() => {
+                const payload: Record<string, string | null> = {}
+                if (p0Def !== null) payload.p0_definition = p0Def || null
+                if (p1Def !== null) payload.p1_definition = p1Def || null
+                if (p2Def !== null) payload.p2_definition = p2Def || null
+                if (p3Def !== null) payload.p3_definition = p3Def || null
+                updateSettings.mutate(
+                  payload,
+                  {
+                    onSuccess: () => {
+                      setP0Def(null)
+                      setP1Def(null)
+                      setP2Def(null)
+                      setP3Def(null)
+                    },
+                  }
+                )
+              }}
+            >
+              {updateSettings.isPending ? 'Saving...' : 'Save Definitions'}
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Digest Instructions */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Digest Instructions</CardTitle>
+          <CardDescription>
+            Tell the AI what to focus on when summarizing messages in your digest
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea
+            rows={3}
+            placeholder="e.g. Focus on action items and questions directed at me. Skip social messages."
+            value={digestInstr ?? settings?.digest_instructions ?? ''}
+            onChange={(e) => setDigestInstr(e.target.value)}
+          />
+          {hasDigestChanges && (
+            <Button
+              size="sm"
+              disabled={updateSettings.isPending}
+              onClick={() => {
+                updateSettings.mutate(
+                  { digest_instructions: digestInstr || null },
+                  { onSuccess: () => setDigestInstr(null) }
+                )
+              }}
+            >
+              {updateSettings.isPending ? 'Saving...' : 'Save Instructions'}
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Classification Rules */}
       <Card>
         <CardHeader>
-          <CardTitle>Classification Rules</CardTitle>
+          <CardTitle>Additional Classification Rules</CardTitle>
           <CardDescription>
             Add custom rules to guide how messages are classified. These are injected into the AI classifier prompt.
           </CardDescription>
@@ -375,7 +519,7 @@ export function TriageSettingsPage() {
         <CardContent className="space-y-3">
           <Textarea
             rows={4}
-            placeholder={`e.g. Requests to borrow items are never urgent\nMessages from #random are always digest`}
+            placeholder={`e.g. Requests to borrow items are never P0\nMessages from #random are always P3`}
             value={customRules ?? settings?.custom_classification_rules ?? ''}
             onChange={(e) => setCustomRules(e.target.value)}
           />
@@ -503,6 +647,35 @@ export function TriageSettingsPage() {
         </div>
       )}
     </div>
+
+    {/* AI Wizard Modal */}
+    <ClassifierWizardModal
+      open={wizardOpen}
+      onOpenChange={setWizardOpen}
+      onApply={(defs) => {
+        setP0Def(defs.p0_definition)
+        setP1Def(defs.p1_definition)
+        setP2Def(defs.p2_definition)
+        setP3Def(defs.p3_definition)
+        setWizardOpen(false)
+        updateSettings.mutate(
+          {
+            p0_definition: defs.p0_definition || null,
+            p1_definition: defs.p1_definition || null,
+            p2_definition: defs.p2_definition || null,
+            p3_definition: defs.p3_definition || null,
+          },
+          {
+            onSuccess: () => {
+              setP0Def(null)
+              setP1Def(null)
+              setP2Def(null)
+              setP3Def(null)
+            },
+          }
+        )
+      }}
+    />
     </div>
   )
 }

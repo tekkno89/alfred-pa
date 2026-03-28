@@ -11,6 +11,26 @@ from app.services.triage_enrichment import EnrichedTriagePayload
 
 logger = logging.getLogger(__name__)
 
+# Default priority level definitions
+DEFAULT_P0 = (
+    "Needs immediate attention RIGHT NOW. Production incidents, emergencies, "
+    "someone explicitly saying something is urgent/critical. Casual requests "
+    "or favors (e.g. borrowing something, quick questions) are NOT P0."
+)
+DEFAULT_P1 = (
+    "Time-sensitive requests that need action soon. Direct asks requiring a response, "
+    "important questions needing input, meaningful requests with a deadline."
+)
+DEFAULT_P2 = (
+    "Noteworthy but not time-sensitive. Project updates, FYI items, relevant "
+    "discussions, informational messages worth reviewing later."
+)
+DEFAULT_P3 = (
+    "Low priority. General chatter, memes, social messages, non-work banter, "
+    "automated notifications that need no action. When in doubt between P2 and P3, "
+    "lean toward P3."
+)
+
 
 def _parse_json_response(response: str) -> dict:
     """Extract and parse JSON from an LLM response.
@@ -53,16 +73,16 @@ def _extract_fields_from_truncated(text: str) -> dict | None:
 
     When thinking models (e.g. gemini-2.5-flash) exhaust their token budget,
     the JSON response may be cut off mid-field.  We can still salvage the
-    classification if urgency and confidence were emitted before truncation.
+    classification if priority and confidence were emitted before truncation.
     """
-    urgency_m = re.search(r'"urgency"\s*:\s*"(\w+)"', text)
-    if not urgency_m:
+    priority_m = re.search(r'"priority"\s*:\s*"(\w+)"', text)
+    if not priority_m:
         return None
     confidence_m = re.search(r'"confidence"\s*:\s*([\d.]+)', text)
     reason_m = re.search(r'"reason"\s*:\s*"((?:[^"\\]|\\.)*)"?', text, re.DOTALL)
     abstract_m = re.search(r'"abstract"\s*:\s*"((?:[^"\\]|\\.)*)"?', text, re.DOTALL)
     return {
-        "urgency": urgency_m.group(1),
+        "priority": priority_m.group(1),
         "confidence": float(confidence_m.group(1)) if confidence_m else 0.5,
         "reason": reason_m.group(1) if reason_m else "LLM classification (truncated response)",
         "abstract": abstract_m.group(1) if abstract_m else "Message classified by AI",
@@ -73,7 +93,7 @@ def _extract_fields_from_truncated(text: str) -> dict | None:
 class ClassificationResult:
     """Result of classifying a message."""
 
-    urgency: str  # urgent | digest | noise | review
+    priority: str  # p0 | p1 | p2 | p3 | review
     confidence: float
     reason: str
     abstract: str  # brief summary, never raw message text
@@ -81,13 +101,23 @@ class ClassificationResult:
 
 
 class TriageClassifier:
-    """Classifies messages into urgency levels."""
+    """Classifies messages into priority levels."""
 
     def __init__(
-        self, sensitivity: str = "medium", custom_classification_rules: str | None = None
+        self,
+        sensitivity: str = "medium",
+        custom_classification_rules: str | None = None,
+        p0_definition: str | None = None,
+        p1_definition: str | None = None,
+        p2_definition: str | None = None,
+        p3_definition: str | None = None,
     ) -> None:
         self.sensitivity = sensitivity
         self.custom_classification_rules = custom_classification_rules
+        self.p0_definition = p0_definition or DEFAULT_P0
+        self.p1_definition = p1_definition or DEFAULT_P1
+        self.p2_definition = p2_definition or DEFAULT_P2
+        self.p3_definition = p3_definition or DEFAULT_P3
 
     async def classify(self, payload: EnrichedTriagePayload) -> ClassificationResult:
         """Classify a message based on enriched context."""
@@ -99,10 +129,10 @@ class TriageClassifier:
         self, payload: EnrichedTriagePayload
     ) -> ClassificationResult:
         """Classify a DM."""
-        # VIP senders are always urgent
+        # VIP senders are always P0
         if payload.is_vip:
             return ClassificationResult(
-                urgency="urgent",
+                priority="p0",
                 confidence=1.0,
                 reason="Sender is on VIP list",
                 abstract=f"DM from VIP {payload.sender_name or payload.sender_slack_id}",
@@ -124,7 +154,7 @@ class TriageClassifier:
         # Critical channel priority auto-escalates
         if payload.channel_priority == "critical":
             return ClassificationResult(
-                urgency="urgent",
+                priority="p0",
                 confidence=0.9,
                 reason=f"Channel #{payload.channel_name} is set to critical priority",
                 abstract=f"Message in critical channel #{payload.channel_name}",
@@ -149,9 +179,9 @@ class TriageClassifier:
                 words = text_lower.split()
                 if pattern in words:
                     matched_keywords.append(rule.keyword_pattern)
-                    if rule.urgency_override:
+                    if rule.priority_override:
                         return ClassificationResult(
-                            urgency=rule.urgency_override,
+                            priority=rule.priority_override,
                             confidence=1.0,
                             reason=f"Keyword match: '{rule.keyword_pattern}' (exact)",
                             abstract=f"Message contains keyword '{rule.keyword_pattern}'",
@@ -160,9 +190,9 @@ class TriageClassifier:
             elif rule.match_type == "contains":
                 if pattern in text_lower:
                     matched_keywords.append(rule.keyword_pattern)
-                    if rule.urgency_override:
+                    if rule.priority_override:
                         return ClassificationResult(
-                            urgency=rule.urgency_override,
+                            priority=rule.priority_override,
                             confidence=1.0,
                             reason=f"Keyword match: '{rule.keyword_pattern}' (contains)",
                             abstract=f"Message contains keyword '{rule.keyword_pattern}'",
@@ -180,20 +210,21 @@ class TriageClassifier:
         provider = get_llm_provider(settings.triage_classification_model, location=location)
 
         sensitivity_guidance = {
-            "low": "Only classify as urgent if there is a genuine emergency or the sender explicitly says it's urgent.",
-            "medium": "Classify as urgent if the message appears time-sensitive or requires immediate attention.",
-            "high": "Be liberal with urgent classification. Any message that could be important should be marked urgent.",
+            "low": "Only classify as P0 if there is a genuine emergency or the sender explicitly says it's urgent.",
+            "medium": "Classify as P0 if the message appears to need immediate attention. Use P1 for time-sensitive requests.",
+            "high": "Be liberal with P0/P1 classification. Any message that could be important should be marked P0 or P1.",
         }
 
-        system_prompt = f"""You are a message triage classifier. Classify a Slack message into one of the following levels.
+        system_prompt = f"""You are a message triage classifier. Classify a Slack message into one of the following priority levels.
 
-Classification levels:
-- urgent: Needs immediate attention RIGHT NOW. Production incidents, emergencies, someone explicitly saying something is urgent/critical. Casual requests or favors (e.g. borrowing something, quick questions) are NOT urgent.
-- digest: Noteworthy work-related messages the user should review after their focus session. Questions needing their input, meaningful requests, project discussions, important updates. Only include messages that are genuinely worth the user's attention — be selective.
-- noise: Not noteworthy. Memes, casual chatter, social messages, non-work banter, automated notifications that need no action. When in doubt between digest and noise, lean toward noise.
+Priority levels:
+- p0: {self.p0_definition}
+- p1: {self.p1_definition}
+- p2: {self.p2_definition}
+- p3: {self.p3_definition}
 - review: ONLY use when you genuinely cannot decide between the other levels. This flags the message for manual review.
 
-DMs and @mentions raise the likelihood a message is urgent — but still evaluate the actual message content for urgency signals before classifying as urgent.
+DMs and @mentions raise the likelihood a message is P0 or P1 — but still evaluate the actual message content before classifying.
 
 Sensitivity: {self.sensitivity}
 {sensitivity_guidance.get(self.sensitivity, sensitivity_guidance['medium'])}
@@ -207,7 +238,7 @@ Context:
 - Thread reply: {bool(payload.thread_ts)}
 
 Respond with valid JSON only:
-{{"urgency": "urgent|digest|noise|review", "confidence": 0.0-1.0, "reason": "brief explanation", "abstract": "1-sentence summary of the message topic without quoting the message"}}
+{{"priority": "p0|p1|p2|p3|review", "confidence": 0.0-1.0, "reason": "brief explanation", "abstract": "1-sentence summary of the message topic without quoting the message"}}
 
 IMPORTANT: The "abstract" must be a brief topic summary. Do NOT reproduce the original message text."""
 
@@ -230,12 +261,12 @@ User-defined classification rules (follow these):
             )
 
             result = _parse_json_response(response)
-            urgency = result.get("urgency", "review")
-            if urgency not in ("urgent", "digest", "noise", "review"):
-                urgency = "review"
+            priority = result.get("priority", "review")
+            if priority not in ("p0", "p1", "p2", "p3", "review"):
+                priority = "review"
 
             return ClassificationResult(
-                urgency=urgency,
+                priority=priority,
                 confidence=min(1.0, max(0.0, float(result.get("confidence", 0.5)))),
                 reason=result.get("reason", "LLM classification"),
                 abstract=result.get("abstract", "Message classified by AI"),
@@ -244,7 +275,7 @@ User-defined classification rules (follow these):
         except Exception:
             logger.exception("LLM classification failed (raw response: %r), defaulting to review", response if 'response' in dir() else 'N/A')
             return ClassificationResult(
-                urgency="review",
+                priority="review",
                 confidence=0.3,
                 reason="LLM classification failed, defaulting to review",
                 abstract="Message pending review (classification error)",

@@ -675,7 +675,7 @@ export interface YouTubeDashboard {
 }
 
 // Triage
-export type UrgencyLevel = 'urgent' | 'digest' | 'noise' | 'review' | 'digest_summary'
+export type PriorityLevel = 'p0' | 'p1' | 'p2' | 'p3' | 'review' | 'digest_summary'
 export type Sensitivity = 'low' | 'medium' | 'high'
 export type ChannelPriority = 'low' | 'medium' | 'high' | 'critical'
 export type MatchType = 'exact' | 'contains'
@@ -689,6 +689,11 @@ export interface TriageSettings {
   slack_workspace_domain: string | null
   classification_retention_days: number
   custom_classification_rules: string | null
+  p0_definition: string | null
+  p1_definition: string | null
+  p2_definition: string | null
+  p3_definition: string | null
+  digest_instructions: string | null
 }
 
 export interface TriageSettingsUpdate {
@@ -697,6 +702,11 @@ export interface TriageSettingsUpdate {
   debug_mode?: boolean
   classification_retention_days?: number
   custom_classification_rules?: string | null
+  p0_definition?: string | null
+  p1_definition?: string | null
+  p2_definition?: string | null
+  p3_definition?: string | null
+  digest_instructions?: string | null
 }
 
 export interface MonitoredChannel {
@@ -730,13 +740,13 @@ export interface KeywordRule {
   id: string
   keyword_pattern: string
   match_type: MatchType
-  urgency_override: UrgencyLevel | null
+  priority_override: PriorityLevel | null
 }
 
 export interface KeywordRuleCreate {
   keyword_pattern: string
   match_type?: MatchType
-  urgency_override?: UrgencyLevel | null
+  priority_override?: PriorityLevel | null
 }
 
 export interface SourceExclusion {
@@ -763,7 +773,7 @@ export interface TriageClassification {
   message_ts: string
   thread_ts: string | null
   slack_permalink: string | null
-  urgency_level: UrgencyLevel
+  priority_level: PriorityLevel
   confidence: number
   classification_reason: string | null
   abstract: string | null
@@ -791,17 +801,19 @@ export interface ClassificationList {
 
 export interface DigestResponse {
   session_id: string | null
-  urgent_count: number
+  p0_count: number
+  p1_count: number
+  p2_count: number
+  p3_count: number
   review_count: number
-  noise_count: number
-  digest_count: number
   items: TriageClassification[]
 }
 
 export interface TriageFeedbackCreate {
   classification_id: string
   was_correct: boolean
-  correct_urgency?: UrgencyLevel | null
+  correct_priority?: PriorityLevel | null
+  feedback_text?: string | null
 }
 
 export interface SlackChannelInfo {
@@ -812,10 +824,25 @@ export interface SlackChannelInfo {
 }
 
 export interface TriageSessionStats {
-  urgent: number
+  p0: number
+  p1: number
+  p2: number
+  p3: number
   review: number
-  noise: number
-  digest: number
   digest_summary: number
   total: number
+}
+
+export interface GenerateDefinitionsRequest {
+  role: string
+  critical_messages: string
+  can_wait: string
+  priority_senders?: string
+}
+
+export interface GenerateDefinitionsResponse {
+  p0_definition: string
+  p1_definition: string
+  p2_definition: string
+  p3_definition: string
 }

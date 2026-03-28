@@ -4,13 +4,15 @@ import {
   ArrowLeft,
   AlertTriangle,
   Clock,
-  Archive,
+  Eye,
   ExternalLink,
   Check,
   CheckCircle,
   Settings,
   VolumeX,
   Layers,
+  AlertCircle,
+  Bookmark,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -25,14 +27,15 @@ import { useClassifications, useTriageSessionStats, useMarkReviewed } from '@/ho
 import { ClassificationDetailModal } from '@/components/triage/ClassificationDetailModal'
 import type { TriageClassification } from '@/types'
 
-const URGENCY_OPTIONS = [
+const PRIORITY_OPTIONS = [
   { value: 'all', label: 'All' },
   { value: 'needs_attention', label: 'Needs Attention' },
-  { value: 'urgent', label: 'Urgent' },
-  { value: 'digest', label: 'Digest Messages' },
+  { value: 'p0', label: 'P0 — Urgent' },
+  { value: 'p1', label: 'P1 — Important' },
+  { value: 'p2', label: 'P2 — Notable' },
+  { value: 'p3', label: 'P3 — Low' },
   { value: 'digest_summary', label: 'Session Digest' },
-  { value: 'noise', label: 'Noise' },
-  { value: 'review', label: 'Unclassified' },
+  { value: 'review', label: 'Needs Review' },
 ] as const
 
 const STATUS_OPTIONS = [
@@ -41,31 +44,36 @@ const STATUS_OPTIONS = [
   { value: 'all', label: 'All' },
 ] as const
 
-const URGENCY_BADGE: Record<string, { icon: typeof AlertTriangle; className: string; label: string }> = {
-  urgent: {
+const PRIORITY_BADGE: Record<string, { icon: typeof AlertTriangle; className: string; label: string }> = {
+  p0: {
     icon: AlertTriangle,
     className: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200',
-    label: 'Urgent',
+    label: 'P0',
   },
-  digest: {
-    icon: Archive,
-    className: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
-    label: 'Digest',
+  p1: {
+    icon: AlertCircle,
+    className: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200',
+    label: 'P1',
+  },
+  p2: {
+    icon: Bookmark,
+    className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200',
+    label: 'P2',
+  },
+  p3: {
+    icon: VolumeX,
+    className: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
+    label: 'P3',
   },
   digest_summary: {
     icon: Layers,
     className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200',
     label: 'Session Digest',
   },
-  noise: {
-    icon: VolumeX,
-    className: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
-    label: 'Noise',
-  },
   review: {
-    icon: Clock,
+    icon: Eye,
     className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200',
-    label: 'Unclassified',
+    label: 'Review',
   },
 }
 
@@ -78,7 +86,7 @@ function ClassificationItem({
   onClick: () => void
   onMarkReviewed: (id: string) => void
 }) {
-  const badge = URGENCY_BADGE[item.urgency_level] ?? URGENCY_BADGE.digest
+  const badge = PRIORITY_BADGE[item.priority_level] ?? PRIORITY_BADGE.p2
   const Icon = badge.icon
   const isReviewed = !!item.reviewed_at
 
@@ -89,7 +97,7 @@ function ClassificationItem({
     >
       <CardContent className="py-3 px-4">
         <div className="flex items-start gap-3">
-          {/* Urgency badge */}
+          {/* Priority badge */}
           <span
             className={`shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${badge.className}`}
           >
@@ -101,12 +109,12 @@ function ClassificationItem({
           <div className="flex-1 min-w-0 space-y-1">
             <p className="text-sm">{item.abstract || 'Message'}</p>
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              {item.urgency_level === 'digest_summary' && item.child_count ? (
+              {item.priority_level === 'digest_summary' && item.child_count ? (
                 <span className="font-medium">{item.child_count} messages</span>
               ) : (
                 <span>From: {item.sender_name || item.sender_slack_id}</span>
               )}
-              <span>{item.urgency_level === 'digest_summary'
+              <span>{item.priority_level === 'digest_summary'
                 ? (item.classification_path === 'pomodoro' ? 'Pomodoro' : 'Focus')
                 : (item.classification_path === 'dm' ? 'DM' : `#${item.channel_name || item.channel_id}`)}</span>
               {item.created_at && (
@@ -164,7 +172,7 @@ function ClassificationItem({
 
 export function TriagePage() {
   const navigate = useNavigate()
-  const [urgencyFilter, setUrgencyFilter] = useState('needs_attention')
+  const [priorityFilter, setPriorityFilter] = useState('needs_attention')
   const [statusFilter, setStatusFilter] = useState('unreviewed')
   const [offset, setOffset] = useState(0)
   const [selectedItem, setSelectedItem] = useState<TriageClassification | null>(null)
@@ -176,7 +184,7 @@ export function TriagePage() {
 
   const { data: stats } = useTriageSessionStats()
   const { data: classifications, isLoading } = useClassifications({
-    urgency: urgencyFilter === 'all' ? undefined : urgencyFilter,
+    priority: priorityFilter === 'all' ? undefined : priorityFilter,
     reviewed,
     hide_active_digest: false,
     limit,
@@ -229,22 +237,22 @@ export function TriagePage() {
           {/* Stats bar */}
           {stats && stats.total > 0 && (
             <div className="flex gap-4 text-sm">
-              <span className="flex items-center gap-1.5">
+              <button className={`flex items-center gap-1.5 hover:underline ${priorityFilter === 'p0' ? 'underline' : ''}`} onClick={() => { setPriorityFilter(priorityFilter === 'p0' ? 'needs_attention' : 'p0'); setOffset(0) }}>
                 <AlertTriangle className="h-4 w-4 text-red-500" />
-                <span className="font-medium">{stats.urgent}</span> urgent
-              </span>
-              <span className="flex items-center gap-1.5">
-                <Clock className="h-4 w-4 text-yellow-500" />
+                <span className="font-medium">{stats.p0}</span> P0
+              </button>
+              <button className={`flex items-center gap-1.5 hover:underline ${priorityFilter === 'p1' ? 'underline' : ''}`} onClick={() => { setPriorityFilter(priorityFilter === 'p1' ? 'needs_attention' : 'p1'); setOffset(0) }}>
+                <AlertCircle className="h-4 w-4 text-orange-500" />
+                <span className="font-medium">{stats.p1}</span> P1
+              </button>
+              <button className={`flex items-center gap-1.5 hover:underline ${priorityFilter === 'p2' ? 'underline' : ''}`} onClick={() => { setPriorityFilter(priorityFilter === 'p2' ? 'needs_attention' : 'p2'); setOffset(0) }}>
+                <Bookmark className="h-4 w-4 text-blue-500" />
+                <span className="font-medium">{stats.p2}</span> P2
+              </button>
+              <button className={`flex items-center gap-1.5 hover:underline ${priorityFilter === 'review' ? 'underline' : ''}`} onClick={() => { setPriorityFilter(priorityFilter === 'review' ? 'needs_attention' : 'review'); setOffset(0) }}>
+                <Eye className="h-4 w-4 text-yellow-500" />
                 <span className="font-medium">{stats.review}</span> review
-              </span>
-              <span className="flex items-center gap-1.5">
-                <Layers className="h-4 w-4 text-blue-500" />
-                <span className="font-medium">{stats.digest_summary}</span> summaries
-              </span>
-              <span className="flex items-center gap-1.5">
-                <Archive className="h-4 w-4 text-slate-500" />
-                <span className="font-medium">{stats.digest}</span> digest
-              </span>
+              </button>
             </div>
           )}
 
@@ -266,13 +274,13 @@ export function TriagePage() {
               </Select>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Urgency:</span>
-              <Select value={urgencyFilter} onValueChange={(v) => { setUrgencyFilter(v); setOffset(0) }}>
-                <SelectTrigger className="w-[160px] h-8 text-sm">
+              <span className="text-sm text-muted-foreground">Priority:</span>
+              <Select value={priorityFilter} onValueChange={(v) => { setPriorityFilter(v); setOffset(0) }}>
+                <SelectTrigger className="w-[180px] h-8 text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {URGENCY_OPTIONS.map((opt) => (
+                  {PRIORITY_OPTIONS.map((opt) => (
                     <SelectItem key={opt.value} value={opt.value}>
                       {opt.label}
                     </SelectItem>

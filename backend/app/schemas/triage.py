@@ -28,6 +28,11 @@ class TriageSettingsUpdate(BaseModel):
     debug_mode: bool | None = None
     classification_retention_days: int | None = Field(None, ge=1, le=365)
     custom_classification_rules: str | None = Field(None, max_length=2000)
+    p0_definition: str | None = Field(None, max_length=2000)
+    p1_definition: str | None = Field(None, max_length=2000)
+    p2_definition: str | None = Field(None, max_length=2000)
+    p3_definition: str | None = Field(None, max_length=2000)
+    digest_instructions: str | None = Field(None, max_length=2000)
 
 
 class TriageSettingsResponse(BaseModel):
@@ -41,6 +46,11 @@ class TriageSettingsResponse(BaseModel):
     slack_workspace_domain: str | None = None
     classification_retention_days: int = 30
     custom_classification_rules: str | None = None
+    p0_definition: str | None = None
+    p1_definition: str | None = None
+    p2_definition: str | None = None
+    p3_definition: str | None = None
+    digest_instructions: str | None = None
 
 
 # --- Monitored Channels ---
@@ -91,8 +101,8 @@ class KeywordRuleCreate(BaseModel):
 
     keyword_pattern: str = Field(..., min_length=1, max_length=255)
     match_type: str = Field("contains", pattern="^(exact|contains)$")
-    urgency_override: str | None = Field(
-        None, pattern="^(urgent|digest|review)$"
+    priority_override: str | None = Field(
+        None, pattern="^(p0|p1|p2|p3|review)$"
     )
 
 
@@ -101,8 +111,8 @@ class KeywordRuleUpdate(BaseModel):
 
     keyword_pattern: str | None = Field(None, min_length=1, max_length=255)
     match_type: str | None = Field(None, pattern="^(exact|contains)$")
-    urgency_override: str | None = Field(
-        None, pattern="^(urgent|digest|review)$"
+    priority_override: str | None = Field(
+        None, pattern="^(p0|p1|p2|p3|review)$"
     )
 
 
@@ -114,7 +124,7 @@ class KeywordRuleResponse(BaseModel):
     id: str
     keyword_pattern: str
     match_type: str
-    urgency_override: str | None = None
+    priority_override: str | None = None
 
 
 # --- Source Exclusions ---
@@ -157,7 +167,7 @@ class ClassificationResponse(BaseModel):
     message_ts: str
     thread_ts: str | None = None
     slack_permalink: str | None = None
-    urgency_level: str
+    priority_level: str
     confidence: float
     classification_reason: str | None = None
     abstract: str | None = None
@@ -194,10 +204,11 @@ class DigestResponse(BaseModel):
     """Response with a structured digest for a focus session."""
 
     session_id: str | None = None
-    urgent_count: int = 0
+    p0_count: int = 0
+    p1_count: int = 0
+    p2_count: int = 0
+    p3_count: int = 0
     review_count: int = 0
-    noise_count: int = 0
-    digest_count: int = 0
     items: list[ClassificationResponse] = []
 
 
@@ -209,9 +220,10 @@ class TriageFeedbackCreate(BaseModel):
 
     classification_id: str = Field(..., min_length=1)
     was_correct: bool
-    correct_urgency: str | None = Field(
-        None, pattern="^(urgent|digest|noise|review)$"
+    correct_priority: str | None = Field(
+        None, pattern="^(p0|p1|p2|p3|review)$"
     )
+    feedback_text: str | None = Field(None, max_length=2000)
 
 
 # --- Slack Channel Info ---
@@ -224,3 +236,24 @@ class SlackChannelInfo(BaseModel):
     name: str
     is_private: bool = False
     num_members: int = 0
+
+
+# --- AI Wizard ---
+
+
+class GenerateDefinitionsRequest(BaseModel):
+    """Request for AI-generated priority definitions."""
+
+    role: str = Field(..., min_length=1, max_length=500)
+    critical_messages: str = Field(..., min_length=1, max_length=1000)
+    can_wait: str = Field(..., min_length=1, max_length=1000)
+    priority_senders: str = Field("", max_length=1000)
+
+
+class GenerateDefinitionsResponse(BaseModel):
+    """Response with AI-generated priority definitions."""
+
+    p0_definition: str
+    p1_definition: str
+    p2_definition: str
+    p3_definition: str

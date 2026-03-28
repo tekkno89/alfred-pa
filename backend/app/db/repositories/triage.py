@@ -175,7 +175,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
             select(TriageClassification)
             .where(TriageClassification.user_id == user_id)
             .where(TriageClassification.focus_session_id == focus_session_id)
-            .where(TriageClassification.urgency_level == "digest")
+            .where(TriageClassification.priority_level.in_(["p1", "p2"]))
             .where(TriageClassification.surfaced_at_break == False)  # noqa: E712
             .where(TriageClassification.digest_summary_id.is_(None))
         )
@@ -201,7 +201,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         self,
         query,
         user_id: str,
-        urgency_level: str | list[str] | None = None,
+        priority_level: str | list[str] | None = None,
         channel_id: str | None = None,
         reviewed: bool | None = None,
         exclude_active_session_digest: bool = False,
@@ -209,19 +209,20 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         """Apply common filter logic to a query."""
         query = query.where(TriageClassification.user_id == user_id)
         # Hide items that have been consolidated into a digest summary,
-        # unless the user is explicitly filtering by "digest" to see all digest messages
-        if urgency_level != "digest":
+        # unless the user is explicitly filtering by a digest-eligible level
+        show_consolidated = isinstance(priority_level, str) and priority_level in ("p1", "p2")
+        if not show_consolidated:
             query = query.where(
                 TriageClassification.digest_summary_id.is_(None)
             )
-        if urgency_level:
-            if isinstance(urgency_level, list):
+        if priority_level:
+            if isinstance(priority_level, list):
                 query = query.where(
-                    TriageClassification.urgency_level.in_(urgency_level)
+                    TriageClassification.priority_level.in_(priority_level)
                 )
             else:
                 query = query.where(
-                    TriageClassification.urgency_level == urgency_level
+                    TriageClassification.priority_level == priority_level
                 )
         if channel_id:
             query = query.where(TriageClassification.channel_id == channel_id)
@@ -239,7 +240,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
             )
             query = query.where(
                 ~(
-                    (TriageClassification.urgency_level.in_(["digest", "noise"]))
+                    (TriageClassification.priority_level.in_(["p1", "p2", "p3"]))
                     & (TriageClassification.focus_session_id.in_(active_session_ids))
                 )
             )
@@ -250,7 +251,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         user_id: str,
         limit: int = 50,
         offset: int = 0,
-        urgency_level: str | list[str] | None = None,
+        priority_level: str | list[str] | None = None,
         channel_id: str | None = None,
         reviewed: bool | None = None,
         exclude_active_session_digest: bool = False,
@@ -259,7 +260,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
             TriageClassification.created_at.desc()
         )
         query = self._apply_filters(
-            query, user_id, urgency_level, channel_id,
+            query, user_id, priority_level, channel_id,
             reviewed, exclude_active_session_digest,
         )
         query = query.offset(offset).limit(limit)
@@ -269,7 +270,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
     async def count_filtered(
         self,
         user_id: str,
-        urgency_level: str | list[str] | None = None,
+        priority_level: str | list[str] | None = None,
         channel_id: str | None = None,
         reviewed: bool | None = None,
         exclude_active_session_digest: bool = False,
@@ -277,7 +278,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         """Count classifications matching the same filters as get_recent."""
         query = select(func.count()).select_from(TriageClassification)
         query = self._apply_filters(
-            query, user_id, urgency_level, channel_id,
+            query, user_id, priority_level, channel_id,
             reviewed, exclude_active_session_digest,
         )
         result = await self.db.execute(query)
@@ -392,13 +393,15 @@ class TriageFeedbackRepository(BaseRepository[TriageFeedback]):
         classification_id: str,
         user_id: str,
         was_correct: bool,
-        correct_urgency: str | None = None,
+        correct_priority: str | None = None,
+        feedback_text: str | None = None,
     ) -> TriageFeedback:
         feedback = TriageFeedback(
             classification_id=classification_id,
             user_id=user_id,
             was_correct=was_correct,
-            correct_urgency=correct_urgency,
+            correct_priority=correct_priority,
+            feedback_text=feedback_text,
         )
         return await self.create(feedback)
 

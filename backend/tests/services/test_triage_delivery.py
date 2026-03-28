@@ -19,7 +19,7 @@ def _make_classification(**overrides):
         "sender_name": "Sender",
         "channel_id": "C12345",
         "channel_name": "general",
-        "urgency_level": "digest",
+        "priority_level": "p2",
         "abstract": "Test message",
         "slack_permalink": "https://workspace.slack.com/archives/C12345/p123",
         "surfaced_at_break": False,
@@ -127,11 +127,11 @@ class TestClearBreakNotification:
 
 class TestGenerateAndSendDigest:
     async def test_sends_digest_dm(self, mock_db):
-        """Should send a Slack DM with digest grouped by urgency."""
+        """Should send a Slack DM with digest grouped by priority."""
         items = [
-            _make_classification(urgency_level="urgent", abstract="Server down"),
-            _make_classification(urgency_level="digest", abstract="Meeting notes"),
-            _make_classification(urgency_level="noise", abstract="Newsletter"),
+            _make_classification(priority_level="p0", abstract="Server down"),
+            _make_classification(priority_level="p1", abstract="Meeting notes"),
+            _make_classification(priority_level="p3", abstract="Newsletter"),
         ]
         mock_user = MagicMock(slack_user_id="U_SELF")
         mock_slack = AsyncMock()
@@ -156,7 +156,7 @@ class TestGenerateAndSendDigest:
         mock_slack.send_message.assert_called_once()
         text = mock_slack.send_message.call_args[1]["text"]
         assert "Focus Session Triage Digest" in text
-        assert "Urgent: 1" in text
+        assert "P0: 1" in text
 
     async def test_no_digest_when_no_items(self, mock_db):
         """Should not send anything when there are no classifications."""

@@ -1,24 +1,28 @@
 import { useNavigate } from 'react-router-dom'
-import { Inbox, AlertTriangle, Clock, Archive, Layers, Settings } from 'lucide-react'
+import { Inbox, AlertTriangle, Eye, Archive, Layers, Settings, AlertCircle } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { useTriageSettings, useTriageSessionStats, useClassifications } from '@/hooks/useTriage'
 
-const URGENCY_STYLES: Record<string, { bg: string; text: string }> = {
-  urgent: {
+const PRIORITY_STYLES: Record<string, { bg: string; text: string }> = {
+  p0: {
     bg: 'bg-red-100 dark:bg-red-900/40',
     text: 'text-red-800 dark:text-red-200',
   },
-  digest: {
-    bg: 'bg-slate-100 dark:bg-slate-800',
-    text: 'text-slate-700 dark:text-slate-300',
+  p1: {
+    bg: 'bg-orange-100 dark:bg-orange-900/40',
+    text: 'text-orange-800 dark:text-orange-200',
+  },
+  p2: {
+    bg: 'bg-blue-100 dark:bg-blue-900/40',
+    text: 'text-blue-800 dark:text-blue-200',
+  },
+  p3: {
+    bg: 'bg-gray-100 dark:bg-gray-800',
+    text: 'text-gray-500 dark:text-gray-400',
   },
   digest_summary: {
     bg: 'bg-blue-100 dark:bg-blue-900/40',
     text: 'text-blue-800 dark:text-blue-200',
-  },
-  noise: {
-    bg: 'bg-gray-100 dark:bg-gray-800',
-    text: 'text-gray-500 dark:text-gray-400',
   },
   review: {
     bg: 'bg-yellow-100 dark:bg-yellow-900/40',
@@ -30,7 +34,7 @@ export function TriageCard() {
   const navigate = useNavigate()
   const { data: settings, isLoading: loadingSettings } = useTriageSettings()
   const { data: stats, isLoading: loadingStats } = useTriageSessionStats()
-  const { data: recent } = useClassifications({ limit: 5, urgency: 'needs_attention', reviewed: false })
+  const { data: recent } = useClassifications({ limit: 5, priority: 'needs_attention', reviewed: false })
 
   const isActive = settings?.is_always_on ?? false
 
@@ -85,19 +89,19 @@ export function TriageCard() {
               <div className="flex gap-2 text-xs">
                 <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200">
                   <AlertTriangle className="h-3 w-3" />
-                  {stats.urgent}
+                  {stats.p0}
+                </span>
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200">
+                  <AlertCircle className="h-3 w-3" />
+                  {stats.p1}
                 </span>
                 <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200">
-                  <Clock className="h-3 w-3" />
+                  <Eye className="h-3 w-3" />
                   {stats.review}
                 </span>
                 <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
                   <Layers className="h-3 w-3" />
                   {stats.digest_summary}
-                </span>
-                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                  <Archive className="h-3 w-3" />
-                  {stats.digest}
                 </span>
               </div>
             )}
@@ -106,13 +110,13 @@ export function TriageCard() {
             {recent && recent.items.length > 0 ? (
               <div className="space-y-1.5">
                 {recent.items.map((item) => {
-                  const style = URGENCY_STYLES[item.urgency_level] ?? URGENCY_STYLES.digest
+                  const style = PRIORITY_STYLES[item.priority_level] ?? PRIORITY_STYLES.p2
                   return (
                     <div key={item.id} className="flex items-start gap-2">
                       <span
                         className={`shrink-0 mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium ${style.bg} ${style.text}`}
                       >
-                        {item.urgency_level === 'digest_summary' ? 'digest' : item.urgency_level}
+                        {item.priority_level === 'digest_summary' ? 'digest' : item.priority_level}
                       </span>
                       <span className="text-sm truncate flex-1">
                         {item.abstract || 'Message'}

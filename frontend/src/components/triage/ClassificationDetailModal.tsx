@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import {
   AlertTriangle,
   Clock,
-  Archive,
+  Eye,
   ExternalLink,
   ThumbsUp,
   ThumbsDown,
@@ -10,6 +10,8 @@ import {
   CircleDashed,
   VolumeX,
   Layers,
+  AlertCircle,
+  Bookmark,
 } from 'lucide-react'
 import {
   Dialog,
@@ -19,6 +21,7 @@ import {
 } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -27,33 +30,38 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useSubmitFeedback, useMarkReviewed, useDigestChildren } from '@/hooks/useTriage'
-import type { TriageClassification, UrgencyLevel } from '@/types'
+import type { TriageClassification, PriorityLevel } from '@/types'
 
-const URGENCY_CONFIG: Record<string, { icon: typeof AlertTriangle; className: string; label: string }> = {
-  urgent: {
+const PRIORITY_CONFIG: Record<string, { icon: typeof AlertTriangle; className: string; label: string }> = {
+  p0: {
     icon: AlertTriangle,
     className: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200',
-    label: 'Urgent',
+    label: 'P0 — Urgent',
   },
-  digest: {
-    icon: Archive,
-    className: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
-    label: 'Digest',
+  p1: {
+    icon: AlertCircle,
+    className: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200',
+    label: 'P1 — Important',
+  },
+  p2: {
+    icon: Bookmark,
+    className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200',
+    label: 'P2 — Notable',
+  },
+  p3: {
+    icon: VolumeX,
+    className: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
+    label: 'P3 — Low',
   },
   digest_summary: {
     icon: Layers,
     className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200',
     label: 'Session Digest',
   },
-  noise: {
-    icon: VolumeX,
-    className: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
-    label: 'Noise',
-  },
   review: {
-    icon: Clock,
+    icon: Eye,
     className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200',
-    label: 'Unclassified',
+    label: 'Needs Review',
   },
 }
 
@@ -69,10 +77,11 @@ export function ClassificationDetailModal({
   onOpenChange,
 }: ClassificationDetailModalProps) {
   const [feedbackGiven, setFeedbackGiven] = useState<boolean | null>(null)
-  const [correctUrgency, setCorrectUrgency] = useState<string | undefined>(undefined)
+  const [correctPriority, setCorrectPriority] = useState<string | undefined>(undefined)
+  const [feedbackText, setFeedbackText] = useState('')
   const submitFeedback = useSubmitFeedback()
   const markReviewed = useMarkReviewed()
-  const isDigestSummary = classification?.urgency_level === 'digest_summary'
+  const isDigestSummary = classification?.priority_level === 'digest_summary'
   const { data: digestChildren } = useDigestChildren(
     isDigestSummary ? classification?.id ?? null : null
   )
@@ -80,21 +89,34 @@ export function ClassificationDetailModal({
   // Reset feedback state when a different classification is shown
   useEffect(() => {
     setFeedbackGiven(null)
-    setCorrectUrgency(undefined)
+    setCorrectPriority(undefined)
+    setFeedbackText('')
   }, [classification?.id])
 
   if (!classification) return null
 
-  const badge = URGENCY_CONFIG[classification.urgency_level] ?? URGENCY_CONFIG.digest
+  const badge = PRIORITY_CONFIG[classification.priority_level] ?? PRIORITY_CONFIG.p2
   const Icon = badge.icon
   const isReviewed = !!classification.reviewed_at
 
-  const handleFeedback = (wasCorrect: boolean) => {
-    setFeedbackGiven(wasCorrect)
+  const handleFeedbackCorrect = () => {
+    setFeedbackGiven(true)
     submitFeedback.mutate({
       classification_id: classification.id,
-      was_correct: wasCorrect,
-      correct_urgency: wasCorrect ? undefined : (correctUrgency as UrgencyLevel | undefined),
+      was_correct: true,
+    })
+  }
+
+  const handleFeedbackIncorrect = () => {
+    setFeedbackGiven(false)
+  }
+
+  const handleSubmitCorrection = () => {
+    submitFeedback.mutate({
+      classification_id: classification.id,
+      was_correct: false,
+      correct_priority: correctPriority as PriorityLevel | undefined,
+      feedback_text: feedbackText || undefined,
     })
   }
 
@@ -251,46 +273,56 @@ export function ClassificationDetailModal({
           {!isDigestSummary && (
           <div className="border-t pt-3">
             <p className="text-sm font-medium mb-2">Was this triaged correctly?</p>
-            <div className="flex items-center gap-2">
-              <Button
-                variant={feedbackGiven === true ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleFeedback(true)}
-                disabled={submitFeedback.isPending || feedbackGiven !== null}
-              >
-                <ThumbsUp className="h-3.5 w-3.5 mr-1.5" />
-                Yes
-              </Button>
-              <Button
-                variant={feedbackGiven === false ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => {
-                  setFeedbackGiven(false)
-                }}
-                disabled={submitFeedback.isPending || feedbackGiven !== null}
-              >
-                <ThumbsDown className="h-3.5 w-3.5 mr-1.5" />
-                No
-              </Button>
-              {feedbackGiven === false && !correctUrgency && (
-                <Select onValueChange={(v) => {
-                  setCorrectUrgency(v)
-                  submitFeedback.mutate({
-                    classification_id: classification.id,
-                    was_correct: false,
-                    correct_urgency: v as UrgencyLevel,
-                  })
-                }}>
-                  <SelectTrigger className="w-[160px] h-8 text-sm">
-                    <SelectValue placeholder="Correct level..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="urgent">Urgent</SelectItem>
-                    <SelectItem value="digest">Digest</SelectItem>
-                    <SelectItem value="noise">Noise</SelectItem>
-                    <SelectItem value="review">Unclassified</SelectItem>
-                  </SelectContent>
-                </Select>
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Button
+                  variant={feedbackGiven === true ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={handleFeedbackCorrect}
+                  disabled={submitFeedback.isPending || feedbackGiven !== null}
+                >
+                  <ThumbsUp className="h-3.5 w-3.5 mr-1.5" />
+                  Yes
+                </Button>
+                <Button
+                  variant={feedbackGiven === false ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={handleFeedbackIncorrect}
+                  disabled={submitFeedback.isPending || feedbackGiven !== null}
+                >
+                  <ThumbsDown className="h-3.5 w-3.5 mr-1.5" />
+                  No
+                </Button>
+              </div>
+              {feedbackGiven === false && !submitFeedback.isSuccess && (
+                <div className="space-y-2">
+                  <Select onValueChange={(v) => setCorrectPriority(v)}>
+                    <SelectTrigger className="w-[200px] h-8 text-sm">
+                      <SelectValue placeholder="Correct priority..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="p0">P0 — Urgent</SelectItem>
+                      <SelectItem value="p1">P1 — Important</SelectItem>
+                      <SelectItem value="p2">P2 — Notable</SelectItem>
+                      <SelectItem value="p3">P3 — Low</SelectItem>
+                      <SelectItem value="review">Needs Review</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Textarea
+                    placeholder="Why should this be classified differently? (optional)"
+                    value={feedbackText}
+                    onChange={(e) => setFeedbackText(e.target.value)}
+                    rows={2}
+                    className="text-sm"
+                  />
+                  <Button
+                    size="sm"
+                    disabled={!correctPriority || submitFeedback.isPending}
+                    onClick={handleSubmitCorrection}
+                  >
+                    Submit Feedback
+                  </Button>
+                </div>
               )}
             </div>
           </div>

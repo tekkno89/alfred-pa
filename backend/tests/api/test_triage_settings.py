@@ -250,14 +250,14 @@ class TestKeywordRules:
             json={
                 "keyword_pattern": "deploy",
                 "match_type": "contains",
-                "urgency_override": "urgent",
+                "priority_override": "p0",
             },
             headers=auth_headers(test_user),
         )
         assert response.status_code == 201
         data = response.json()
         assert data["keyword_pattern"] == "deploy"
-        assert data["urgency_override"] == "urgent"
+        assert data["priority_override"] == "p0"
 
     async def test_list_rules(
         self, client: AsyncClient, test_user, sample_channel, db_session
@@ -267,7 +267,7 @@ class TestKeywordRules:
             user_id=test_user.id,
             keyword_pattern="outage",
             match_type="exact",
-            urgency_override="urgent",
+            priority_override="p0",
         )
         db_session.add(rule)
         await db_session.commit()

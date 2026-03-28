@@ -32,6 +32,11 @@ class TriageUserSettings(Base, UUIDMixin, TimestampMixin):
     custom_classification_rules: Mapped[str | None] = mapped_column(
         Text, nullable=True
     )
+    p0_definition: Mapped[str | None] = mapped_column(Text, nullable=True)
+    p1_definition: Mapped[str | None] = mapped_column(Text, nullable=True)
+    p2_definition: Mapped[str | None] = mapped_column(Text, nullable=True)
+    p3_definition: Mapped[str | None] = mapped_column(Text, nullable=True)
+    digest_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
     user: Mapped["User"] = relationship("User")
@@ -81,8 +86,8 @@ class ChannelKeywordRule(Base, UUIDMixin, TimestampMixin):
     keyword_pattern: Mapped[str] = mapped_column(String(255), nullable=False)
     # exact | contains (semantic deferred to v2)
     match_type: Mapped[str] = mapped_column(String(20), default="contains")
-    # urgent | digest | null (null = no override, use LLM)
-    urgency_override: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # p0 | p1 | p2 | p3 | review | null (null = no override, use LLM)
+    priority_override: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # Relationships
     channel: Mapped["MonitoredChannel"] = relationship(
@@ -135,8 +140,8 @@ class TriageClassification(Base, UUIDMixin, TimestampMixin):
     thread_ts: Mapped[str | None] = mapped_column(String(50), nullable=True)
     slack_permalink: Mapped[str | None] = mapped_column(Text, nullable=True)
     focus_started_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    # urgent | digest | noise | review | digest_summary
-    urgency_level: Mapped[str] = mapped_column(String(20), nullable=False)
+    # p0 | p1 | p2 | p3 | review | digest_summary
+    priority_level: Mapped[str] = mapped_column(String(20), nullable=False)
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     classification_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -159,7 +164,7 @@ class TriageClassification(Base, UUIDMixin, TimestampMixin):
     )
 
     def __repr__(self) -> str:
-        return f"<TriageClassification(user_id={self.user_id}, urgency={self.urgency_level})>"
+        return f"<TriageClassification(user_id={self.user_id}, priority={self.priority_level})>"
 
 
 class SenderBehaviorModel(Base, UUIDMixin, TimestampMixin):
@@ -215,8 +220,9 @@ class TriageFeedback(Base, UUIDMixin, TimestampMixin):
     )
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     was_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    # urgent | digest | noise | review (what it should have been)
-    correct_urgency: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # p0 | p1 | p2 | p3 | review (what it should have been)
+    correct_priority: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    feedback_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
     classification: Mapped["TriageClassification"] = relationship(

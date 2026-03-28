@@ -110,10 +110,9 @@ class TriageDeliveryService:
                 focus_mode=focus_mode,
             )
 
-        urgent_count = sum(1 for i in all_items if i.urgency_level == "urgent")
-        digest_count = sum(
-            1 for i in all_items if i.urgency_level in ("digest", "digest_summary")
-        )
+        p0_count = sum(1 for i in all_items if i.priority_level == "p0")
+        p1_count = sum(1 for i in all_items if i.priority_level == "p1")
+        p2_count = sum(1 for i in all_items if i.priority_level == "p2")
 
         # Send Slack DM digest
         user = await self.user_repo.get(user_id)
@@ -123,17 +122,18 @@ class TriageDeliveryService:
 
                 header = "*Focus Session Triage Digest*\n"
                 stats = (
-                    f"Urgent: {urgent_count} | "
-                    f"Digest: {digest_count}\n"
+                    f"P0: {p0_count} | "
+                    f"P1: {p1_count} | "
+                    f"P2: {p2_count}\n"
                 )
 
                 lines = [header, stats]
 
-                # Show urgent items
-                urgent_items = [i for i in all_items if i.urgency_level == "urgent"]
-                if urgent_items:
-                    lines.append("\n*Urgent:*")
-                    for item in urgent_items[:5]:
+                # Show P0 items
+                p0_items = [i for i in all_items if i.priority_level == "p0"]
+                if p0_items:
+                    lines.append("\n*P0 (Urgent):*")
+                    for item in p0_items[:5]:
                         sender = item.sender_slack_id
                         link = (
                             f" <{item.slack_permalink}|View>"
@@ -142,14 +142,14 @@ class TriageDeliveryService:
                         )
                         abstract = item.abstract or "Message"
                         lines.append(f"- <@{sender}>: {abstract}{link}")
-                    if len(urgent_items) > 5:
-                        lines.append(f"  _...and {len(urgent_items) - 5} more_")
+                    if len(p0_items) > 5:
+                        lines.append(f"  _...and {len(p0_items) - 5} more_")
 
-                # Show digest items
-                digest_items = [i for i in all_items if i.urgency_level == "digest"]
-                if digest_items:
-                    lines.append("\n*Digest:*")
-                    for item in digest_items[:10]:
+                # Show P1 items
+                p1_items = [i for i in all_items if i.priority_level == "p1"]
+                if p1_items:
+                    lines.append("\n*P1 (Important):*")
+                    for item in p1_items[:10]:
                         sender = item.sender_slack_id
                         link = (
                             f" <{item.slack_permalink}|View>"
@@ -158,8 +158,24 @@ class TriageDeliveryService:
                         )
                         abstract = item.abstract or "Message"
                         lines.append(f"- <@{sender}>: {abstract}{link}")
-                    if len(digest_items) > 10:
-                        lines.append(f"  _...and {len(digest_items) - 10} more_")
+                    if len(p1_items) > 10:
+                        lines.append(f"  _...and {len(p1_items) - 10} more_")
+
+                # Show P2 items
+                p2_items = [i for i in all_items if i.priority_level == "p2"]
+                if p2_items:
+                    lines.append("\n*P2 (Notable):*")
+                    for item in p2_items[:10]:
+                        sender = item.sender_slack_id
+                        link = (
+                            f" <{item.slack_permalink}|View>"
+                            if item.slack_permalink
+                            else ""
+                        )
+                        abstract = item.abstract or "Message"
+                        lines.append(f"- <@{sender}>: {abstract}{link}")
+                    if len(p2_items) > 10:
+                        lines.append(f"  _...and {len(p2_items) - 10} more_")
 
                 await slack_service.send_message(
                     channel=user.slack_user_id,
@@ -188,7 +204,7 @@ class TriageDeliveryService:
             channel_id=items[0].channel_id,
             channel_name=None,
             message_ts=items[-1].message_ts,
-            urgency_level="digest_summary",
+            priority_level="digest_summary",
             confidence=1.0,
             classification_reason=f"Consolidated {len(items)} digest items",
             abstract=abstract,

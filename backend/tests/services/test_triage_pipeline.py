@@ -26,7 +26,7 @@ class TestTriagePipeline:
 
         mock_classifier = AsyncMock()
         mock_classifier.classify.return_value = ClassificationResult(
-            urgency="review",
+            priority="review",
             confidence=0.8,
             reason="casual message",
             abstract="A test message",
@@ -73,7 +73,7 @@ class TestTriagePipeline:
         mock_class_repo.create.assert_called_once()
         created = mock_class_repo.create.call_args[0][0]
         assert created.user_id == "user-1"
-        assert created.urgency_level == "review"
+        assert created.priority_level == "review"
         assert created.classification_path == "dm"
         mock_db.commit.assert_called_once()
 
@@ -93,7 +93,7 @@ class TestTriagePipeline:
 
         mock_classifier = AsyncMock()
         mock_classifier.classify.return_value = ClassificationResult(
-            urgency="digest",
+            priority="p2",
             confidence=0.9,
             reason="low priority",
             abstract="General message",
@@ -166,7 +166,7 @@ class TestTriagePipeline:
 
         mock_classifier = AsyncMock()
         mock_classifier.classify.return_value = ClassificationResult(
-            urgency="urgent",
+            priority="p0",
             confidence=0.95,
             reason="emergency",
             abstract="Server outage reported",
