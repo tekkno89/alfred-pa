@@ -66,3 +66,8 @@ def _register_default_tools(registry: ToolRegistry) -> None:
     from app.tools.youtube import ManageYouTubeTool
 
     registry.register(ManageYouTubeTool())
+
+    # Slack messages tool — search, read conversations, list channels
+    from app.tools.slack_messages import SlackMessagesTool
+
+    registry.register(SlackMessagesTool())

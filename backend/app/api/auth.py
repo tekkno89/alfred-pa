@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 # When new scopes are added here, existing users will see a re-authorize prompt.
 REQUIRED_SLACK_USER_SCOPES: frozenset[str] = frozenset(
     {
+        "users:read",
         "users.profile:read",
         "users.profile:write",
         "im:history",
@@ -14,6 +15,11 @@ REQUIRED_SLACK_USER_SCOPES: frozenset[str] = frozenset(
         "dnd:write",
         "channels:read",
         "groups:read",
+        "search:read",
+        "channels:history",
+        "groups:history",
+        "mpim:read",
+        "mpim:history",
     }
 )
 

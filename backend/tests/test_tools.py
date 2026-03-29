@@ -480,3 +480,254 @@ class TestFocusModeToolExecute:
 
             assert "error" in result.lower()
             assert "Database connection failed" in result
+
+
+# =========================================================================
+# SlackMessagesTool tests
+# =========================================================================
+
+
+from app.tools.slack_messages import SlackMessagesTool
+
+
+class TestSlackMessagesToolDefinition:
+    """Tests for SlackMessagesTool schema and definition."""
+
+    def test_to_definition(self):
+        """Should produce a valid ToolDefinition."""
+        tool = SlackMessagesTool()
+        defn = tool.to_definition()
+
+        assert defn.name == "slack_messages"
+        assert "slack" in defn.description.lower()
+        assert defn.parameters["type"] == "object"
+        assert "action" in defn.parameters["properties"]
+        assert "action" in defn.parameters["required"]
+
+    def test_action_enum_values(self):
+        """Action should have the expected enum values."""
+        tool = SlackMessagesTool()
+        action_prop = tool.parameters_schema["properties"]["action"]
+        assert set(action_prop["enum"]) == {"search", "get_messages", "list_channels"}
+
+    def test_user_id_not_in_schema(self):
+        """user_id must never appear in the tool's parameter schema."""
+        tool = SlackMessagesTool()
+        props = tool.parameters_schema["properties"]
+        assert "user_id" not in props
+
+
+class TestSlackMessagesToolExecute:
+    """Tests for SlackMessagesTool.execute() with mocks."""
+
+    @pytest.fixture
+    def tool(self):
+        return SlackMessagesTool()
+
+    @pytest.fixture
+    def context(self):
+        return ToolContext(db=AsyncMock(), user_id="user-123")
+
+    async def test_execute_no_context(self, tool):
+        """Should return error when context is missing."""
+        result = await tool.execute(context=None, action="search", query="test")
+        assert "error" in result.lower()
+        assert "authenticated" in result.lower()
+
+    async def test_execute_search_no_oauth(self, tool, context):
+        """Should prompt to connect Slack when no OAuth token."""
+        with patch("app.services.slack_user.SlackUserService") as MockSvc:
+            mock_svc = AsyncMock()
+            mock_svc.has_oauth_token.return_value = False
+            MockSvc.return_value = mock_svc
+
+            result = await tool.execute(
+                context=context, action="search", query="test"
+            )
+
+        assert "connect" in result.lower() or "haven't connected" in result.lower()
+
+    async def test_execute_search_with_results(self, tool, context):
+        """Should format search results properly."""
+        with patch("app.services.slack_user.SlackUserService") as MockSvc, \
+             patch("app.services.slack_search.SlackSearchService") as MockSearch:
+            mock_svc = AsyncMock()
+            mock_svc.has_oauth_token.return_value = True
+            MockSvc.return_value = mock_svc
+
+            mock_search = AsyncMock()
+            mock_search.search_messages.return_value = {
+                "results": [
+                    {
+                        "channel_id": "C001",
+                        "channel_name": "general",
+                        "sender_name": "alice",
+                        "text_snippet": "deployment is ready",
+                        "timestamp": "1700000000.000",
+                        "date": "2023-11-14 16:53",
+                        "permalink": "https://slack.com/archives/C001/p1700000000",
+                    }
+                ],
+                "total": 1,
+                "scope": "frequent",
+            }
+            MockSearch.return_value = mock_search
+
+            result = await tool.execute(
+                context=context, action="search", query="deployment"
+            )
+
+        assert "general" in result
+        assert "alice" in result
+        assert "deployment" in result
+        assert tool.last_execution_metadata is not None
+        assert tool.last_execution_metadata["result_count"] == 1
+
+    async def test_execute_search_no_results_suggests_expansion(self, tool, context):
+        """Should suggest expanding scope when no results in frequent."""
+        with patch("app.services.slack_user.SlackUserService") as MockSvc, \
+             patch("app.services.slack_search.SlackSearchService") as MockSearch:
+            mock_svc = AsyncMock()
+            mock_svc.has_oauth_token.return_value = True
+            MockSvc.return_value = mock_svc
+
+            mock_search = AsyncMock()
+            mock_search.search_messages.return_value = {
+                "results": [],
+                "total": 0,
+                "scope": "frequent",
+            }
+            MockSearch.return_value = mock_search
+
+            result = await tool.execute(
+                context=context, action="search", query="xyznonexistent"
+            )
+
+        assert "no results" in result.lower()
+        assert "all" in result.lower()
+
+    async def test_execute_search_no_query(self, tool, context):
+        """Should return error when query is missing."""
+        result = await tool.execute(context=context, action="search")
+        assert "error" in result.lower()
+        assert "query" in result.lower()
+
+    async def test_execute_get_messages_with_results(self, tool, context):
+        """Should format conversation messages."""
+        with patch("app.services.slack_user.SlackUserService") as MockSvc, \
+             patch("app.services.slack_search.SlackSearchService") as MockSearch:
+            mock_svc = AsyncMock()
+            mock_svc.has_oauth_token.return_value = True
+            MockSvc.return_value = mock_svc
+
+            mock_search = AsyncMock()
+            mock_search.get_messages.return_value = {
+                "messages": [
+                    {
+                        "sender_name": "alice",
+                        "text": "Hello world",
+                        "timestamp": "1700000000.000",
+                        "date": "2023-11-14",
+                        "thread_ts": None,
+                        "reply_count": 0,
+                        "is_reply": False,
+                    }
+                ],
+                "channel_id": "C001",
+                "channel_name": "general",
+                "count": 1,
+            }
+            MockSearch.return_value = mock_search
+
+            result = await tool.execute(
+                context=context, action="get_messages", channel_id="C001"
+            )
+
+        assert "general" in result
+        assert "alice" in result
+        assert "Hello world" in result
+
+    async def test_execute_get_messages_resolves_channel_name(self, tool, context):
+        """Should resolve channel_name to channel_id."""
+        with patch("app.services.slack_user.SlackUserService") as MockSvc, \
+             patch("app.services.slack_search.SlackSearchService") as MockSearch:
+            mock_svc = AsyncMock()
+            mock_svc.has_oauth_token.return_value = True
+            MockSvc.return_value = mock_svc
+
+            mock_search = AsyncMock()
+            mock_search.resolve_channel_id.return_value = "C001"
+            mock_search.get_messages.return_value = {
+                "messages": [],
+                "channel_id": "C001",
+                "channel_name": "general",
+                "count": 0,
+            }
+            MockSearch.return_value = mock_search
+
+            result = await tool.execute(
+                context=context, action="get_messages", channel_name="general"
+            )
+
+        mock_search.resolve_channel_id.assert_called_once_with("user-123", "general")
+
+    async def test_execute_get_messages_no_channel(self, tool, context):
+        """Should return error when neither channel_id nor channel_name provided."""
+        result = await tool.execute(context=context, action="get_messages")
+        assert "error" in result.lower()
+
+    async def test_execute_list_channels(self, tool, context):
+        """Should return formatted channel list."""
+        with patch("app.services.slack_user.SlackUserService") as MockSvc, \
+             patch("app.services.slack_search.SlackSearchService") as MockSearch:
+            mock_svc = AsyncMock()
+            mock_svc.has_oauth_token.return_value = True
+            MockSvc.return_value = mock_svc
+
+            mock_search = AsyncMock()
+            mock_search.list_user_channels.return_value = [
+                {
+                    "channel_id": "C001",
+                    "channel_name": "general",
+                    "channel_type": "public",
+                    "member_count": 50,
+                    "summary": "General discussion",
+                    "rank": 0,
+                }
+            ]
+            MockSearch.return_value = mock_search
+
+            result = await tool.execute(
+                context=context, action="list_channels"
+            )
+
+        assert "general" in result
+        assert "C001" in result
+        assert "General discussion" in result
+
+    async def test_execute_unknown_action(self, tool, context):
+        """Should return error for unknown action."""
+        result = await tool.execute(context=context, action="invalid")
+        assert "error" in result.lower()
+        assert "unknown action" in result.lower()
+
+    async def test_execute_uses_context_user_id(self, tool, context):
+        """Security: tool must use context user_id, ignoring any user_id in kwargs."""
+        with patch("app.services.slack_user.SlackUserService") as MockSvc, \
+             patch("app.services.slack_search.SlackSearchService") as MockSearch:
+            mock_svc = AsyncMock()
+            mock_svc.has_oauth_token.return_value = True
+            MockSvc.return_value = mock_svc
+
+            mock_search = AsyncMock()
+            mock_search.list_user_channels.return_value = []
+            MockSearch.return_value = mock_search
+
+            await tool.execute(
+                context=context,
+                action="list_channels",
+                user_id="attacker-id",
+            )
+
+        # The search service should have been called with context user_id
+        mock_search.list_user_channels.assert_called_once_with("user-123", limit=30)

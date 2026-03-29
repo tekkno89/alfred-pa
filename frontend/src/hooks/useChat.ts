@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { apiStreamPost } from '@/lib/api'
+import { sanitizeLLMContent } from '@/lib/sanitize'
 import type { ContextUsage, Message, ToolResultData } from '@/types'
 
 export interface ToolResult {
@@ -75,6 +76,10 @@ export function useChat({ sessionId, onError }: UseChatOptions): UseChatReturn {
             }
             break
           case 'tool_use':
+            // Clear preamble text (e.g. "Let me look that up...") — the tool
+            // status indicator provides visual feedback during execution.
+            streamingContentRef.current = ''
+            setStreamingContent('')
             setActiveToolName(event.tool_name || null)
             // Clear previous result for this tool — new search supersedes old one
             if (event.tool_name) {
@@ -120,7 +125,7 @@ export function useChat({ sessionId, onError }: UseChatOptions): UseChatReturn {
               id: event.message_id || `temp-${Date.now()}`,
               session_id: sessionId,
               role: 'assistant',
-              content: streamingContentRef.current,
+              content: sanitizeLLMContent(streamingContentRef.current),
               metadata_: metadata,
               created_at: new Date().toISOString(),
             }

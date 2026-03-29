@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
@@ -19,6 +20,31 @@ from app.tools.registry import ToolRegistry
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = 3
+
+# Regex patterns for XML/text artifacts that LLMs (especially Gemini) sometimes
+# emit as raw text instead of using the structured tool calling API.
+_XML_ARTIFACT_PATTERNS = [
+    # Thinking / reasoning tags
+    re.compile(r"<thinking>.*?</thinking>", re.DOTALL),
+    re.compile(r"<antml_thinking>.*?</antml_thinking>", re.DOTALL),
+    # Legacy function call XML
+    re.compile(r"<function_calls>.*?</function_calls>", re.DOTALL),
+    re.compile(r"<invoke\b[^>]*>.*?</invoke>", re.DOTALL),
+    # Gemini-style tool call/result XML
+    re.compile(r"<tool_call>.*?</tool_call>", re.DOTALL),
+    re.compile(r"<tool_results>.*?</tool_results>", re.DOTALL),
+    re.compile(r"<tool_result>.*?</tool_result>", re.DOTALL),
+    re.compile(r"<tool_response>.*?</tool_response>", re.DOTALL),
+]
+
+
+def _sanitize_response(text: str) -> str:
+    """Strip XML artifacts (thinking tags, fake tool calls) that the LLM may emit as text."""
+    for pattern in _XML_ARTIFACT_PATTERNS:
+        text = pattern.sub("", text)
+    # Collapse multiple blank lines left behind after stripping
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 SYSTEM_PROMPT = """You are Alfred, a personal AI assistant inspired by Alfred Pennyworth — particularly Michael Caine's portrayal. Warm, capable, with the occasional dry observation.
@@ -96,7 +122,32 @@ def build_prompt_messages(state: AgentState, *, tz: str | None = None) -> list[L
         "For recurring events, use scope='this' to modify a single instance or scope='all' for all instances.\n\n"
         "When the user asks to add a YouTube video to their queue, watch later, or manage YouTube playlists, "
         "use the manage_youtube tool. For add_video, only youtube_url is required — it defaults to the active playlist. "
-        "If no playlist exists, one will be created automatically."
+        "If no playlist exists, one will be created automatically.\n\n"
+        "When the user asks to search Slack, find messages, read conversations, or asks about what was discussed "
+        "in a channel, use the slack_messages tool.\n"
+        "For SEARCHING messages (action=\"search\"):\n"
+        "- Start with scope=\"frequent\" to search the user's most active channels first.\n"
+        "- If no results are found, tell the user the search was limited to their regular channels and "
+        "ask if they want to expand (scope=\"all\").\n"
+        "- If still not found and no date range was specified, ask the user for an approximate timeframe.\n"
+        "- If results are ambiguous, present the top options as a numbered list and offer to continue searching.\n"
+        "- Always include the permalink so the user can jump to the message in Slack.\n"
+        "For READING conversations (action=\"get_messages\"):\n"
+        "- Use this when the user wants to read, summarize, or extract information from a channel or DM conversation.\n"
+        "- First use action=\"list_channels\" if you don't know the channel_id, then use the channel_id from the results.\n"
+        "- You can read full conversations and then create todos, calendar events, summaries, or use the content for other tasks.\n"
+        "- Use thread_ts to read a specific thread's replies.\n"
+        "- Use include_replies=true when the user wants to see full threaded discussions.\n"
+        "For LISTING channels (action=\"list_channels\"):\n"
+        "- Use this to discover what channels the user participates in and their summaries.\n"
+        "- Helpful before get_messages to find the right channel_id.\n"
+        "For DM conversations:\n"
+        "- When the user asks about messages WITH, FROM, or TO a specific person (especially DMs), "
+        "do NOT use action=\"search\". Instead:\n"
+        "  1. Use action=\"list_channels\" to find the DM channel with that person's name.\n"
+        "  2. Then use action=\"get_messages\" with the DM's channel_id to read the actual conversation.\n"
+        "- DM channels appear in list_channels as type \"DM\" with the other person's display name.\n"
+        "- The search action finds keyword mentions across ALL channels — it's not suitable for reading a specific DM conversation."
     )
 
     # Inject conversation summary if present
@@ -408,7 +459,7 @@ async def llm_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
             else:
                 # No tool calls — final text response
                 return {
-                    "response": "".join(text_parts),
+                    "response": _sanitize_response("".join(text_parts)),
                     "llm_messages": llm_messages,
                     "tool_calls": None,
                 }
@@ -432,7 +483,7 @@ async def llm_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
                 }
             else:
                 return {
-                    "response": response.content or "",
+                    "response": _sanitize_response(response.content or ""),
                     "llm_messages": llm_messages,
                     "tool_calls": None,
                 }
@@ -456,7 +507,7 @@ async def llm_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
                 logger.error(f"stream error: {e}")
                 return {"error": f"LLM error: {str(e)}"}
             return {
-                "response": "".join(text_parts),
+                "response": _sanitize_response("".join(text_parts)),
                 "llm_messages": llm_messages,
                 "tool_calls": None,
             }
@@ -467,7 +518,7 @@ async def llm_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
                 logger.error(f"generate error: {e}")
                 return {"error": f"LLM error: {str(e)}"}
             return {
-                "response": text,
+                "response": _sanitize_response(text or ""),
                 "llm_messages": llm_messages,
                 "tool_calls": None,
             }

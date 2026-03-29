@@ -252,6 +252,49 @@ async def refresh_slack_channel_cache(ctx: dict, user_id: str | None = None) -> 
     return {"status": "ok", "count": count}
 
 
+async def update_user_channel_participation(ctx: dict) -> dict:
+    """
+    Daily cron: update channel participation data for all Slack-connected users.
+    """
+    from app.db.models.oauth_token import UserOAuthToken
+    from app.services.channel_intelligence import ChannelIntelligenceService
+    from sqlalchemy import select
+
+    async with get_db_session() as db:
+        result = await db.execute(
+            select(UserOAuthToken.user_id).where(UserOAuthToken.provider == "slack")
+        )
+        user_ids = list(result.scalars().all())
+
+    updated_count = 0
+    for uid in user_ids:
+        try:
+            async with get_db_session() as db:
+                service = ChannelIntelligenceService(db)
+                count = await service.update_participation(uid)
+                if count > 0:
+                    updated_count += 1
+        except Exception as e:
+            logger.error(f"Error updating participation for user {uid}: {e}")
+
+    logger.info(f"Updated channel participation for {updated_count}/{len(user_ids)} users")
+    return {"status": "complete", "updated_count": updated_count, "total_users": len(user_ids)}
+
+
+async def update_channel_summaries(ctx: dict) -> dict:
+    """
+    Weekly cron: generate LLM summaries for channels across all users.
+    """
+    from app.services.channel_intelligence import ChannelIntelligenceService
+
+    async with get_db_session() as db:
+        service = ChannelIntelligenceService(db)
+        count = await service.update_summaries()
+
+    logger.info(f"Generated {count} channel summaries")
+    return {"status": "complete", "summarized_count": count}
+
+
 async def transition_pomodoro(ctx: dict, user_id: str) -> dict:
     """
     Transition pomodoro to the next phase (work -> break or break -> work).

@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils'
+import { sanitizeLLMContent } from '@/lib/sanitize'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Brain, User } from 'lucide-react'
 import type { Message } from '@/types'
@@ -46,7 +47,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           )}
         >
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {message.content}
+            {sanitizeLLMContent(message.content)}
           </ReactMarkdown>
         </div>
       </div>
@@ -78,7 +79,7 @@ export function StreamingBubble({ content }: StreamingBubbleProps) {
           )}
         >
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {content}
+            {sanitizeLLMContent(content)}
           </ReactMarkdown>
           <span className="inline-block w-2 h-4 ml-1 bg-foreground/50 animate-pulse" />
         </div>

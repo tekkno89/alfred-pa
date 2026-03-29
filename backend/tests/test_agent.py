@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from app.agents import AlfredAgent
 from app.agents.nodes import (
+    _sanitize_response,
     build_prompt_messages,
     process_message,
 )
@@ -75,6 +76,70 @@ class MockLLMProvider(LLMProvider):
         else:
             for word in self.response.split():
                 yield LLMResponse(content=word + " ")
+
+
+class TestSanitizeResponse:
+    """Tests for _sanitize_response helper."""
+
+    def test_strips_thinking_tags(self):
+        text = "<thinking>Let me analyze this...</thinking>Here is your answer."
+        assert _sanitize_response(text) == "Here is your answer."
+
+    def test_strips_function_calls_tags(self):
+        text = 'Sure!<function_calls><invoke name="search"><parameter name="q">test</parameter></invoke></function_calls> Here you go.'
+        assert _sanitize_response(text) == "Sure! Here you go."
+
+    def test_strips_multiline_thinking(self):
+        text = "<thinking>\nStep 1: do X\nStep 2: do Y\n</thinking>\nThe result is 42."
+        assert _sanitize_response(text) == "The result is 42."
+
+    def test_passes_through_clean_text(self):
+        text = "Hello! Here is your answer."
+        assert _sanitize_response(text) == "Hello! Here is your answer."
+
+    def test_strips_antml_thinking(self):
+        text = "<antml_thinking>internal reasoning</antml_thinking>The answer is yes."
+        assert _sanitize_response(text) == "The answer is yes."
+
+    def test_empty_after_stripping(self):
+        text = "<thinking>only thinking</thinking>"
+        assert _sanitize_response(text) == ""
+
+    def test_strips_tool_call_tags(self):
+        text = 'Let me search. <tool_call> {"name": "slack_messages", "arguments": {"action": "search"}} </tool_call> Found it!'
+        assert _sanitize_response(text) == "Let me search.  Found it!"
+
+    def test_strips_tool_results_tags(self):
+        text = "Searching... <tool_results> {'success': True, 'channels': []} </tool_results> No channels found."
+        assert _sanitize_response(text) == "Searching...  No channels found."
+
+    def test_strips_mixed_tool_call_and_results(self):
+        text = (
+            "Let me check. "
+            '<tool_call> {"name": "slack_messages"} </tool_call> '
+            "<tool_results> {'data': 'test'} </tool_results> "
+            "Here's what I found."
+        )
+        assert _sanitize_response(text) == "Let me check.   Here's what I found."
+
+    def test_strips_multiline_tool_results(self):
+        text = (
+            "Checking your channels.\n\n"
+            "<tool_call>\n"
+            '{"name": "slack_messages", "arguments": {"action": "list_channels"}}\n'
+            "</tool_call>\n\n"
+            "<tool_results>\n"
+            "{'success': True, 'channels': [\n"
+            "  {'id': 'C001', 'name': 'general'}\n"
+            "]}\n"
+            "</tool_results>\n\n"
+            "You have 1 channel."
+        )
+        assert _sanitize_response(text) == "Checking your channels.\n\nYou have 1 channel."
+
+    def test_collapses_excessive_blank_lines(self):
+        text = "Hello.\n\n\n\n\nWorld."
+        assert _sanitize_response(text) == "Hello.\n\nWorld."
 
 
 class TestProcessMessage:

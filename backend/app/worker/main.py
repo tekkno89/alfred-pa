@@ -14,6 +14,8 @@ from app.worker.tasks import (
     refresh_slack_channel_cache,
     send_todo_reminder,
     transition_pomodoro,
+    update_channel_summaries,
+    update_user_channel_participation,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,12 @@ async def startup(ctx: dict) -> None:
     except Exception:
         logger.exception("Failed to pre-populate Slack channel cache on startup")
 
+    # Bootstrap channel participation data on first deploy
+    try:
+        await update_user_channel_participation(ctx)
+    except Exception:
+        logger.exception("Failed to bootstrap channel participation on startup")
+
 
 async def shutdown(ctx: dict) -> None:
     """Called when worker shuts down."""
@@ -76,6 +84,8 @@ class WorkerSettings:
         send_todo_reminder,
         process_triage_job,
         refresh_slack_channel_cache,
+        update_user_channel_participation,
+        update_channel_summaries,
     ]
 
     # Cron jobs (optional - for periodic cleanup as backup)
@@ -97,6 +107,17 @@ class WorkerSettings:
         cron(
             refresh_slack_channel_cache,
             minute={0},  # Hourly
+        ),
+        cron(
+            update_user_channel_participation,
+            hour={6},
+            minute={0},  # Daily at 6 AM UTC
+        ),
+        cron(
+            update_channel_summaries,
+            weekday={0},
+            hour={7},
+            minute={0},  # Monday 7 AM UTC
         ),
     ]
 
