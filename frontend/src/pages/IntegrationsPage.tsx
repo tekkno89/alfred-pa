@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams, Link as RouterLink } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { MessageSquare, ArrowLeft, CheckCircle2, XCircle, Link2, Unlink, ExternalLink, AlertTriangle, RefreshCw } from 'lucide-react'
+import { MessageSquare, ArrowLeft, CheckCircle2, XCircle, Link2, Unlink, ExternalLink, AlertTriangle, RefreshCw, Radio } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { GitHubConnectionCard } from '@/components/settings/GitHubConnectionCard'
 import { GoogleCalendarConnectionCard } from '@/components/settings/GoogleCalendarConnectionCard'
 import { SlackLinkModal } from '@/components/settings/SlackLinkModal'
 import { apiDelete, apiGet, apiPost, ApiRequestError } from '@/lib/api'
+import { useTriageSettings, useDetectWorkspace } from '@/hooks/useTriage'
 import type { SlackStatusResponse, SlackOAuthStatusResponse } from '@/types'
 
 export function IntegrationsPage() {
@@ -16,6 +17,9 @@ export function IntegrationsPage() {
   const [linkModalOpen, setLinkModalOpen] = useState(false)
   const [linkError, setLinkError] = useState<string | null>(null)
   const queryClient = useQueryClient()
+
+  const { data: triageSettings } = useTriageSettings()
+  const detectWorkspace = useDetectWorkspace()
 
   const { data: slackStatus, isLoading: statusLoading } = useQuery({
     queryKey: ['slack-status'],
@@ -170,6 +174,36 @@ export function IntegrationsPage() {
                       ({slackStatus.slack_user_id})
                     </span>
                   </div>
+                  {triageSettings && (
+                    triageSettings.slack_workspace_domain ? (
+                      <div className="flex items-center gap-2 text-sm">
+                        <div className="h-2 w-2 rounded-full bg-green-500" />
+                        <span>Workspace: {triageSettings.slack_workspace_domain}.slack.com</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                        <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                        <div className="flex flex-col gap-2">
+                          <span>Workspace domain not detected. Slack message links in triage won't work without it.</span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="w-fit"
+                            onClick={() => detectWorkspace.mutate()}
+                            disabled={detectWorkspace.isPending}
+                          >
+                            <Radio className="h-4 w-4 mr-2" />
+                            {detectWorkspace.isPending ? 'Detecting...' : 'Detect Workspace'}
+                          </Button>
+                          {detectWorkspace.isError && (
+                            <span className="text-red-600 dark:text-red-400">
+                              Failed to detect workspace. Ensure the Slack bot is installed.
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  )}
                   <Button
                     variant="outline"
                     onClick={() => unlinkMutation.mutate()}

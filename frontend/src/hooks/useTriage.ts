@@ -43,6 +43,17 @@ export function useUpdateTriageSettings() {
   })
 }
 
+export function useDetectWorkspace() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () =>
+      apiPost<TriageSettings>('/triage/settings/detect-workspace'),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['triage-settings'], data)
+    },
+  })
+}
+
 // --- Monitored Channels ---
 
 export function useMonitoredChannels() {

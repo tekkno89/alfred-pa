@@ -715,6 +715,48 @@ async def get_session_stats(
 # --- AI Wizard ---
 
 
+@router.post("/settings/detect-workspace", response_model=TriageSettingsResponse)
+async def detect_workspace(
+    current_user: CurrentUser,
+    db: DbSession,
+) -> TriageSettingsResponse:
+    """Detect Slack workspace domain via team.info API and save it."""
+    await _check_triage_access(current_user.id, db, current_user.role)
+
+    from app.services.slack import SlackService
+
+    try:
+        slack_service = SlackService()
+        team_info = await slack_service.client.team_info()
+    except SlackApiError as e:
+        logger.error(f"Slack API error detecting workspace: {e.response['error']}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to contact Slack API",
+        ) from e
+    except Exception as e:
+        logger.error(f"Error detecting workspace: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to contact Slack API",
+        ) from e
+
+    domain = None
+    if team_info.get("ok"):
+        domain = team_info["team"].get("domain")
+
+    if not domain:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not determine workspace domain from Slack",
+        )
+
+    repo = TriageUserSettingsRepository(db)
+    settings = await repo.get_or_create(current_user.id)
+    settings = await repo.update(settings, slack_workspace_domain=domain)
+    return TriageSettingsResponse.model_validate(settings)
+
+
 @router.post(
     "/settings/generate-definitions",
     response_model=GenerateDefinitionsResponse,
