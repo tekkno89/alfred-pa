@@ -20,6 +20,12 @@ graph TD
     B -->|1:N| D[Message]
     B -->|1:N| C
 
+    A -->|1:N| TODO[Todo]
+    A -->|1:N| NOTE[Note]
+    A -->|1:N| YTP[YouTubePlaylist]
+    YTP -->|1:N| YTV[YouTubeVideo]
+    TODO -->|self-ref| TODO
+
     A -->|1:1| TUS[TriageUserSettings]
     A -->|1:N| MC[MonitoredChannel]
     A -->|1:N| TC[TriageClassification]
@@ -156,10 +162,56 @@ graph TD
 - `github_app_id` string(100) nullable — for future app-level API
 - UNIQUE(user_id, label)
 
+### Todo
+- `id` UUID PK
+- `user_id` FK → User
+- `title` string(500)
+- `description` text nullable
+- `priority` integer default 2 (0=Urgent, 1=High, 2=Medium, 3=Low)
+- `status` string default "open" (open | completed)
+- `due_at` datetime nullable (timezone-aware)
+- `completed_at` datetime nullable
+- `is_starred` boolean default false
+- `tags` string[] (PostgreSQL array)
+- `recurrence_rule` string(500) nullable — RFC 5545 RRULE
+- `recurrence_parent_id` FK → Todo nullable (self-referential)
+- `reminder_sent_at` datetime nullable
+- `reminder_job_id` string nullable — APScheduler job ID
+- `slack_reminder_thread_ts` string nullable — Slack thread for re-fires
+- `slack_reminder_channel` string nullable — Slack DM channel ID
+
+### Note
+- `id` UUID PK
+- `user_id` FK → User
+- `title` string(500) default ""
+- `body` text default "" — Markdown content
+- `is_favorited` boolean default false
+- `is_archived` boolean default false
+- `tags` string[] (PostgreSQL array)
+
+### YouTubePlaylist
+- `id` UUID PK
+- `user_id` FK → User
+- `name` string(255)
+- `is_active` boolean default false
+- `is_archived` boolean default false
+
+### YouTubeVideo
+- `id` UUID PK
+- `playlist_id` FK → YouTubePlaylist (CASCADE)
+- `user_id` FK → User
+- `youtube_url` string(500)
+- `youtube_video_id` string(20) — extracted video ID
+- `title` string(500) — from oEmbed
+- `thumbnail_url` string(500) nullable — from oEmbed
+- `status` string default "active" (active | watched)
+- `sort_order` integer default 0
+
 ### TriageUserSettings
 - `id` UUID PK
 - `user_id` FK → User (unique)
 - `is_always_on` boolean default false
+- `always_on_min_priority` string(2) default "p3" — p0 | p1 | p2 | p3
 - `sensitivity` string(10) default "medium" — low | medium | high
 - `debug_mode` boolean default false
 - `slack_workspace_domain` string(255) nullable
@@ -181,7 +233,7 @@ graph TD
 - `user_id` FK → User
 - `keyword_pattern` string(255)
 - `match_type` string(20) default "contains" — exact | contains
-- `urgency_override` string(20) nullable — urgent | digest | null
+- `priority_override` string(20) nullable — p0 | p1 | p2 | p3 | null
 
 ### ChannelSourceExclusion
 - `id` UUID PK
@@ -204,7 +256,7 @@ graph TD
 - `thread_ts` string(50) nullable
 - `slack_permalink` text nullable
 - `focus_started_at` datetime nullable
-- `urgency_level` string(20) — urgent | digest | noise | review | digest_summary
+- `priority_level` string(20) — p0 | p1 | p2 | p3 | review | digest_summary
 - `confidence` float default 0.0
 - `classification_reason` text nullable
 - `abstract` text nullable — LLM-generated summary (no raw text stored)
@@ -232,4 +284,4 @@ graph TD
 - `classification_id` FK → TriageClassification (CASCADE)
 - `user_id` FK → User
 - `was_correct` boolean
-- `correct_urgency` string(20) nullable — urgent | digest | noise | review
+- `correct_priority` string(20) nullable — p0 | p1 | p2 | p3 | review

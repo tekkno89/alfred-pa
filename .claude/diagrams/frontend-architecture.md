@@ -13,7 +13,8 @@ graph TD
     RegisterPage --> RegisterForm[RegisterForm]
 
     ProtectedRoutes --> AuthGuard[AuthGuard]
-    AuthGuard --> AppLayout[AppLayout]
+    AuthGuard --> NotificationProvider[NotificationProvider]
+    NotificationProvider --> AppLayout[AppLayout]
 
     AppLayout --> Header[Header]
     AppLayout --> Sidebar[Sidebar]
@@ -23,35 +24,86 @@ graph TD
     Sidebar --> SessionList[SessionList]
     SessionList --> SessionItem[SessionItem]
 
-    MainContent --> HomePage[HomePage]
+    MainContent --> HomePage[HomePage / Dashboard]
     MainContent --> ChatPage[ChatPage]
     MainContent --> MemoriesPage[MemoriesPage]
+    MainContent --> TodosPage[TodosPage]
+    MainContent --> NotesPage[NotesPage]
+    MainContent --> NoteEditorPage[NoteEditorPage]
+    MainContent --> CalendarPage[CalendarPage]
+    MainContent --> YouTubePage[YouTubePage]
     MainContent --> BartPage[BartPage]
-    MainContent --> AdminPage[AdminPage]
+    MainContent --> TriagePage[TriagePage]
+    MainContent --> TriageSettingsPage[TriageSettingsPage]
     MainContent --> FocusPage[FocusPage]
     MainContent --> FocusSettingsPage[FocusSettingsPage]
     MainContent --> IntegrationsPage[IntegrationsPage]
     MainContent --> WebhooksPage[WebhooksPage]
+    MainContent --> AdminPage[AdminPage]
 
     IntegrationsPage --> GitHubConnectionCard[GitHubConnectionCard]
+    IntegrationsPage --> GoogleCalendarCard[GoogleCalendarCard]
     GitHubConnectionCard --> ConnectGitHubModal[ConnectGitHubModal]
     GitHubConnectionCard --> AddPATModal[AddPATModal]
     GitHubConnectionCard --> AddGitHubAppModal[AddGitHubAppModal]
 
-    HomePage --> BartCard[BartCard]
-    BartPage --> BartStationPicker[BartStationPicker]
-    BartPage --> StationBoard[StationBoard]
+    HomePage --> DashboardCards[Dashboard Cards]
+    DashboardCards --> BartCard[BartCard]
+    DashboardCards --> TodosCard[TodosCard]
+    DashboardCards --> NotesCard[NotesCard]
+    DashboardCards --> CalendarCard[CalendarCard]
+    DashboardCards --> YouTubeCard[YouTubeCard]
+    DashboardCards --> FocusCard[FocusCard]
+    DashboardCards --> TriageCard[TriageCard]
 
     ChatPage --> ChatContainer[ChatContainer]
     ChatContainer --> MessageList[MessageList]
     ChatContainer --> ChatInput[ChatInput]
     MessageList --> MessageBubble[MessageBubble]
     MessageList --> StreamingBubble[StreamingBubble]
-
-    MemoriesPage --> MemoryForm[MemoryForm]
-    MemoriesPage --> MemoryList[MemoryList]
-    MemoryList --> MemoryItem[MemoryItem]
 ```
+
+## Routes
+
+| Route | Page | Description |
+|-------|------|-------------|
+| `/login` | LoginPage | Public — email/password login |
+| `/register` | RegisterPage | Public — registration |
+| `/` | HomePage | Dashboard with configurable cards |
+| `/chat/:sessionId` | ChatPage | Chat with Alfred |
+| `/sessions` | SessionsPage | Session list |
+| `/memories` | MemoriesPage | Memory manager |
+| `/todos` | TodosPage | Todo list with filters |
+| `/notes` | NotesPage | Note list |
+| `/notes/new` | NoteEditorPage | Create new note |
+| `/notes/:noteId` | NoteEditorPage | Edit existing note |
+| `/calendar` | CalendarPage | Calendar (month/week/day views) |
+| `/youtube` | YouTubePage | YouTube watch queue |
+| `/dashboard/bart` | BartPage | BART station departures |
+| `/triage` | TriagePage | Slack triage classifications |
+| `/settings/triage` | TriageSettingsPage | Triage configuration |
+| `/focus` | FocusPage | Focus mode controls |
+| `/settings/focus` | FocusSettingsPage | Focus mode settings |
+| `/settings/integrations` | IntegrationsPage | OAuth connections (GitHub, Google Calendar) |
+| `/settings/webhooks` | WebhooksPage | Webhook subscriptions |
+| `/settings` | SettingsPage | General settings |
+| `/admin` | AdminPage | User management, feature toggles |
+
+## Dashboard Cards
+
+Cards are dynamically rendered based on user feature access and preferences:
+
+| Card | Feature Key | Description |
+|------|-------------|-------------|
+| `BartCard` | `card:bart` | Real-time BART departures |
+| `TodosCard` | `card:todos` | Overdue/today/upcoming counts + next items |
+| `NotesCard` | `card:notes` | Recent notes with favorite indicator |
+| `CalendarCard` | `card:calendar` | Today's events with color coding |
+| `YouTubeCard` | `card:youtube` | Active playlist + current video thumbnail |
+| `FocusCard` | `card:focus` | Focus mode status and controls |
+| `TriageCard` | `card:triage` | P0/P1/P2 counts + recent unreviewed items |
+
+Cards are registered in `CARD_RENDERERS` and `CARD_META` (DashboardConfigDialog). Users configure visibility and sort order via `DashboardConfigDialog`.
 
 ## Data Flow
 
@@ -91,22 +143,26 @@ flowchart TD
         Sessions[Sessions Query]
         Session[Session + Messages]
         Memories[Memories Query]
+        Todos[Todos Query]
+        Notes[Notes Query]
+        Calendar[Calendar Events]
+        YouTube[YouTube Playlists/Videos]
         Dashboard[Dashboard Queries]
         FocusQueries[Focus Queries]
+        TriageQueries[Triage Queries]
+        GitHubQueries[GitHub Queries]
+        GoogleCalQueries[Google Calendar Queries]
         Dashboard --> AvailableCards[Available Cards]
         Dashboard --> BartDepartures[BART Departures]
         Dashboard --> DashboardPrefs[Dashboard Preferences]
-        FocusQueries --> FocusStatus[Focus Status]
-        FocusQueries --> FocusSettings[Focus Settings]
-        GitHubQueries[GitHub Queries]
-        GitHubQueries --> GitHubConnections[GitHub Connections]
-        GitHubQueries --> GitHubAppConfigs[GitHub App Configs]
     end
 
     subgraph "Local State"
         StreamingContent[Streaming Content]
         IsStreaming[Is Streaming]
         FormInputs[Form Inputs]
+        NoteDrafts[Note Drafts - localStorage]
+        YouTubeProgress[Playback Progress - localStorage]
     end
 ```
 
@@ -142,13 +198,14 @@ sequenceDiagram
 |----------|-------|
 | **Entry** | `main.tsx`, `App.tsx` |
 | **Lib** | `lib/api.ts`, `lib/auth.ts`, `lib/sse.ts` |
-| **Hooks** | `hooks/useSessions.ts`, `hooks/useChat.ts`, `hooks/useMemories.ts`, `hooks/useDashboard.ts`, `hooks/useAdmin.ts`, `hooks/useFocusMode.ts`, `hooks/useNotifications.ts`, `hooks/useAlertSound.ts`, `hooks/useTitleFlash.ts`, `hooks/useGitHub.ts` |
-| **Pages** | `pages/LoginPage.tsx`, `pages/ChatPage.tsx`, `pages/MemoriesPage.tsx`, `pages/BartPage.tsx`, `pages/AdminPage.tsx`, `pages/FocusPage.tsx`, `pages/FocusSettingsPage.tsx`, `pages/WebhooksPage.tsx`, `pages/IntegrationsPage.tsx` |
-| **Dashboard** | `components/dashboard/BartCard.tsx`, `BartStationPicker.tsx`, `sortEstimates.ts` |
+| **Hooks** | `hooks/useSessions.ts`, `hooks/useChat.ts`, `hooks/useMemories.ts`, `hooks/useTodos.ts`, `hooks/useNotes.ts`, `hooks/useCalendar.ts`, `hooks/useYouTube.ts`, `hooks/useTriage.ts`, `hooks/useDashboard.ts`, `hooks/useAdmin.ts`, `hooks/useFocusMode.ts`, `hooks/useNotifications.ts`, `hooks/useAlertSound.ts`, `hooks/useTitleFlash.ts`, `hooks/useGitHub.ts`, `hooks/useGoogleCalendar.ts` |
+| **Pages** | `pages/LoginPage.tsx`, `pages/ChatPage.tsx`, `pages/MemoriesPage.tsx`, `pages/TodosPage.tsx`, `pages/NotesPage.tsx`, `pages/NoteEditorPage.tsx`, `pages/CalendarPage.tsx`, `pages/YouTubePage.tsx`, `pages/BartPage.tsx`, `pages/TriagePage.tsx`, `pages/TriageSettingsPage.tsx`, `pages/AdminPage.tsx`, `pages/FocusPage.tsx`, `pages/FocusSettingsPage.tsx`, `pages/WebhooksPage.tsx`, `pages/IntegrationsPage.tsx` |
+| **Dashboard** | `components/dashboard/BartCard.tsx`, `TodosCard.tsx`, `NotesCard.tsx`, `CalendarCard.tsx`, `YouTubeCard.tsx`, `FocusCard.tsx`, `TriageCard.tsx`, `DashboardConfigDialog.tsx`, `BartStationPicker.tsx` |
 | **Layout** | `components/layout/AppLayout.tsx`, `Sidebar.tsx`, `Header.tsx` |
 | **Focus** | `components/focus/FocusToggle.tsx`, `PomodoroTimer.tsx`, `VipList.tsx` |
-| **Notifications** | `components/notifications/NotificationProvider.tsx` (SSE events, sound loop, title flash), `NotificationBanner.tsx` (bypass alert banner with animation) |
-| **UI** | `components/ui/*.tsx` (shadcn/ui: button, input, card, select, switch, etc.) |
+| **Triage** | `components/triage/ClassificationDetailModal.tsx` |
+| **Notifications** | `components/notifications/NotificationProvider.tsx` (SSE events, sound loop, title flash), `NotificationBanner.tsx` (bypass alert banner) |
+| **UI** | `components/ui/*.tsx` (shadcn/ui: button, input, card, select, switch, dialog, etc.) |
 
 ## Technology Stack
 

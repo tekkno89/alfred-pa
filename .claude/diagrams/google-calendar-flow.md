@@ -88,6 +88,38 @@ graph TD
 
 Users can connect multiple Google accounts (e.g., personal Gmail + work Workspace) using different account labels. Each connection stores its own encrypted access/refresh tokens.
 
+## Agent Tool: manage_calendar
+
+The `CalendarTool` provides LLM-callable calendar operations. See [tool-system.md](./tool-system.md) for the full tool registry.
+
+| Action | Description |
+|--------|-------------|
+| `list_events` | Fetch events for a date range (default: today) |
+| `create_event` | Create event with title, start/end, attendees, recurrence |
+| `update_event` | Modify event (supports `scope`: this/all for recurring) |
+| `delete_event` | Remove event |
+
+The tool automatically resolves the user's connected Google account via `account_label` and applies the user's timezone to event times.
+
+## Push Notifications
+
+```mermaid
+sequenceDiagram
+    participant GC as Google Calendar
+    participant BE as Backend
+    participant DB as PostgreSQL
+
+    BE->>GC: POST /calendar/v3/calendars/{id}/events/watch
+    Note over BE,GC: Subscribe to changes<br/>with webhook URL + channel ID
+
+    GC->>BE: POST /api/google-calendar/push/webhook
+    BE->>GC: GET /calendar/v3/events (incremental sync)
+    GC-->>BE: Changed events + new syncToken
+    BE->>DB: Update cached events
+```
+
+Push notification subscriptions auto-renew. Incremental sync uses `syncToken` to fetch only changes since the last sync.
+
 ## API Endpoints
 
 | Method | Path | Auth | Description |
@@ -96,6 +128,9 @@ Users can connect multiple Google accounts (e.g., personal Gmail + work Workspac
 | GET | `/api/google-calendar/oauth/callback?code=...&state=...` | None (state) | Handle OAuth redirect from Google |
 | GET | `/api/google-calendar/connections` | JWT | List all connected Google accounts |
 | DELETE | `/api/google-calendar/connections/{id}` | JWT | Disconnect a Google account |
+| POST | `/api/google-calendar/sync` | JWT | Trigger manual sync |
+| POST | `/api/google-calendar/push/subscribe` | JWT | Subscribe to push notifications |
+| POST | `/api/google-calendar/push/webhook` | None | Google push notification callback |
 
 ## Components
 
@@ -108,8 +143,11 @@ Users can connect multiple Google accounts (e.g., personal Gmail + work Workspac
 - **OAuthTokenRepository** (`app/db/repositories/oauth_token.py`): Token CRUD (reused, provider=google_calendar)
 
 ### Frontend
+- **CalendarPage** (`pages/CalendarPage.tsx`): Full calendar with month/week/day views, event creation/editing
+- **CalendarCard** (`components/dashboard/CalendarCard.tsx`): Dashboard widget showing today's events
 - **GoogleCalendarConnectionCard** (`components/settings/GoogleCalendarConnectionCard.tsx`): Connection list with connect/disconnect
 - **ConnectGoogleCalendarModal** (`components/settings/ConnectGoogleCalendarModal.tsx`): OAuth connect with account label input
+- **useCalendar hook** (`hooks/useCalendar.ts`): React Query hooks for events CRUD, prefetching adjacent ranges
 - **useGoogleCalendar hook** (`hooks/useGoogleCalendar.ts`): React Query hooks for connections and OAuth
 
 ## OAuth Scopes

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The triage system classifies incoming Slack messages during focus sessions using LLM-powered analysis. Messages are routed through a pipeline of enrichment, classification, and delivery stages. Raw message text is never persisted — only abstracts and metadata are stored.
+The triage system classifies incoming Slack messages using LLM-powered analysis into P0-P3 priority levels. It operates during focus sessions or in always-on mode (with a configurable minimum priority threshold). Messages are routed through a pipeline of enrichment, classification, and delivery stages. Raw message text is never persisted — only abstracts and metadata are stored.
 
 ## Message Classification Pipeline
 
@@ -27,11 +27,14 @@ flowchart TD
     PIPE --> ENR[Enrich]
     ENR --> CLS[Classify]
     CLS --> STORE[Store classification<br/>no raw text]
-    STORE --> URG{Urgency?}
-    URG -->|urgent| NOTIFY[Slack DM + SSE<br/>triage.urgent]
-    URG -->|digest| HOLD[Hold for break/end]
-    URG -->|noise| FILED[Filed, hidden<br/>during session]
-    URG -->|review| SHOW[Show in Needs<br/>Attention filter]
+    STORE --> FILT{Always-on<br/>min priority<br/>filter}
+    FILT -->|Below threshold| DROP[Drop silently]
+    FILT -->|Passes| PRI{Priority?}
+    PRI -->|P0| NOTIFY[Slack DM + SSE<br/>triage.urgent]
+    PRI -->|P1| HOLD[Hold for break/end]
+    PRI -->|P2| HOLD
+    PRI -->|P3| FILED[Filed, hidden<br/>during session]
+    PRI -->|review| SHOW[Show in Needs<br/>Attention filter]
 ```
 
 ## Classification Decision Flow
@@ -41,33 +44,38 @@ flowchart TD
     MSG[Incoming Message] --> PATH{Classification<br/>path?}
     PATH -->|DM| VIP{Sender is VIP?}
     PATH -->|Channel| KW{Keyword rule<br/>match?}
-    VIP -->|Yes| U1[Return urgent<br/>confidence: 1.0]
+    VIP -->|Yes| U1[Return P0<br/>confidence: 1.0]
     VIP -->|No| LLM[LLM Classification]
-    KW -->|Match| OV[Return rule's<br/>urgency_override]
-    KW -->|No match| PRI{Channel priority<br/>= critical?}
-    PRI -->|Yes| U2[Return urgent<br/>confidence: 0.9]
-    PRI -->|No| LLM
+    KW -->|Match| OV[Return rule's<br/>priority_override]
+    KW -->|No match| CPRI{Channel priority<br/>= critical?}
+    CPRI -->|Yes| U2[Return P0<br/>confidence: 0.9]
+    CPRI -->|No| LLM
     LLM --> PARSE[Parse JSON response]
-    PARSE --> RES[urgency + confidence<br/>+ reason + abstract]
+    PARSE --> RES[priority + confidence<br/>+ reason + abstract]
     PARSE -->|Error| FALLBACK[Default to review<br/>confidence: 0.3]
 
     style LLM fill:#e8f4fd,stroke:#0284c7
     style FALLBACK fill:#fef3c7,stroke:#d97706
 ```
 
-## Urgency Levels
+## Priority Levels
 
 | Level | DB Value | Display Label | Delivery | Description |
 |-------|----------|---------------|----------|-------------|
-| Urgent | `urgent` | Urgent | Immediate Slack DM + SSE | Production incidents, VIP senders, explicit urgency |
-| Digest | `digest` | Digest Messages | Held for break/end | Noteworthy work messages, questions, project updates |
-| Noise | `noise` | Noise | Silent | Memes, casual chatter, automated notifications |
-| Unclassified | `review` | Unclassified | Shown in Needs Attention | LLM uncertain, flagged for manual review |
-| Session Digest | `digest_summary` | Session Digest | At break/end | Consolidated summary of digest items |
+| P0 | `p0` | Urgent | Immediate Slack DM + SSE | Production incidents, VIP senders, explicit urgency |
+| P1 | `p1` | High | Held for break/end | Time-sensitive, direct asks, important questions, deadlines |
+| P2 | `p2` | Medium | Held for break/end | Noteworthy but not time-sensitive, updates, FYI, discussions |
+| P3 | `p3` | Low | Silent | General chatter, memes, social messages, automated notifications |
+| Review | `review` | Unclassified | Shown in Needs Attention | LLM uncertain, flagged for manual review |
+| Session Digest | `digest_summary` | Session Digest | At break/end | Consolidated summary of P1/P2 items |
+
+Priority definitions are customizable per user via the **Triage Wizard** — an AI-powered tool that generates P0-P3 definitions based on the user's role and preferences.
+
+**Always-on mode:** When `is_always_on` is enabled, triage runs even outside focus sessions. The `always_on_min_priority` setting (default: `p3`) filters out classifications below the threshold.
 
 **API pseudo-filters:**
-- `needs_attention` (alias: `reviewable`) → resolves to `["urgent", "review", "digest_summary"]`
-- `digest` → shows all digest items including those consolidated into summaries
+- `needs_attention` (alias: `reviewable`) → resolves to `["p0", "review", "digest_summary"]`
+- `digest` → shows all P1/P2 items including those consolidated into summaries
 
 ## Digest Consolidation Flow
 
@@ -148,7 +156,8 @@ flowchart LR
 | GET | `/triage/digest/{session_id}` | Get session digest |
 | GET | `/triage/digest/latest` | Get latest 50 as digest |
 | POST | `/triage/analytics/feedback` | Submit classification feedback |
-| GET | `/triage/analytics/session-stats` | Counts by urgency level |
+| GET | `/triage/analytics/session-stats` | Counts by priority level |
+| POST | `/triage/wizard/definitions` | AI-generated custom priority definitions |
 
 ## Key Files
 
@@ -162,6 +171,7 @@ flowchart LR
 | `backend/app/services/triage_pipeline.py` | Orchestration + urgent delivery |
 | `backend/app/services/triage_delivery.py` | Digest consolidation + break notifications |
 | `backend/app/services/triage_cache.py` | Redis channel set for O(1) lookup |
+| `backend/app/services/triage_wizard.py` | AI-generated priority definitions |
 | `backend/app/db/models/triage.py` | Database models |
 | `backend/app/db/repositories/triage.py` | Data access layer |
 | `backend/app/schemas/triage.py` | Request/response schemas |

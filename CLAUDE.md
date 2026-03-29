@@ -169,12 +169,15 @@ graph TD
 - `llm-providers.md` - LLM provider abstraction with tool-calling methods
 - `memory-flow.md` - Memory system flow
 - `streaming-flow.md` - SSE streaming flow with tool_use events
-- `tool-system.md` - Tool registry, web search, and adding new tools
+- `tool-system.md` - Tool registry (5 tools), ToolContext, and adding new tools
 - `slack-flow.md` - Slack integration flow
 - `encryption-flow.md` - Envelope encryption (DEK/KEK) for token storage
 - `github-flow.md` - GitHub App OAuth + PAT integration flow
-- `google-calendar-flow.md` - Google Calendar OAuth integration flow
-- `triage-flow.md` - Triage classification pipeline, urgency levels, digest consolidation
+- `google-calendar-flow.md` - Google Calendar OAuth, push notifications, agent tool, calendar UI
+- `triage-flow.md` - Triage classification pipeline, P0-P3 priorities, digest consolidation
+- `todo-flow.md` - Todo system with recurrence, reminders, Slack notifications
+- `notes-flow.md` - Notes system with auto-save, local drafts, markdown editor
+- `youtube-flow.md` - YouTube watch queue, playlists, oEmbed metadata
 - `frontend-architecture.md` - Frontend component architecture
 
 ### Development Guides

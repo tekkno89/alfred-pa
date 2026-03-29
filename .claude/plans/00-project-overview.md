@@ -13,7 +13,11 @@
 | Phase 7: Focus Mode | ✅ Complete | Focus mode, pomodoro, VIP bypass, notifications |
 | Phase 8: Web Search & Tools | ✅ Complete | Tool-calling ReAct loop, Tavily web search |
 | Phase 9: GitHub & Token Encryption | ✅ Complete | GitHub App integration, envelope encryption, integrations page |
-| Phase 10: Slack Triage | ✅ Complete | LLM-powered message classification, digest consolidation, real-time alerts |
+| Phase 10: Slack Triage | ✅ Complete | LLM-powered P0-P3 classification, digest consolidation, real-time alerts |
+| Google Calendar | ✅ Complete | OAuth, event CRUD, push notifications, agent tool, calendar UI |
+| Todos | ✅ Complete | Priority tasks, recurrence (RFC 5545), reminders, Slack DM notifications |
+| Notes | ✅ Complete | Markdown notes, auto-save, local drafts, tags, archive |
+| YouTube | ✅ Complete | Watch queue, playlists, oEmbed metadata, embedded player |
 | Phase 11: Observability | 🔲 Not Started | Prometheus metrics, Loki logging, dashboards |
 | Phase 12: CI/CD | 🔲 Not Started | GitHub Actions, Cloud Run deployment |
 | Phase 13: Plugin System | 📋 Design | Installable feature modules from external repos |
@@ -202,14 +206,15 @@ Completed items:
 Completed items:
 - [x] Triage event router with Redis-cached monitored channel set
 - [x] Message enrichment pipeline (user settings, VIP, channel config, Slack names)
-- [x] LLM-powered classifier (Gemini/Claude via Vertex AI) with 4-level urgency system
+- [x] LLM-powered classifier (Gemini/Claude via Vertex AI) with P0-P3 priority system
 - [x] Classification paths: DM (VIP fast-path) and channel (keyword rules, priority escalation)
 - [x] Zero message persistence — only abstracts and metadata stored
 - [x] Real-time urgent notifications (Slack DM + SSE)
 - [x] Per-session digest consolidation with parent-child linking
 - [x] Break and end-of-session digest delivery via Slack DM
 - [x] Channel monitoring CRUD with keyword rules and source exclusions
-- [x] Triage settings (sensitivity, always-on, debug mode, custom rules)
+- [x] Triage settings (sensitivity, always-on with min priority threshold, debug mode, custom rules)
+- [x] Triage wizard — AI-generated custom P0-P3 priority definitions
 - [x] Classification feedback system (thumbs up/down + correction)
 - [x] Sender behavior model (response patterns, interaction frequency)
 - [x] Frontend: TriagePage with filters (Needs Attention, Urgent, Digest Messages, Session Digest, Noise, Unclassified)
@@ -217,6 +222,73 @@ Completed items:
 - [x] Frontend: Dashboard TriageCard with stats and recent items
 - [x] Frontend: ClassificationDetailModal with feedback UI
 - [x] 16 integration tests for classification endpoints
+
+---
+
+## Google Calendar Integration ✅
+
+**Status:** Complete
+**Diagrams:** [google-calendar-flow.md](../diagrams/google-calendar-flow.md)
+
+Completed items:
+- [x] Google Calendar OAuth flow with multi-account support
+- [x] Event CRUD (create, read, update, delete) with timezone handling
+- [x] Push notification subscriptions with incremental sync
+- [x] `manage_calendar` agent tool (list/create/update/delete events)
+- [x] Frontend CalendarPage with month/week/day views
+- [x] CalendarCard dashboard widget (today's events)
+- [x] Color-coded events, all-day support, recurring events
+- [x] Prefetch adjacent date ranges for smooth navigation
+
+---
+
+## Todos ✅
+
+**Status:** Complete
+**Diagrams:** [todo-flow.md](../diagrams/todo-flow.md)
+
+Completed items:
+- [x] Todo model with priority (P0-P3), due dates, tags, starred
+- [x] RFC 5545 RRULE recurrence support with automatic next occurrence
+- [x] APScheduler-based due reminders
+- [x] Slack DM notifications with Mark Done / Snooze buttons
+- [x] `manage_todos` agent tool (create/list/update/complete/delete)
+- [x] Frontend TodosPage with filters (status, priority, starred, due date)
+- [x] TodosCard dashboard widget (overdue/today/upcoming counts)
+- [x] Thread-based reminder re-fires after snooze
+
+---
+
+## Notes ✅
+
+**Status:** Complete
+**Diagrams:** [notes-flow.md](../diagrams/notes-flow.md)
+
+Completed items:
+- [x] Note model with markdown body, tags, favorites, archive
+- [x] REST API with CRUD, archive/restore
+- [x] Frontend NoteEditorPage with markdown editor + live preview
+- [x] Auto-save with 750ms debounce and save status indicator
+- [x] Local draft persistence with recovery dialog
+- [x] Offline detection with retry (exponential backoff)
+- [x] NotesCard dashboard widget (recent notes)
+
+---
+
+## YouTube ✅
+
+**Status:** Complete
+**Diagrams:** [youtube-flow.md](../diagrams/youtube-flow.md)
+
+Completed items:
+- [x] YouTubePlaylist and YouTubeVideo models
+- [x] oEmbed metadata extraction (title, thumbnail)
+- [x] Active playlist concept with video queue management
+- [x] `manage_youtube` agent tool (add/list/mark watched/playlists)
+- [x] Frontend YouTubePage with embedded player + IFrame API
+- [x] Drag-and-drop video reordering
+- [x] Playback progress tracking (localStorage)
+- [x] YouTubeCard dashboard widget
 
 ---
 
@@ -274,51 +346,15 @@ docker-compose exec frontend npm test
 
 ## Architecture Summary
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                         Clients                              │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐                  │
-│  │  Webapp  │  │  Slack   │  │ Desktop  │ (Phase 2)        │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘                  │
-└───────┼─────────────┼─────────────┼─────────────────────────┘
-        │             │             │
-        ▼             ▼             ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    FastAPI Backend                           │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
-│  │   Auth   │  │ Sessions │  │  Memory  │  │  Slack   │   │
-│  │   API    │  │   API    │  │   API    │  │   API    │   │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘   │
-│       │             │             │             │          │
-│       ▼             ▼             ▼             ▼          │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │              LangGraph Alfred Agent                  │   │
-│  │  ┌─────────┐  ┌─────────┐  ┌─────────┐             │   │
-│  │  │ Context │  │  ReAct  │  │ Extract │             │   │
-│  │  │Retrieval│→ │  Loop   │→ │ Memory  │             │   │
-│  │  └─────────┘  └────┬────┘  └─────────┘             │   │
-│  │                     │                               │   │
-│  │               ┌─────┴─────┐                         │   │
-│  │               │   Tool    │                         │   │
-│  │               │ Registry  │                         │   │
-│  │               └─────┬─────┘                         │   │
-│  │                     │                               │   │
-│  │               ┌─────┴─────┐                         │   │
-│  │               │Web Search │                         │   │
-│  │               │ (Tavily)  │                         │   │
-│  │               └───────────┘                         │   │
-│  └─────────────────────────────────────────────────────┘   │
-└───────┼─────────────┼─────────────┼─────────────────────────┘
-        │             │             │
-        ▼             ▼             ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      Data Layer                              │
-│  ┌──────────────────┐  ┌──────────┐  ┌──────────────────┐  │
-│  │ PostgreSQL       │  │  Redis   │  │   Vertex AI      │  │
-│  │ + pgvector       │  │  Cache   │  │   (LLM)          │  │
-│  └──────────────────┘  └──────────┘  └──────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-```
+See [architecture.md](../diagrams/architecture.md) for the full Mermaid diagram.
+
+**API Modules:** Auth, Sessions, Slack, Dashboard, GitHub, Google Calendar, Todos, Notes, YouTube, Triage, Focus, Admin
+
+**Agent Tools (5):** web_search, focus_mode, manage_todos, manage_calendar, manage_youtube
+
+**Integrations:** Slack (bi-directional), Google Calendar (OAuth + push), GitHub (App + PAT), BART transit, Tavily web search, YouTube oEmbed
+
+**Data Layer:** PostgreSQL + pgvector, Redis, Vertex AI (Gemini + Claude), OpenRouter
 
 ---
 
