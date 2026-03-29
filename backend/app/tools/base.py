@@ -24,6 +24,7 @@ class BaseTool(ABC):
     name: str
     description: str
     parameters_schema: dict[str, Any]
+    max_iterations: int = 3
     last_execution_metadata: dict[str, Any] | None = None
 
     def to_definition(self) -> ToolDefinition:

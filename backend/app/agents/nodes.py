@@ -19,7 +19,8 @@ from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
-MAX_TOOL_ITERATIONS = 3
+DEFAULT_MAX_TOOL_ITERATIONS = 3
+ABSOLUTE_MAX_TOOL_ITERATIONS = 8
 
 # Regex patterns for XML/text artifacts that LLMs (especially Gemini) sometimes
 # emit as raw text instead of using the structured tool calling API.
@@ -105,7 +106,11 @@ def build_prompt_messages(state: AgentState, *, tz: str | None = None) -> list[L
         "Don't repeat the exact same query, but do refine and search again when needed — "
         "multiple searches help for complex multi-faceted questions, when initial results "
         "are incomplete or conflicting, or when comparing different topics. "
-        "You have up to 3 tool iterations, so be strategic with your searches.\n\n"
+        "Be strategic with your tool calls.\n\n"
+        "**Important:** Never fabricate or invent information that was not returned by a tool. "
+        "If a tool returns an error, no results, or incomplete data, tell the user honestly "
+        "what happened. It is far better to say \"I couldn't retrieve that data\" than to "
+        "make up a plausible-sounding answer.\n\n"
         "When operating on todos:\n"
         "- Only operate on open/active todos unless the user explicitly asks about completed ones.\n"
         "- If a user asks to modify a todo and there are multiple open todos with the same or similar title, "
@@ -197,23 +202,33 @@ def _build_final_messages(messages: list[LLMMessage]) -> list[LLMMessage]:
     clean: list[LLMMessage] = []
     tool_results: list[str] = []
 
+    # Build mapping from tool_call_id -> tool name
+    tool_call_names: dict[str, str] = {}
+    for msg in messages:
+        if msg.role == "assistant" and msg.tool_calls:
+            for tc in msg.tool_calls:
+                tool_call_names[tc.id] = tc.name
+
     for msg in messages:
         if msg.role == "assistant" and msg.tool_calls:
             # Skip assistant messages that contain tool calls
             continue
         elif msg.role == "tool":
-            # Collect tool results
-            tool_results.append(msg.content or "(no result)")
+            # Collect tool results labeled by tool name
+            tool_name = tool_call_names.get(msg.tool_call_id or "", "tool")
+            content = msg.content or "(no result)"
+            tool_results.append(f"**Results from {tool_name}:**\n{content}")
         else:
             clean.append(LLMMessage(role=msg.role, content=msg.content))
 
     # Inject tool results into the system prompt
     if tool_results and clean and clean[0].role == "system":
         results_context = (
-            "\n\n**Web search results (already retrieved for this conversation):**\n\n"
+            "\n\n**Tool results (already retrieved for this conversation):**\n\n"
             + "\n\n---\n\n".join(tool_results)
-            + "\n\nUse these search results to answer the user's question. "
-            "Do not claim you cannot search the web — the search was already performed."
+            + "\n\nUse the above tool results to answer the user's question. "
+            "If a tool returned an error or no data, report that honestly to the user — "
+            "do not fabricate information."
         )
         clean[0] = LLMMessage(
             role="system",
@@ -421,7 +436,18 @@ async def llm_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
 
     tool_iteration = state.get("tool_iteration", 0)
     has_tools = tool_registry.has_tools()
-    is_last_iteration = tool_iteration >= MAX_TOOL_ITERATIONS - 1
+
+    # Compute effective max iterations based on tools used so far
+    effective_max = DEFAULT_MAX_TOOL_ITERATIONS
+    for msg in llm_messages:
+        if msg.role == "assistant" and msg.tool_calls:
+            for tc in msg.tool_calls:
+                tool = tool_registry.get(tc.name)
+                if tool:
+                    effective_max = max(effective_max, tool.max_iterations)
+    effective_max = min(effective_max, ABSOLUTE_MAX_TOOL_ITERATIONS)
+
+    is_last_iteration = tool_iteration >= effective_max - 1
 
     # Decide whether to use tools
     use_tools = has_tools and not is_last_iteration

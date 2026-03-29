@@ -429,6 +429,34 @@ class SlackSearchService:
             if cached.name == channel_name:
                 return cached.slack_channel_id
 
+        # Final fallback: direct Slack API lookup (handles unsynced private channels)
+        client = await self._get_user_client(user_id)
+        if client:
+            try:
+                cursor = None
+                while True:
+                    kwargs: dict[str, Any] = {
+                        "types": "public_channel,private_channel",
+                        "exclude_archived": True,
+                        "limit": 200,
+                    }
+                    if cursor:
+                        kwargs["cursor"] = cursor
+                    response = await client.conversations_list(**kwargs)
+                    for ch in response.get("channels", []):
+                        if ch.get("name") == channel_name:
+                            return ch["id"]
+                    cursor = response.get("response_metadata", {}).get(
+                        "next_cursor"
+                    )
+                    if not cursor:
+                        break
+            except SlackApiError as e:
+                logger.warning(
+                    f"Slack API fallback for channel resolution failed: "
+                    f"{e.response.get('error', '')}"
+                )
+
         return None
 
     async def list_user_channels(

@@ -551,7 +551,7 @@ class TestReActLoop:
             )
 
             # Last iteration uses plain generate() without tools, so only 2 tool executions
-            # (MAX_TOOL_ITERATIONS=3, iterations 0-1 allow tools, iteration 2 forces text)
+            # (DEFAULT_MAX_TOOL_ITERATIONS=3, iterations 0-1 allow tools, iteration 2 forces text)
             assert mock_tool.call_count == 2
             # Final response comes from plain generate() fallback
             assert response == "Forced text response"

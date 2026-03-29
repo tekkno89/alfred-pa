@@ -12,6 +12,7 @@ class SlackMessagesTool(BaseTool):
     """Tool for searching Slack messages, reading conversations, and listing channels."""
 
     name = "slack_messages"
+    max_iterations = 5
     description = (
         "Search Slack messages, read channel/DM conversations, or list channels. "
         'Actions: "search" finds messages matching a query, '
