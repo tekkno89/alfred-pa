@@ -175,8 +175,32 @@ export function useChat({ sessionId, onError }: UseChatOptions): UseChatReturn {
       }
 
       const handleComplete = () => {
-        // Stream completed without explicit 'done' event
-        // This shouldn't happen normally, but handle it gracefully
+        // Stream closed without explicit 'done' event — reset state so
+        // the input is re-enabled and the user can send follow-up messages.
+        if (streamingContentRef.current) {
+          // There was content buffered — treat it as a completed response
+          const assistantMessage: Message = {
+            id: `temp-${Date.now()}`,
+            session_id: sessionId,
+            role: 'assistant',
+            content: sanitizeLLMContent(streamingContentRef.current),
+            metadata_: null,
+            created_at: new Date().toISOString(),
+          }
+          queryClient.setQueryData(
+            ['session', sessionId],
+            (old: { messages: Message[] } | undefined) => {
+              if (!old) return old
+              return { ...old, messages: [...old.messages, assistantMessage] }
+            }
+          )
+        }
+        setStreamingContent('')
+        streamingContentRef.current = ''
+        setIsStreaming(false)
+        setActiveToolName(null)
+        setCompletedToolResults([])
+        completedToolResultsRef.current = []
       }
 
       abortControllerRef.current = apiStreamPost(
