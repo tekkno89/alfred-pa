@@ -126,7 +126,7 @@ class TestSanitizeResponse:
         text = (
             "Checking your channels.\n\n"
             "<tool_call>\n"
-            '{"name": "slack_messages", "arguments": {"action": "list_channels"}}\n'
+            '{"name": "slack_messages", "arguments": {"action": "top_channels"}}\n'
             "</tool_call>\n\n"
             "<tool_results>\n"
             "{'success': True, 'channels': [\n"

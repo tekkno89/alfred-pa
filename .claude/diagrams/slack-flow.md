@@ -88,6 +88,8 @@ sequenceDiagram
 
 ### Services
 - **SlackService** - Signature verification, send messages, get user info, reaction management (add/remove emoji reactions)
+- **SlackSearchService** - Message search (primary + fallback), conversation reading, channel/user resolution
+- **ChannelIntelligenceService** - Channel participation tracking (top 15 per user) and LLM-generated summaries
 - **LinkingService** - Generate/validate linking codes in Redis
 
 ### Event Deduplication

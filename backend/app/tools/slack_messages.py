@@ -24,7 +24,7 @@ class SlackMessagesTool(BaseTool):
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["search", "get_messages", "list_channels"],
+                "enum": ["search", "get_messages", "top_channels", "find_channel", "find_user"],
                 "description": "Action to perform.",
             },
             "query": {
@@ -91,10 +91,14 @@ class SlackMessagesTool(BaseTool):
                 return await self._handle_search(db, user_id, kwargs)
             elif action == "get_messages":
                 return await self._handle_get_messages(db, user_id, kwargs)
-            elif action == "list_channels":
-                return await self._handle_list_channels(db, user_id, kwargs)
+            elif action == "top_channels":
+                return await self._handle_top_channels(db, user_id, kwargs)
+            elif action == "find_channel":
+                return await self._handle_find_channel(db, user_id, kwargs)
+            elif action == "find_user":
+                return await self._handle_find_user(db, user_id, kwargs)
             else:
-                return f"Error: Unknown action '{action}'. Use search, get_messages, or list_channels."
+                return f"Error: Unknown action '{action}'. Use search, get_messages, top_channels, find_channel, or find_user."
         except Exception as e:
             logger.error(f"Slack messages tool error (action={action}): {e}", exc_info=True)
             return f"Error performing Slack {action}: {str(e)}"
@@ -157,10 +161,20 @@ class SlackMessagesTool(BaseTool):
             if fallback.get("results"):
                 result = fallback
 
+        is_fallback = result.get("scope") == "fallback"
         results = result.get("results", [])
+
         if not results:
             suggestion = f'No results found for "{query}"'
-            if scope == "frequent":
+            if is_fallback:
+                searched = result.get("searched_channels", 0)
+                suggestion += (
+                    f". This used a limited fallback search across {searched} of the user's top channels "
+                    "(Slack free plan — full search API is unavailable). "
+                    "Ask the user which specific channels, DMs, or group messages to check, "
+                    "and a timeframe. Then use get_messages on those channels to search more thoroughly."
+                )
+            elif scope == "frequent":
                 suggestion += " in your frequent channels. Try scope='all' to search all channels."
             elif not kwargs.get("date_from"):
                 suggestion += ". Try specifying a date range or different search terms."
@@ -175,26 +189,42 @@ class SlackMessagesTool(BaseTool):
 
         if len(results) == 1:
             r = results[0]
+            thread_label = " (in a thread)" if r.get("in_thread") else ""
             lines = [
-                f"Found a message in #{r['channel_name'] or r['channel_id']}:",
+                f"Found a message in #{r['channel_name'] or r['channel_id']}{thread_label}:",
                 f"From: {r['sender_name']} ({r['date']})",
                 f"Message: {r['text_snippet']}",
             ]
             if r.get("permalink"):
                 lines.append(f"Link: {r['permalink']}")
+            if is_fallback:
+                lines.append(self._fallback_note(result))
             return "\n".join(lines)
 
         lines = [f'Found {result.get("total", len(results))} results for "{query}":']
         for i, r in enumerate(results, 1):
             channel = r.get("channel_name") or r.get("channel_id", "")
+            thread_label = " (thread)" if r.get("in_thread") else ""
             lines.append(
-                f"\n{i}. #{channel} — {r['sender_name']} ({r['date']})"
+                f"\n{i}. #{channel} — {r['sender_name']} ({r['date']}){thread_label}"
             )
             lines.append(f"   {r['text_snippet'][:200]}")
             if r.get("permalink"):
                 lines.append(f"   Link: {r['permalink']}")
 
+        if is_fallback:
+            lines.append(self._fallback_note(result))
+
         return "\n".join(lines)
+
+    @staticmethod
+    def _fallback_note(result: dict) -> str:
+        searched = result.get("searched_channels", 0)
+        return (
+            f"\n⚠ Limited search: This used a fallback method (Slack free plan) across {searched} "
+            "top channels with limited thread coverage. If the message wasn't found, ask the user "
+            "for specific channels, DMs, or a timeframe, then use get_messages to search those directly."
+        )
 
     async def _handle_get_messages(self, db, user_id: str, kwargs: dict) -> str:
         from app.services.slack_search import SlackSearchService
@@ -260,7 +290,7 @@ class SlackMessagesTool(BaseTool):
 
         return "\n".join(lines)
 
-    async def _handle_list_channels(self, db, user_id: str, kwargs: dict) -> str:
+    async def _handle_top_channels(self, db, user_id: str, kwargs: dict) -> str:
         from app.services.slack_search import SlackSearchService
 
         service = SlackSearchService(db)
@@ -275,11 +305,12 @@ class SlackMessagesTool(BaseTool):
         channels = await service.list_user_channels(user_id, limit=30)
         if not channels:
             return (
-                "No channel data available yet. Channel data is updated daily — "
-                "it may not be ready if you just connected Slack."
+                "No channel data available yet. Top channel data is updated daily — "
+                "it may not be ready if you just connected Slack. "
+                "Use action='find_channel' to search for a specific channel by name."
             )
 
-        lines = [f"Your Slack channels ({len(channels)}):"]
+        lines = [f"Your top {len(channels)} most active Slack channels:"]
         for ch in channels:
             type_label = {"public": "public", "private": "private", "mpim": "group DM", "im": "DM"}.get(
                 ch["channel_type"], ch["channel_type"]
@@ -294,5 +325,80 @@ class SlackMessagesTool(BaseTool):
                     f"\n• #{ch['channel_name']} ({type_label}, {ch['member_count']} members){summary}"
                 )
             lines.append(f"  ID: {ch['channel_id']}")
+
+        lines.append(
+            "\nNote: This shows your most active channels only. "
+            "Use action='find_channel' to search for any channel by name."
+        )
+        return "\n".join(lines)
+
+    async def _handle_find_channel(self, db, user_id: str, kwargs: dict) -> str:
+        from app.services.slack_search import SlackSearchService
+        from app.services.slack_user import SlackUserService
+
+        channel_name = kwargs.get("channel_name") or kwargs.get("query")
+        if not channel_name:
+            return "Error: 'channel_name' (or 'query') is required for find_channel."
+
+        slack_user = SlackUserService(db)
+        if not await slack_user.has_oauth_token(user_id):
+            return "You haven't connected your Slack account. Go to Settings > Integrations to connect."
+
+        service = SlackSearchService(db)
+        result = await service.find_channels(user_id=user_id, query=channel_name)
+
+        if result.get("error") == "no_token":
+            return "You haven't connected your Slack account. Go to Settings > Integrations to connect."
+        if result.get("error"):
+            return f"Error searching channels: {result['error']}"
+
+        channels = result.get("channels", [])
+        if not channels:
+            return f"No channels found matching '{channel_name}'."
+
+        lines = [f"Found {len(channels)} channel(s) matching '{channel_name}':"]
+        for ch in channels:
+            type_label = "private" if ch["channel_type"] == "private" else "public"
+            member_label = "member" if ch["is_member"] else "not a member"
+            desc = ch.get("purpose") or ch.get("topic") or ""
+            desc_str = f" — {desc}" if desc else ""
+            lines.append(
+                f"\n• #{ch['channel_name']} ({type_label}, {ch['member_count']} members, {member_label}){desc_str}"
+            )
+            lines.append(f"  ID: {ch['channel_id']}")
+
+        return "\n".join(lines)
+
+    async def _handle_find_user(self, db, user_id: str, kwargs: dict) -> str:
+        from app.services.slack_search import SlackSearchService
+        from app.services.slack_user import SlackUserService
+
+        query = kwargs.get("query")
+        if not query:
+            return "Error: 'query' is required for find_user."
+
+        slack_user = SlackUserService(db)
+        if not await slack_user.has_oauth_token(user_id):
+            return "You haven't connected your Slack account. Go to Settings > Integrations to connect."
+
+        service = SlackSearchService(db)
+        result = await service.find_users(user_id=user_id, query=query)
+
+        if result.get("error") == "no_token":
+            return "You haven't connected your Slack account. Go to Settings > Integrations to connect."
+        if result.get("error"):
+            return f"Error searching users: {result['error']}"
+
+        users = result.get("users", [])
+        if not users:
+            return f"No users found matching '{query}'."
+
+        lines = [f"Found {len(users)} user(s) matching '{query}':"]
+        for u in users:
+            title_str = f" — {u['title']}" if u.get("title") else ""
+            lines.append(
+                f"\n• {u['display_name']} (@{u['username']}){title_str}"
+            )
+            lines.append(f"  User ID: {u['user_id']}")
 
         return "\n".join(lines)

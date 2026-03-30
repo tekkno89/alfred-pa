@@ -40,6 +40,10 @@ classDiagram
         +name = "manage_youtube"
         +execute(action, ...) str
     }
+    class SlackMessagesTool {
+        +name = "slack_messages"
+        +execute(action, ...) str
+    }
     class ToolRegistry {
         -_tools: dict
         +register(tool)
@@ -52,6 +56,7 @@ classDiagram
     BaseTool <|-- ManageTodosTool
     BaseTool <|-- CalendarTool
     BaseTool <|-- ManageYouTubeTool
+    BaseTool <|-- SlackMessagesTool
     ToolRegistry o-- BaseTool
     BaseTool ..> ToolContext : injected at execute
 ```
@@ -77,6 +82,7 @@ Tools return plain text strings. For UI metadata (e.g. calendar event IDs), tool
 | `ManageTodosTool` | `manage_todos` | Yes | Create/list/update/complete/delete todos with recurrence |
 | `CalendarTool` | `manage_calendar` | Yes | Google Calendar event CRUD with multi-account support |
 | `ManageYouTubeTool` | `manage_youtube` | Yes | YouTube watch queue and playlist management |
+| `SlackMessagesTool` | `slack_messages` | Yes | Search/read Slack messages, browse channels, find users |
 
 ## Web Search Flow
 
@@ -108,11 +114,12 @@ graph TD
     E --> F[Register ManageTodosTool]
     F --> G[Register CalendarTool]
     G --> H[Register ManageYouTubeTool]
-    H --> I{TAVILY_API_KEY set?}
-    I -->|Yes| J[Register WebSearchTool]
-    I -->|No| K[Skip web search]
-    J --> L[Return registry]
-    K --> L
+    H --> I[Register SlackMessagesTool]
+    I --> J{TAVILY_API_KEY set?}
+    J -->|Yes| K[Register WebSearchTool]
+    J -->|No| L[Skip web search]
+    K --> M[Return registry]
+    L --> M
 ```
 
 ## Tool Actions
@@ -153,6 +160,17 @@ graph TD
 | `list_playlists` | List all playlists | — |
 | `set_active_playlist` | Set default playlist | `playlist_id` |
 
+### slack_messages
+| Action | Description | Key Parameters |
+|--------|-------------|----------------|
+| `search` | Search messages across channels | `query`, `scope` (frequent/all/archived), `date_from`, `date_to`, `channel_ids` |
+| `get_messages` | Read conversation history | `channel_id` or `channel_name`, `thread_ts`, `include_replies`, `limit` |
+| `top_channels` | Browse user's most active channels (cached) | — |
+| `find_channel` | Search for channels by name (live API) | `channel_name` |
+| `find_user` | Search for users by name (live API) | `query` |
+
+**Search fallback:** On free Slack plans where `search.messages` is unavailable, the tool falls back to `conversations.history` with client-side filtering across the user's top channels, including thread replies. The fallback response instructs the agent to ask the user for specific channels/DMs and a timeframe to search more thoroughly.
+
 ## Files
 
 | File | Purpose |
@@ -165,6 +183,9 @@ graph TD
 | `backend/app/tools/todos.py` | Todo CRUD with recurrence support |
 | `backend/app/tools/calendar.py` | Google Calendar event management |
 | `backend/app/tools/youtube.py` | YouTube watch queue management |
+| `backend/app/tools/slack_messages.py` | Slack message search, reading, channel/user lookup |
+| `backend/app/services/slack_search.py` | Slack search service (search, fallback, channel resolution) |
+| `backend/app/services/channel_intelligence.py` | Channel participation tracking and LLM summaries |
 
 ## Configuration
 

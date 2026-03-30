@@ -217,6 +217,7 @@ class SlackSearchService:
 
         query_lower = query.lower()
         results: list[dict[str, Any]] = []
+        max_threads_per_channel = 5
 
         for channel_id in channel_ids:
             if len(results) >= max_results:
@@ -234,6 +235,7 @@ class SlackSearchService:
                 response = await client.conversations_history(**kwargs)
                 messages = response.get("messages", [])
 
+                threads_checked = 0
                 for msg in messages:
                     if len(results) >= max_results:
                         break
@@ -246,14 +248,52 @@ class SlackSearchService:
                         results.append(
                             {
                                 "channel_id": channel_id,
-                                "channel_name": "",  # Will be enriched if needed
+                                "channel_name": "",
                                 "sender_name": sender_name,
                                 "text_snippet": text[:300],
                                 "timestamp": msg.get("ts", ""),
                                 "date": _ts_to_date(msg.get("ts", "")),
                                 "permalink": "",
+                                "in_thread": False,
                             }
                         )
+
+                    # Search thread replies for messages with threads
+                    if (
+                        msg.get("reply_count", 0) > 0
+                        and threads_checked < max_threads_per_channel
+                        and len(results) < max_results
+                    ):
+                        threads_checked += 1
+                        try:
+                            thread_resp = await client.conversations_replies(
+                                channel=channel_id, ts=msg["ts"], limit=50
+                            )
+                            # Skip first message (parent, already checked above)
+                            for reply in thread_resp.get("messages", [])[1:]:
+                                if len(results) >= max_results:
+                                    break
+                                reply_text = reply.get("text", "")
+                                if query_lower in reply_text.lower():
+                                    reply_sender_id = reply.get("user", "")
+                                    reply_sender_name = await self._resolve_user_name(
+                                        client, reply_sender_id
+                                    ) if reply_sender_id else "unknown"
+                                    results.append(
+                                        {
+                                            "channel_id": channel_id,
+                                            "channel_name": "",
+                                            "sender_name": reply_sender_name,
+                                            "text_snippet": reply_text[:300],
+                                            "timestamp": reply.get("ts", ""),
+                                            "date": _ts_to_date(reply.get("ts", "")),
+                                            "permalink": "",
+                                            "in_thread": True,
+                                            "thread_ts": msg.get("ts", ""),
+                                        }
+                                    )
+                        except SlackApiError:
+                            pass
 
                 # Rate limit spacing
                 await asyncio.sleep(0.5)
@@ -269,6 +309,12 @@ class SlackSearchService:
             "total": len(results),
             "query": query,
             "scope": "fallback",
+            "searched_channels": len(channel_ids),
+            "note": (
+                "This search used the fallback method (Slack free plan). "
+                "Only top channels were searched with limited thread coverage. "
+                "Ask the user for specific channels, DMs, or a timeframe to narrow the search."
+            ),
         }
 
     async def get_search_context(self, user_id: str) -> list[dict[str, Any]]:
@@ -484,6 +530,127 @@ class SlackSearchService:
                 }
             )
         return result
+
+    async def find_channels(
+        self, user_id: str, query: str, max_results: int = 10
+    ) -> dict[str, Any]:
+        """Search for channels by name via the live Slack API.
+
+        Paginates through conversations_list and filters by substring match.
+        Returns matching channels with metadata.
+        """
+        client = await self._get_user_client(user_id)
+        if not client:
+            return {"error": "no_token", "channels": []}
+
+        query_lower = query.lower().lstrip("#")
+        matches: list[dict[str, Any]] = []
+        cursor = None
+
+        try:
+            while True:
+                kwargs: dict[str, Any] = {
+                    "types": "public_channel,private_channel",
+                    "exclude_archived": True,
+                    "limit": 200,
+                }
+                if cursor:
+                    kwargs["cursor"] = cursor
+                response = await client.conversations_list(**kwargs)
+
+                for ch in response.get("channels", []):
+                    name = ch.get("name", "")
+                    if query_lower in name.lower():
+                        channel_type = "private" if ch.get("is_private") else "public"
+                        topic = ch.get("topic", {}).get("value", "")
+                        purpose = ch.get("purpose", {}).get("value", "")
+                        matches.append({
+                            "channel_id": ch["id"],
+                            "channel_name": name,
+                            "channel_type": channel_type,
+                            "is_member": ch.get("is_member", False),
+                            "member_count": ch.get("num_members", 0),
+                            "topic": topic,
+                            "purpose": purpose,
+                        })
+                        if len(matches) >= max_results:
+                            break
+
+                if len(matches) >= max_results:
+                    break
+
+                cursor = response.get("response_metadata", {}).get("next_cursor")
+                if not cursor:
+                    break
+        except SlackApiError as e:
+            error = e.response.get("error", "unknown")
+            logger.error(f"find_channels error: {error}")
+            if not matches:
+                return {"error": error, "channels": []}
+
+        return {"channels": matches, "total": len(matches)}
+
+    async def find_users(
+        self, user_id: str, query: str, max_results: int = 10
+    ) -> dict[str, Any]:
+        """Search for Slack users by name via the live Slack API.
+
+        Paginates through users_list and filters by substring match
+        on display_name, real_name, or name fields.
+        """
+        client = await self._get_user_client(user_id)
+        if not client:
+            return {"error": "no_token", "users": []}
+
+        query_lower = query.lower()
+        matches: list[dict[str, Any]] = []
+        cursor = None
+
+        try:
+            while True:
+                kwargs: dict[str, Any] = {"limit": 200}
+                if cursor:
+                    kwargs["cursor"] = cursor
+                response = await client.users_list(**kwargs)
+
+                for user in response.get("members", []):
+                    if user.get("deleted") or user.get("is_bot"):
+                        continue
+
+                    profile = user.get("profile", {})
+                    display_name = profile.get("display_name", "")
+                    real_name = profile.get("real_name") or user.get("real_name", "")
+                    username = user.get("name", "")
+                    title = profile.get("title", "")
+
+                    if (
+                        query_lower in display_name.lower()
+                        or query_lower in real_name.lower()
+                        or query_lower in username.lower()
+                    ):
+                        matches.append({
+                            "user_id": user["id"],
+                            "display_name": display_name or real_name,
+                            "real_name": real_name,
+                            "username": username,
+                            "title": title,
+                        })
+                        if len(matches) >= max_results:
+                            break
+
+                if len(matches) >= max_results:
+                    break
+
+                cursor = response.get("response_metadata", {}).get("next_cursor")
+                if not cursor:
+                    break
+        except SlackApiError as e:
+            error = e.response.get("error", "unknown")
+            logger.error(f"find_users error: {error}")
+            if not matches:
+                return {"error": error, "users": []}
+
+        return {"users": matches, "total": len(matches)}
 
 
 def _ts_to_date(ts: str) -> str:

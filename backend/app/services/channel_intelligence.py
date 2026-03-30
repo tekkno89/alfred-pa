@@ -18,7 +18,7 @@ from app.services.token_encryption import TokenEncryptionService
 
 logger = logging.getLogger(__name__)
 
-MAX_CHANNELS_PER_SUMMARY_RUN = 100
+MAX_CHANNELS_PER_USER = 15
 MIN_SUBSTANTIVE_MESSAGES = 3
 
 
@@ -44,7 +44,7 @@ class ChannelIntelligenceService:
         """Update channel participation data for a user.
 
         Calls users.conversations to get all channels the user is in,
-        sorted by most recently updated, and stores the top 100.
+        sorted by most recently updated, and stores the top channels.
 
         Returns the number of channels stored.
         """
@@ -138,11 +138,11 @@ class ChannelIntelligenceService:
             if not cursor:
                 break
 
-        # Sort by last_activity_at (most recent first) and take top 100
+        # Sort by last_activity_at (most recent first) and keep top channels
         channels.sort(
             key=lambda c: c.get("last_activity_at") or datetime.min, reverse=True
         )
-        channels = channels[:100]
+        channels = channels[:MAX_CHANNELS_PER_USER]
 
         count = await self.participation_repo.upsert_batch(user_id, channels)
         logger.info(
@@ -198,7 +198,7 @@ class ChannelIntelligenceService:
         channel_ids_to_summarize = [
             cid for cid, (_, ctype) in channel_users.items()
             if ctype != "im"
-        ][:MAX_CHANNELS_PER_SUMMARY_RUN]
+        ][:MAX_CHANNELS_PER_USER]
 
         summarized = 0
         for channel_id in channel_ids_to_summarize:
