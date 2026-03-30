@@ -455,18 +455,18 @@ class SlackSearchService:
     async def resolve_channel_id(
         self, user_id: str, channel_name: str
     ) -> str | None:
-        """Look up channel_id from participation data or channel cache."""
+        """Look up channel_id from participation data, channel cache, or Slack API."""
         # Strip # prefix if present
         channel_name = channel_name.lstrip("#")
 
-        # Check participation data first
+        # Tier 1: Check participation data
         participation = await self.participation_repo.get_by_channel_name(
             user_id, channel_name
         )
         if participation:
             return participation.channel_id
 
-        # Fall back to SlackChannelCache (exact name match)
+        # Tier 2: Check SlackChannelCache (public channels, exact name match)
         from app.db.repositories.triage import SlackChannelCacheRepository
 
         cache_repo = SlackChannelCacheRepository(self.db)
@@ -475,12 +475,31 @@ class SlackSearchService:
             if cached.name == channel_name:
                 return cached.slack_channel_id
 
-        # Final fallback: direct Slack API lookup (handles unsynced private channels)
+        # Tier 3: users_conversations API (finds private channels user belongs to)
         client = await self._get_user_client(user_id)
         if client:
-            try:
-                cursor = None
-                while True:
+            channel_id = await self._find_channel_in_user_conversations(
+                client, channel_name
+            )
+            if channel_id:
+                return channel_id
+
+        return None
+
+    async def _find_channel_in_user_conversations(
+        self,
+        client: AsyncWebClient,
+        channel_name: str,
+        max_retries: int = 3,
+    ) -> str | None:
+        """Search user's conversations for a channel by exact name.
+
+        Uses users_conversations (separate rate limit from conversations_list).
+        """
+        cursor = None
+        while True:
+            for attempt in range(max_retries + 1):
+                try:
                     kwargs: dict[str, Any] = {
                         "types": "public_channel,private_channel",
                         "exclude_archived": True,
@@ -488,21 +507,38 @@ class SlackSearchService:
                     }
                     if cursor:
                         kwargs["cursor"] = cursor
-                    response = await client.conversations_list(**kwargs)
+                    response = await client.users_conversations(**kwargs)
                     for ch in response.get("channels", []):
                         if ch.get("name") == channel_name:
                             return ch["id"]
                     cursor = response.get("response_metadata", {}).get(
                         "next_cursor"
                     )
-                    if not cursor:
-                        break
-            except SlackApiError as e:
-                logger.warning(
-                    f"Slack API fallback for channel resolution failed: "
-                    f"{e.response.get('error', '')}"
-                )
-
+                    # Small delay between pages to avoid bursting
+                    if cursor:
+                        await asyncio.sleep(0.3)
+                    break  # Success, exit retry loop
+                except SlackApiError as e:
+                    if (
+                        e.response.get("error") == "ratelimited"
+                        and attempt < max_retries
+                    ):
+                        retry_after = int(
+                            e.response.headers.get("Retry-After", 3)
+                        )
+                        logger.warning(
+                            f"Rate limited on users_conversations, "
+                            f"retrying in {retry_after}s"
+                        )
+                        await asyncio.sleep(retry_after)
+                    else:
+                        logger.warning(
+                            f"Slack API fallback for channel resolution failed: "
+                            f"{e.response.get('error', '')}"
+                        )
+                        return None
+            if not cursor:
+                break
         return None
 
     async def list_user_channels(
@@ -534,59 +570,103 @@ class SlackSearchService:
     async def find_channels(
         self, user_id: str, query: str, max_results: int = 10
     ) -> dict[str, Any]:
-        """Search for channels by name via the live Slack API.
+        """Search for channels by name using DB cache and user's conversations.
 
-        Paginates through conversations_list and filters by substring match.
-        Returns matching channels with metadata.
+        1. Public channels: searched from the hourly-synced SlackChannelCache (no API call)
+        2. Private channels: searched via users_conversations API (user's token)
         """
-        client = await self._get_user_client(user_id)
-        if not client:
-            return {"error": "no_token", "channels": []}
-
         query_lower = query.lower().lstrip("#")
         matches: list[dict[str, Any]] = []
-        cursor = None
 
-        try:
-            while True:
-                kwargs: dict[str, Any] = {
-                    "types": "public_channel,private_channel",
-                    "exclude_archived": True,
-                    "limit": 200,
-                }
-                if cursor:
-                    kwargs["cursor"] = cursor
-                response = await client.conversations_list(**kwargs)
+        # 1. Search public channels from DB cache (instant, no API call)
+        from app.db.repositories.triage import SlackChannelCacheRepository
 
-                for ch in response.get("channels", []):
-                    name = ch.get("name", "")
-                    if query_lower in name.lower():
-                        channel_type = "private" if ch.get("is_private") else "public"
-                        topic = ch.get("topic", {}).get("value", "")
-                        purpose = ch.get("purpose", {}).get("value", "")
-                        matches.append({
-                            "channel_id": ch["id"],
-                            "channel_name": name,
-                            "channel_type": channel_type,
-                            "is_member": ch.get("is_member", False),
-                            "member_count": ch.get("num_members", 0),
-                            "topic": topic,
-                            "purpose": purpose,
-                        })
-                        if len(matches) >= max_results:
-                            break
-
+        cache_repo = SlackChannelCacheRepository(self.db)
+        cached_channels = await cache_repo.get_all(search=query_lower)
+        for cached in cached_channels:
+            if query_lower in cached.name.lower():
+                matches.append({
+                    "channel_id": cached.slack_channel_id,
+                    "channel_name": cached.name,
+                    "channel_type": "private" if cached.is_private else "public",
+                    "is_member": False,  # Cache doesn't track membership
+                    "member_count": cached.num_members,
+                    "topic": "",
+                    "purpose": "",
+                })
                 if len(matches) >= max_results:
                     break
 
-                cursor = response.get("response_metadata", {}).get("next_cursor")
-                if not cursor:
-                    break
-        except SlackApiError as e:
-            error = e.response.get("error", "unknown")
-            logger.error(f"find_channels error: {error}")
+        # 2. Search private channels via users_conversations (user's token)
+        client = await self._get_user_client(user_id)
+        if not client:
             if not matches:
-                return {"error": error, "channels": []}
+                return {"error": "no_token", "channels": []}
+            return {"channels": matches, "total": len(matches)}
+
+        cursor = None
+        max_retries = 3
+        seen_ids = {m["channel_id"] for m in matches}
+
+        while len(matches) < max_results:
+            for attempt in range(max_retries + 1):
+                try:
+                    kwargs: dict[str, Any] = {
+                        "types": "public_channel,private_channel",
+                        "exclude_archived": True,
+                        "limit": 200,
+                    }
+                    if cursor:
+                        kwargs["cursor"] = cursor
+                    response = await client.users_conversations(**kwargs)
+
+                    for ch in response.get("channels", []):
+                        if ch["id"] in seen_ids:
+                            continue
+                        name = ch.get("name", "")
+                        if query_lower in name.lower():
+                            channel_type = "private" if ch.get("is_private") else "public"
+                            topic = ch.get("topic", {}).get("value", "")
+                            purpose = ch.get("purpose", {}).get("value", "")
+                            matches.append({
+                                "channel_id": ch["id"],
+                                "channel_name": name,
+                                "channel_type": channel_type,
+                                "is_member": True,  # users_conversations = user is a member
+                                "member_count": ch.get("num_members", 0),
+                                "topic": topic,
+                                "purpose": purpose,
+                            })
+                            seen_ids.add(ch["id"])
+                            if len(matches) >= max_results:
+                                break
+
+                    cursor = response.get("response_metadata", {}).get(
+                        "next_cursor"
+                    )
+                    if cursor:
+                        await asyncio.sleep(0.3)
+                    break  # Success, exit retry loop
+                except SlackApiError as e:
+                    if (
+                        e.response.get("error") == "ratelimited"
+                        and attempt < max_retries
+                    ):
+                        retry_after = int(
+                            e.response.headers.get("Retry-After", 3)
+                        )
+                        logger.warning(
+                            f"Rate limited on users_conversations (find_channels), "
+                            f"retrying in {retry_after}s"
+                        )
+                        await asyncio.sleep(retry_after)
+                    else:
+                        error = e.response.get("error", "unknown")
+                        logger.error(f"find_channels API error: {error}")
+                        break  # Return what we have from cache
+
+            if not cursor or len(matches) >= max_results:
+                break
 
         return {"channels": matches, "total": len(matches)}
 
@@ -597,6 +677,7 @@ class SlackSearchService:
 
         Paginates through users_list and filters by substring match
         on display_name, real_name, or name fields.
+        Includes rate limit retry handling.
         """
         client = await self._get_user_client(user_id)
         if not client:
@@ -605,50 +686,69 @@ class SlackSearchService:
         query_lower = query.lower()
         matches: list[dict[str, Any]] = []
         cursor = None
+        max_retries = 3
 
-        try:
-            while True:
-                kwargs: dict[str, Any] = {"limit": 200}
-                if cursor:
-                    kwargs["cursor"] = cursor
-                response = await client.users_list(**kwargs)
+        while len(matches) < max_results:
+            for attempt in range(max_retries + 1):
+                try:
+                    kwargs: dict[str, Any] = {"limit": 200}
+                    if cursor:
+                        kwargs["cursor"] = cursor
+                    response = await client.users_list(**kwargs)
 
-                for user in response.get("members", []):
-                    if user.get("deleted") or user.get("is_bot"):
-                        continue
+                    for user in response.get("members", []):
+                        if user.get("deleted") or user.get("is_bot"):
+                            continue
 
-                    profile = user.get("profile", {})
-                    display_name = profile.get("display_name", "")
-                    real_name = profile.get("real_name") or user.get("real_name", "")
-                    username = user.get("name", "")
-                    title = profile.get("title", "")
+                        profile = user.get("profile", {})
+                        display_name = profile.get("display_name", "")
+                        real_name = profile.get("real_name") or user.get("real_name", "")
+                        username = user.get("name", "")
+                        title = profile.get("title", "")
 
+                        if (
+                            query_lower in display_name.lower()
+                            or query_lower in real_name.lower()
+                            or query_lower in username.lower()
+                        ):
+                            matches.append({
+                                "user_id": user["id"],
+                                "display_name": display_name or real_name,
+                                "real_name": real_name,
+                                "username": username,
+                                "title": title,
+                            })
+                            if len(matches) >= max_results:
+                                break
+
+                    cursor = response.get("response_metadata", {}).get(
+                        "next_cursor"
+                    )
+                    if cursor:
+                        await asyncio.sleep(0.3)
+                    break  # Success, exit retry loop
+                except SlackApiError as e:
                     if (
-                        query_lower in display_name.lower()
-                        or query_lower in real_name.lower()
-                        or query_lower in username.lower()
+                        e.response.get("error") == "ratelimited"
+                        and attempt < max_retries
                     ):
-                        matches.append({
-                            "user_id": user["id"],
-                            "display_name": display_name or real_name,
-                            "real_name": real_name,
-                            "username": username,
-                            "title": title,
-                        })
-                        if len(matches) >= max_results:
-                            break
+                        retry_after = int(
+                            e.response.headers.get("Retry-After", 3)
+                        )
+                        logger.warning(
+                            f"Rate limited on users_list, "
+                            f"retrying in {retry_after}s"
+                        )
+                        await asyncio.sleep(retry_after)
+                    else:
+                        error = e.response.get("error", "unknown")
+                        logger.error(f"find_users error: {error}")
+                        if not matches:
+                            return {"error": error, "users": []}
+                        return {"users": matches, "total": len(matches)}
 
-                if len(matches) >= max_results:
-                    break
-
-                cursor = response.get("response_metadata", {}).get("next_cursor")
-                if not cursor:
-                    break
-        except SlackApiError as e:
-            error = e.response.get("error", "unknown")
-            logger.error(f"find_users error: {error}")
-            if not matches:
-                return {"error": error, "users": []}
+            if not cursor or len(matches) >= max_results:
+                break
 
         return {"users": matches, "total": len(matches)}
 
