@@ -96,3 +96,27 @@ export function useUpdateSystemSetting() {
     },
   })
 }
+
+export interface ConfigIssue {
+  severity: string
+  field: string
+  message: string
+}
+
+export interface ServiceStatus {
+  name: string
+  enabled: boolean
+  details: Record<string, string>
+  issues: ConfigIssue[]
+}
+
+export interface ConfigStatus {
+  services: ServiceStatus[]
+}
+
+export function useConfigStatus() {
+  return useQuery({
+    queryKey: ['admin-config-status'],
+    queryFn: () => apiGet<ConfigStatus>('/admin/config-status'),
+  })
+}

@@ -1,4 +1,5 @@
 from app.db.models.checkpoint import Checkpoint
+from app.db.models.coding_job import CodingJob
 from app.db.models.dashboard import UserDashboardPreference, UserFeatureAccess
 from app.db.models.encryption_key import EncryptionKey
 from app.db.models.focus import FocusModeState, FocusSettings, FocusVIPList
@@ -55,4 +56,5 @@ __all__ = [
     "SlackChannelCache",
     "UserChannelParticipation",
     "SlackChannelSummary",
+    "CodingJob",
 ]

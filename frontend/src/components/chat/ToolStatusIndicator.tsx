@@ -1,4 +1,4 @@
-import { Search, Loader2, BellOff, CheckSquare, CalendarDays, Youtube, MessageSquare } from 'lucide-react'
+import { Search, Loader2, BellOff, CheckSquare, CalendarDays, Youtube, MessageSquare, Code } from 'lucide-react'
 
 const TOOL_DISPLAY: Record<string, { label: string; icon: typeof Search }> = {
   web_search: { label: 'Searching the web...', icon: Search },
@@ -7,6 +7,7 @@ const TOOL_DISPLAY: Record<string, { label: string; icon: typeof Search }> = {
   manage_calendar: { label: 'Checking calendar...', icon: CalendarDays },
   manage_youtube: { label: 'Managing YouTube queue...', icon: Youtube },
   slack_messages: { label: 'Reading Slack...', icon: MessageSquare },
+  coding_assistant: { label: 'Working on code...', icon: Code },
 }
 
 interface ToolStatusIndicatorProps {

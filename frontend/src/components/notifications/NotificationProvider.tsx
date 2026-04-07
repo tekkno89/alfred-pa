@@ -104,6 +104,23 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       queryClient.invalidateQueries({ queryKey: ['calendar', 'events'] })
     }
 
+    // Refetch chat messages when a new message is inserted (e.g. coding job answer)
+    if (event.type === 'messages.new') {
+      const sessionId = (event as Record<string, unknown>).session_id as string | undefined
+      if (sessionId) {
+        queryClient.invalidateQueries({ queryKey: ['session', sessionId] })
+      }
+    }
+
+    // Invalidate coding job queries when a job status changes (SSE from backend)
+    if (event.type === 'coding_job_update') {
+      const jobId = (event as Record<string, unknown>).job_id as string | undefined
+      if (jobId) {
+        queryClient.invalidateQueries({ queryKey: ['coding-jobs', jobId] })
+      }
+      queryClient.invalidateQueries({ queryKey: ['coding-jobs', 'list'] })
+    }
+
     // Stop alerts when focus mode ends
     if (event.type === 'focus_ended') {
       setLoopingSound(null)

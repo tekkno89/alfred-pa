@@ -3,9 +3,10 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { MessageBubble, StreamingBubble } from './MessageBubble'
 import { ToolStatusIndicator } from './ToolStatusIndicator'
 import { WebSearchResultsCard } from './WebSearchResultsCard'
+import { CodingJobCard } from './CodingJobCard'
 import { CompactionDivider } from './CompactionDivider'
 import type { ToolResult } from '@/hooks/useChat'
-import type { Message, ToolResultData } from '@/types'
+import type { Message, ToolResultData, CodingJobToolMetadata } from '@/types'
 
 interface MessageListProps {
   messages: Message[]
@@ -21,11 +22,37 @@ function getPersistedToolResults(message: Message): ToolResult[] | null {
   const meta = message.metadata_
   if (!meta || !Array.isArray(meta.tool_results)) return null
   return (meta.tool_results as Array<Record<string, unknown>>)
-    .filter(r => r.tool_name === 'web_search' && r.query && r.sources)
+    .filter(r => (r.tool_name === 'web_search' && r.query && r.sources) || r.tool_name === 'coding_assistant')
     .map(r => ({
       toolName: r.tool_name as string,
-      data: { query: r.query, sources: r.sources } as ToolResultData,
+      data: r.tool_name === 'web_search'
+        ? { query: r.query, sources: r.sources } as ToolResultData
+        : r as unknown as ToolResultData,
     }))
+}
+
+/** Check if a tool result is a coding job card. */
+function isCodingJobResult(result: ToolResult): result is ToolResult & { data: CodingJobToolMetadata } {
+  return result.toolName === 'coding_assistant' && 'job_id' in result.data
+}
+
+/** Render a tool result card (web search or coding job). */
+function ToolResultCard({ result }: { result: ToolResult }) {
+  if (result.toolName === 'web_search') {
+    return <WebSearchResultsCard data={result.data} />
+  }
+  if (isCodingJobResult(result)) {
+    const meta = result.data as unknown as CodingJobToolMetadata
+    return (
+      <CodingJobCard
+        jobId={meta.job_id}
+        repo={meta.repo}
+        taskDescription={meta.task_description}
+        question={meta.question}
+      />
+    )
+  }
+  return null
 }
 
 export function MessageList({ messages, streamingContent, isStreaming, activeToolName, completedToolResults, conversationSummary }: MessageListProps) {
@@ -58,12 +85,20 @@ export function MessageList({ messages, streamingContent, isStreaming, activeToo
             ? getPersistedToolResults(message)
             : null
 
+          // Coding job cards render after the message text (async results);
+          // other tool cards (web search) render before (inline context).
+          const beforeCards = savedResults?.filter(r => !isCodingJobResult(r)) ?? []
+          const afterCards = savedResults?.filter(r => isCodingJobResult(r)) ?? []
+
           return (
             <Fragment key={message.id}>
-              {savedResults && savedResults.map((result, i) => (
-                <WebSearchResultsCard key={i} data={result.data} />
+              {beforeCards.map((result, i) => (
+                <ToolResultCard key={`before-${i}`} result={result} />
               ))}
               <MessageBubble message={message} />
+              {afterCards.map((result, i) => (
+                <ToolResultCard key={`after-${i}`} result={result} />
+              ))}
             </Fragment>
           )
         })}
@@ -73,9 +108,7 @@ export function MessageList({ messages, streamingContent, isStreaming, activeToo
         {isStreaming && completedToolResults && completedToolResults.length > 0 && completedToolResults
           .filter(result => result.toolName !== activeToolName)
           .map((result, i) => (
-            result.toolName === 'web_search' && (
-              <WebSearchResultsCard key={i} data={result.data} />
-            )
+            <ToolResultCard key={i} result={result} />
           ))}
         {isStreaming && streamingContent && (
           <StreamingBubble content={streamingContent} />

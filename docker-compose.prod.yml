@@ -69,6 +69,21 @@ services:
     networks:
       - alfred-network
 
+  sandbox:
+    build:
+      context: ./sandbox
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      - WORKSPACE_ROOT=/workspaces
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - sandbox_workspaces:/workspaces
+    restart: unless-stopped
+    networks:
+      - alfred-network
+    # No port mapping — internal only
+
   certbot:
     image: certbot/dns-cloudflare
     volumes:
@@ -99,5 +114,6 @@ networks:
 
 volumes:
   redis_data:
+  sandbox_workspaces:
   certbot_certs:
   tailscale_state:

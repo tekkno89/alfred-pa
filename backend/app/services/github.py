@@ -2,6 +2,7 @@
 
 import logging
 import secrets
+import time
 from datetime import datetime, UTC
 from urllib.parse import urlencode
 
@@ -306,6 +307,101 @@ class GitHubService:
 
         await self.token_repo.delete(token)
         return True
+
+    # --- Installation Token Generation ---
+
+    async def get_installation_token_for_repo(
+        self, user_id: str, repo_full_name: str
+    ) -> str | None:
+        """Get a short-lived installation access token for a specific repo.
+
+        1. Gets the user's OAuth token to list installations.
+        2. Finds which installation has access to the repo.
+        3. Signs a JWT with the App private key and exchanges it for an
+           installation access token (valid ~1 hour).
+
+        Returns None if no installation covers the repo.
+        """
+        settings = get_settings()
+        if not settings.github_app_id or not (
+            settings.github_app_private_key or settings.github_app_private_key_file
+        ):
+            return None
+
+        # Get user's token to find installations
+        access_token = await self.get_valid_token(user_id)
+        if not access_token:
+            return None
+
+        # Find installation for this repo
+        installations = await self.get_installations(access_token)
+        if not installations:
+            return None
+
+        # Check which installation covers this repo
+        owner = repo_full_name.split("/")[0]
+        installation_id = None
+        for inst in installations:
+            account = inst.get("account", {})
+            if account.get("login", "").lower() == owner.lower():
+                installation_id = inst.get("id")
+                break
+
+        if not installation_id:
+            return None
+
+        return await self._create_installation_token(installation_id)
+
+    async def _create_installation_token(
+        self, installation_id: int
+    ) -> str:
+        """Create an installation access token by signing a JWT.
+
+        Uses the GitHub App's private key to create a JWT, then exchanges
+        it for a short-lived installation token via the GitHub API.
+        """
+        from jose import jwt as jose_jwt
+
+        settings = get_settings()
+
+        # Load private key
+        private_key = settings.github_app_private_key
+        if not private_key and settings.github_app_private_key_file:
+            import pathlib
+
+            private_key = pathlib.Path(
+                settings.github_app_private_key_file
+            ).read_text()
+
+        if not private_key:
+            raise ValueError("GitHub App private key not configured")
+
+        # Create JWT (valid for 10 minutes max per GitHub docs)
+        now = int(time.time())
+        payload = {
+            "iat": now - 60,  # Issued 60s ago to account for clock drift
+            "exp": now + (10 * 60),  # Expires in 10 minutes
+            "iss": settings.github_app_id,
+        }
+        encoded_jwt = jose_jwt.encode(payload, private_key, algorithm="RS256")
+
+        # Exchange JWT for installation access token
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{GITHUB_API_URL}/app/installations/{installation_id}/access_tokens",
+                headers={
+                    "Authorization": f"Bearer {encoded_jwt}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+
+        if response.status_code != 201:
+            raise ValueError(
+                f"Failed to create installation token: {response.status_code} {response.text}"
+            )
+
+        return response.json()["token"]
 
     async def delete_connection(self, connection_id: str, user_id: str) -> bool:
         """Delete a GitHub connection by ID with ownership check."""

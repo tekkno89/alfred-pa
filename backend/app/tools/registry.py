@@ -71,3 +71,9 @@ def _register_default_tools(registry: ToolRegistry) -> None:
     from app.tools.slack_messages import SlackMessagesTool
 
     registry.register(SlackMessagesTool())
+
+    # Coding assistant tool — requires sandbox orchestrator
+    if settings.sandbox_url and settings.sandbox_api_key:
+        from app.tools.coding_assistant import CodingAssistantTool
+
+        registry.register(CodingAssistantTool())

@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.api.deps import AdminUser, DbSession
+from app.core.config import get_settings
 from app.db.models import User
 from app.db.repositories.dashboard import FeatureAccessRepository
 from app.db.repositories.system_settings import SystemSettingsRepository
@@ -164,3 +165,48 @@ async def update_system_setting(
     repo = SystemSettingsRepository(db)
     setting = await repo.set(key, data.value)
     return SystemSettingResponse(key=setting.key, value=setting.value)
+
+
+# --- Config status ---
+
+
+class ConfigIssueResponse(BaseModel):
+    severity: str
+    field: str
+    message: str
+
+
+class ServiceStatusResponse(BaseModel):
+    name: str
+    enabled: bool
+    details: dict[str, str]
+    issues: list[ConfigIssueResponse]
+
+
+class ConfigStatusResponse(BaseModel):
+    services: list[ServiceStatusResponse]
+
+
+@router.get("/config-status", response_model=ConfigStatusResponse)
+async def config_status(admin: AdminUser) -> ConfigStatusResponse:
+    """Return config validation status for all services."""
+    from app.core.config_validator import get_service_statuses
+
+    settings = get_settings()
+    statuses = get_service_statuses(settings)
+    return ConfigStatusResponse(
+        services=[
+            ServiceStatusResponse(
+                name=s.name,
+                enabled=s.enabled,
+                details=s.details,
+                issues=[
+                    ConfigIssueResponse(
+                        severity=i.severity, field=i.field, message=i.message
+                    )
+                    for i in s.issues
+                ],
+            )
+            for s in statuses
+        ]
+    )

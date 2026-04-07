@@ -32,6 +32,9 @@ class AgentState(TypedDict):
     # Thread-specific todo context (injected from Slack thread → todo mapping)
     todo_context: dict | None
 
+    # Active coding job context (injected when session has an active coding job)
+    coding_job_context: dict | None
+
     # Generated message IDs
     user_message_id: str
     assistant_message_id: str

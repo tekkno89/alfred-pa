@@ -232,6 +232,65 @@ export interface TodoSummary {
   total_open: number
 }
 
+// Coding Jobs
+export type CodingJobStatus =
+  | 'pending_plan_approval'
+  | 'planning'
+  | 'plan_ready'
+  | 'pending_impl_approval'
+  | 'implementing'
+  | 'reviewing'
+  | 'complete'
+  | 'failed'
+  | 'cancelled'
+  | 'exploring'
+
+export type CodingJobMode = 'plan' | 'implement' | 'review' | 'explore'
+
+export interface CodingJob {
+  id: string
+  user_id: string
+  session_id: string
+  status: CodingJobStatus
+  mode: CodingJobMode
+  repo_full_name: string
+  branch_name: string | null
+  pr_url: string | null
+  pr_number: number | null
+  task_description: string
+  plan_content: string | null
+  review_content: string | null
+  revision_of_job_id: string | null
+  error_details: string | null
+  github_account_label: string | null
+  slack_channel_id: string | null
+  slack_thread_ts: string | null
+  started_at: string | null
+  completed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CodingJobList {
+  items: CodingJob[]
+  total: number
+  page: number
+  size: number
+}
+
+export interface CodingJobRevisionRequest {
+  description: string
+}
+
+export interface CodingJobToolMetadata {
+  type: 'coding_job_proposal' | 'coding_job_exploration'
+  job_id: string
+  repo: string
+  task_description?: string
+  question?: string
+  status: string
+}
+
 // Common
 export interface DeleteResponse {
   success: boolean

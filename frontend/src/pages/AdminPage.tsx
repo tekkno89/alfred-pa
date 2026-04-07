@@ -14,7 +14,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useAuthStore } from '@/lib/auth'
-import { useAdminUsers, useUpdateUserRole, useUserFeatures, useSetFeatureAccess, useSystemSettings, useUpdateSystemSetting } from '@/hooks/useAdmin'
+import { useAdminUsers, useUpdateUserRole, useUserFeatures, useSetFeatureAccess, useSystemSettings, useUpdateSystemSetting, useConfigStatus } from '@/hooks/useAdmin'
+import type { ServiceStatus } from '@/hooks/useAdmin'
 import type { AdminUser } from '@/types'
 
 const FEATURE_KEYS = [
@@ -164,6 +165,104 @@ function SystemSettingsCard() {
   )
 }
 
+const SERVICE_LABELS: Record<string, string> = {
+  coding_assistant: 'Coding Assistant',
+  slack: 'Slack',
+  github: 'GitHub',
+}
+
+function ServiceStatusRow({ service }: { service: ServiceStatus }) {
+  const [expanded, setExpanded] = useState(false)
+  const hasErrors = service.issues.some((i) => i.severity === 'error')
+  const hasWarnings = service.issues.some((i) => i.severity === 'warning')
+
+  const statusVariant = !service.enabled
+    ? 'secondary'
+    : hasErrors
+      ? 'destructive'
+      : hasWarnings
+        ? 'outline'
+        : 'default'
+
+  const statusLabel = !service.enabled
+    ? 'Not configured'
+    : hasErrors
+      ? 'Error'
+      : hasWarnings
+        ? 'Warning'
+        : 'OK'
+
+  return (
+    <div className="border rounded-lg p-3 space-y-2">
+      <div
+        className="flex items-center justify-between cursor-pointer"
+        onClick={() => service.issues.length > 0 && setExpanded(!expanded)}
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium">
+            {SERVICE_LABELS[service.name] || service.name}
+          </span>
+          <Badge variant={statusVariant}>{statusLabel}</Badge>
+          {Object.entries(service.details).map(([k, v]) => (
+            <span key={k} className="text-xs text-muted-foreground">
+              {k}: {v}
+            </span>
+          ))}
+        </div>
+        {service.issues.length > 0 && (
+          <span className="text-xs text-muted-foreground">
+            {service.issues.length} issue{service.issues.length !== 1 ? 's' : ''}
+          </span>
+        )}
+      </div>
+      {expanded && (
+        <div className="pl-2 space-y-1">
+          {service.issues.map((issue, idx) => (
+            <div key={idx} className="text-xs flex gap-2">
+              <Badge
+                variant={issue.severity === 'error' ? 'destructive' : 'outline'}
+                className="text-[10px] h-4"
+              >
+                {issue.severity}
+              </Badge>
+              <code className="text-muted-foreground">{issue.field}</code>
+              <span>{issue.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ConfigStatusCard() {
+  const { data, isLoading } = useConfigStatus()
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>System Configuration</CardTitle>
+        <CardDescription>
+          Service status and configuration issues
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading config status...</p>
+        ) : !data?.services.length ? (
+          <p className="text-sm text-muted-foreground">No services configured.</p>
+        ) : (
+          <div className="space-y-2">
+            {data.services.map((service) => (
+              <ServiceStatusRow key={service.name} service={service} />
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function AdminPage() {
   const navigate = useNavigate()
   const currentUser = useAuthStore((state) => state.user)
@@ -203,6 +302,8 @@ export function AdminPage() {
             <h1 className="text-xl font-semibold">Admin</h1>
           </div>
         </div>
+
+        <ConfigStatusCard />
 
         <SystemSettingsCard />
 

@@ -1,4 +1,5 @@
 from app.db.repositories.base import BaseRepository
+from app.db.repositories.coding_job import CodingJobRepository
 from app.db.repositories.dashboard import (
     DashboardPreferenceRepository,
     FeatureAccessRepository,
@@ -62,4 +63,5 @@ __all__ = [
     "SenderBehaviorModelRepository",
     "TriageFeedbackRepository",
     "SlackChannelCacheRepository",
+    "CodingJobRepository",
 ]

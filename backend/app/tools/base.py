@@ -15,6 +15,7 @@ class ToolContext(TypedDict, total=False):
 
     db: AsyncSession
     user_id: str
+    session_id: str
     timezone: str | None
 
 

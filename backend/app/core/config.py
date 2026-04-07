@@ -115,6 +115,56 @@ class Settings(BaseSettings):
     triage_classification_model: str = "gemini-2.5-flash"
     triage_vertex_location: str = ""  # override VERTEX_LOCATION for triage (e.g. "us-central1")
 
+    # Sandbox orchestrator (for docker_sandbox runtime)
+    sandbox_url: str = "http://alfred-sandbox:8080"
+    sandbox_api_key: str = ""
+    claude_code_image: str = "alfred-claude-code:latest"
+    sandbox_docker_network: str = ""  # Docker network for containers (e.g. "alfred-pa_default")
+
+    # Coding assistant — runtime
+    coding_runtime_provider: str = "docker_sandbox"  # "docker_sandbox" | "kubernetes" | "cloudrun"
+    coding_job_timeout_minutes: int = 30
+    coding_sensitive_paths: str = ".github/workflows,Dockerfile,docker-compose,.env"
+    coding_max_concurrent_jobs: int = 2  # Per user
+    coding_slack_channel: str = ""  # Channel for web-initiated coding job threads
+
+    # Coding assistant — completion reporting
+    coding_completion_method: str = "callback"  # "callback" | "redis" | "gcp_pubsub"
+    coding_callback_base_url: str = ""  # e.g. "http://backend:8000"
+
+    # Coding assistant — event bus (for redis/gcp_pubsub completion + general events)
+    coding_event_bus_provider: str = "redis"  # "redis" | "gcp_pubsub" | "kafka"
+    coding_gcp_pubsub_project: str = ""
+    coding_gcp_pubsub_topic_prefix: str = "alfred-events"
+
+    # Claude Code LLM provider: "vertex" (Vertex AI) or "api" (direct Anthropic API)
+    claude_code_provider: str = "vertex"
+
+    # Direct Anthropic API (when claude_code_provider = "api")
+    claude_code_api_key: str = ""
+
+    # Vertex AI for Claude Code (when claude_code_provider = "vertex")
+    claude_code_vertex_project: str = ""
+    claude_code_vertex_region: str = "us-east5"
+
+    # GCP credentials for Claude Code containers (priority: sa_json > file > adc_path)
+    # Option 1: SA JSON as env var value (most portable — works everywhere)
+    claude_code_gcp_sa_json: str = ""
+    # Option 2: SA JSON file path on host (Docker only)
+    claude_code_gcp_credentials_file: str = ""
+    # Option 3: gcloud ADC config directory on host (Docker dev only)
+    claude_code_gcp_adc_path: str = ""
+
+    # Kubernetes runtime settings (when coding_runtime_provider = "kubernetes")
+    coding_k8s_namespace: str = "alfred"
+    coding_k8s_service_account: str = ""
+    coding_k8s_image_pull_secret: str = ""
+
+    # Cloud Run runtime settings (when coding_runtime_provider = "cloudrun")
+    coding_cloudrun_project: str = ""
+    coding_cloudrun_region: str = ""
+    coding_cloudrun_service_account: str = ""
+
     # Memory
     memory_retrieval_limit: int = 5
     memory_similarity_threshold: float = 0.7  # for deduplication

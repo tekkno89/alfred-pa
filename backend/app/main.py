@@ -30,14 +30,62 @@ if settings.slack_debug:
     logging.getLogger("app.api.slack").setLevel(logging.DEBUG)
 
 
+async def _handle_coding_event(topic: str, payload: dict) -> None:
+    """Handle coding job completion/failure events from the event bus."""
+    from app.db.session import async_session_maker
+    from app.services.coding_job import CodingJobService
+
+    job_id = payload.get("job_id")
+    if not job_id:
+        logging.getLogger(__name__).warning(
+            f"EventBus: coding event missing job_id: {topic}"
+        )
+        return
+
+    async with async_session_maker() as db:
+        try:
+            service = CodingJobService(db)
+            if payload.get("success", False):
+                output_files = payload.get("output_files", {})
+                await service.handle_container_complete(job_id, output_files)
+            else:
+                error = payload.get("error", "Unknown error")
+                logs = payload.get("logs")
+                await service.handle_container_failed(job_id, error, logs)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            logging.getLogger(__name__).exception(
+                f"EventBus: error handling coding event for job {job_id}"
+            )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan handler for startup and shutdown."""
     import asyncio
     from app.services.notifications import NotificationService
 
+    # Validate config and log issues
+    from app.core.config_validator import log_config_issues
+    log_config_issues(get_settings())
+
     # Start Redis pub/sub subscriber for cross-process SSE delivery
     subscriber_task = asyncio.create_task(NotificationService.start_redis_subscriber())
+
+    # Start event bus subscriber for coding job completion events
+    event_bus = None
+    try:
+        from app.core.events import get_event_bus
+
+        event_bus = get_event_bus()
+        await event_bus.subscribe("coding.*", _handle_coding_event)
+        await event_bus.start()
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Failed to start event bus — coding completion events "
+            "will rely on callback/polling fallback"
+        )
 
     # Send one-time reauth DMs to users with stale Slack scopes
     try:
@@ -66,6 +114,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
     # Shutdown
+    if event_bus:
+        await event_bus.stop()
+
     subscriber_task.cancel()
     try:
         await subscriber_task

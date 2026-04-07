@@ -173,7 +173,16 @@ def build_prompt_messages(state: AgentState, *, tz: str | None = None) -> list[L
         "- You can make multiple get_messages calls to check several channels the user identifies.\n"
         "IMPORTANT: Whenever you reference or quote a Slack message in your response, always include the permalink "
         "so the user can jump directly to it in Slack. Search results include permalinks — always share them. "
-        "If you're summarizing a conversation from get_messages, link to the channel so the user can find the discussion."
+        "If you're summarizing a conversation from get_messages, link to the channel so the user can find the discussion.\n\n"
+        "When the user asks you to write code, fix a bug, implement a feature, refactor, or make changes "
+        "in a GitHub repository, use the coding_assistant tool with action='propose'. "
+        "IMPORTANT: You MUST ask the user which repo to work on if they haven't specified one. "
+        "Never assume the repository. After proposing, tell the user that approval buttons will "
+        "appear for them to review and approve. You cannot start the work yourself — only the "
+        "user can approve via the buttons.\n"
+        "When the user asks questions about a codebase or wants to understand how something works "
+        "in a repo, use the coding_assistant tool with action='ask_codebase'. Again, always confirm "
+        "which repo to query."
     )
 
     # Inject conversation summary if present
@@ -197,6 +206,18 @@ def build_prompt_messages(state: AgentState, *, tz: str | None = None) -> list[L
                 f"Interpret their next message as a snooze duration and use the manage_todos tool with "
                 f'action="update" and todo_id="{todo_id}" with either `snooze_minutes` or `due_at` to reschedule it.'
             )
+
+    # Inject active coding job context if any
+    coding_job_context = state.get("coding_job_context")
+    if coding_job_context:
+        job_status = coding_job_context.get("status", "")
+        job_repo = coding_job_context.get("repo", "")
+        job_id = coding_job_context.get("job_id", "")
+        system_content += (
+            f"\n\n**Active coding job:** Job {job_id} on repo `{job_repo}` "
+            f"is currently in status: {job_status}. "
+            "Use coding_assistant with action='status' if the user asks about progress."
+        )
 
     messages.append(LLMMessage(role="system", content=system_content))
 
@@ -589,6 +610,7 @@ async def tool_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]
     tool_context = ToolContext(
         db=configurable["db"],
         user_id=state["user_id"],
+        session_id=state["session_id"],
         timezone=configurable.get("timezone"),
     )
 

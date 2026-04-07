@@ -1068,6 +1068,44 @@ async def handle_slack_interactive(
             )
             return {"ok": True}
 
+        # --- Coding assistant approval buttons ---
+
+        if action_id == "coding_approve_plan":
+            background_tasks.add_task(
+                process_coding_action_background,
+                "approve_plan",
+                action.get("value", ""),
+                payload.get("user", {}).get("id", ""),
+            )
+            return {"ok": True}
+
+        if action_id == "coding_approve_impl":
+            background_tasks.add_task(
+                process_coding_action_background,
+                "approve_impl",
+                action.get("value", ""),
+                payload.get("user", {}).get("id", ""),
+            )
+            return {"ok": True}
+
+        if action_id == "coding_cancel":
+            background_tasks.add_task(
+                process_coding_action_background,
+                "cancel",
+                action.get("value", ""),
+                payload.get("user", {}).get("id", ""),
+            )
+            return {"ok": True}
+
+        if action_id == "coding_request_revision":
+            background_tasks.add_task(
+                process_coding_action_background,
+                "request_revision",
+                action.get("value", ""),
+                payload.get("user", {}).get("id", ""),
+            )
+            return {"ok": True}
+
     return {"ok": True}
 
 
@@ -1411,3 +1449,62 @@ async def handle_focus_bypass(
         await send_bypass_sms(notify_config.phone_number, sender_name)
 
     logger.info(f"Focus bypass notification sent for user {user_id} from {sender_name}")
+
+
+async def process_coding_action_background(
+    action_type: str,
+    job_id: str,
+    slack_user_id: str,
+) -> None:
+    """Process coding assistant button clicks in background.
+
+    Resolves the Slack user to an Alfred user, then dispatches to
+    the CodingJobService.
+    """
+    async for db in get_db():
+        try:
+            from app.db.repositories.coding_job import CodingJobRepository
+            from app.services.coding_job import CodingJobService
+
+            # Resolve Slack user to Alfred user
+            from app.db.repositories.user import UserRepository
+
+            user_repo = UserRepository(db)
+            user = await user_repo.get_by_slack_id(slack_user_id)
+            if not user:
+                logger.warning(
+                    f"Coding action from unlinked Slack user {slack_user_id}"
+                )
+                return
+
+            # Verify job ownership
+            repo = CodingJobRepository(db)
+            job = await repo.get(job_id)
+            if not job or job.user_id != user.id:
+                logger.warning(
+                    f"Coding action denied: job {job_id} not owned by Slack user {slack_user_id}"
+                )
+                return
+
+            service = CodingJobService(db)
+
+            if action_type == "approve_plan":
+                await service.start_planning(job_id)
+            elif action_type == "approve_impl":
+                await service.start_implementation(job_id)
+            elif action_type == "cancel":
+                await service.cancel_job(job_id)
+            elif action_type == "request_revision":
+                # For revision from Slack, create with a default description
+                # (a proper flow would use a modal, but this is a simple fallback)
+                await service.request_revision(
+                    job_id, "Changes requested from Slack"
+                )
+            else:
+                logger.warning(f"Unknown coding action: {action_type}")
+
+        except Exception as e:
+            logger.error(
+                f"Error processing coding action {action_type} for job {job_id}: {e}",
+                exc_info=True,
+            )
