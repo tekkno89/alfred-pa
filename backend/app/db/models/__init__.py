@@ -23,6 +23,7 @@ from app.db.models.triage import (
     TriageUserSettings,
 )
 from app.db.models.user import User
+from app.db.models.user_repository import UserRepo
 from app.db.models.webhook import WebhookSubscription
 from app.db.models.youtube import YouTubePlaylist, YouTubeVideo
 
@@ -57,4 +58,5 @@ __all__ = [
     "UserChannelParticipation",
     "SlackChannelSummary",
     "CodingJob",
+    "UserRepo",
 ]

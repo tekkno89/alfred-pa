@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { GitHubConnectionCard } from '@/components/settings/GitHubConnectionCard'
 import { GoogleCalendarConnectionCard } from '@/components/settings/GoogleCalendarConnectionCard'
+import { RepoRegistryCard } from '@/components/settings/RepoRegistryCard'
 import { SlackLinkModal } from '@/components/settings/SlackLinkModal'
 import { apiDelete, apiGet, apiPost, ApiRequestError } from '@/lib/api'
 import { useTriageSettings, useDetectWorkspace } from '@/hooks/useTriage'
@@ -150,6 +151,9 @@ export function IntegrationsPage() {
 
           {/* GitHub */}
           <GitHubConnectionCard />
+
+          {/* Repositories */}
+          <RepoRegistryCard />
 
           {/* Slack Integration */}
           <Card>

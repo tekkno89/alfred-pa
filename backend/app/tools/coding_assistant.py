@@ -38,17 +38,24 @@ class CodingAssistantTool(BaseTool):
             "repo": {
                 "type": "string",
                 "description": (
-                    "GitHub repo in owner/repo format. "
+                    "GitHub repo name or alias. Can be full owner/repo format, "
+                    "just the repo name (if registered), or a user-defined alias. "
                     "REQUIRED for propose and ask_codebase — always ask the user if not specified."
                 ),
             },
             "task_description": {
                 "type": "string",
-                "description": "Description of the coding task (for propose action).",
+                "description": (
+                    "Description of the coding task (for propose action). "
+                    "Use the user's EXACT words — do not rephrase or embellish."
+                ),
             },
             "question": {
                 "type": "string",
-                "description": "Question to ask about the codebase (for ask_codebase action).",
+                "description": (
+                    "Question to ask about the codebase (for ask_codebase action). "
+                    "Use the user's EXACT words — do not rephrase or embellish."
+                ),
             },
             "account_label": {
                 "type": "string",
@@ -92,25 +99,61 @@ class CodingAssistantTool(BaseTool):
     # Action handlers
     # ------------------------------------------------------------------
 
+    async def _resolve_repo(
+        self, db: Any, user_id: str, repo_input: str, account_label: str | None
+    ) -> tuple[str | None, str | None, str | None]:
+        """Resolve repo input to full owner/repo name.
+
+        Returns (full_name, account_label, error_message).
+        If error_message is set, full_name is None.
+        """
+        # Already in owner/repo format — use as-is
+        if "/" in repo_input and repo_input.count("/") == 1:
+            return repo_input, account_label, None
+
+        # Try registry resolution
+        from app.services.repo_registry import (
+            AmbiguousRepoError,
+            RepoNotFoundError,
+            RepoRegistryService,
+        )
+
+        service = RepoRegistryService(db)
+        try:
+            full_name, reg_label = await service.resolve(user_id, repo_input)
+            return full_name, account_label or reg_label, None
+        except RepoNotFoundError:
+            return None, None, (
+                f"Repository '{repo_input}' not found in your registry. "
+                "Use full owner/repo format or register it at Settings → Integrations."
+            )
+        except AmbiguousRepoError as e:
+            options = ", ".join(m.full_name for m in e.matches)
+            return None, None, (
+                f"Ambiguous repo name '{repo_input}' — matches multiple repos: {options}. "
+                "Please specify the full owner/repo."
+            )
+
     async def _handle_propose(
         self, db: Any, user_id: str, session_id: str, kwargs: dict
     ) -> str:
         """Create a coding task proposal. Does NOT start any work."""
-        repo = kwargs.get("repo")
+        repo_input = kwargs.get("repo")
         task_description = kwargs.get("task_description")
         account_label = kwargs.get("account_label")
 
-        if not repo:
+        if not repo_input:
             return (
-                "Error: You must specify which repository to work on (repo parameter in owner/repo format). "
+                "Error: You must specify which repository to work on. "
                 "Ask the user which repo they want to work on."
             )
         if not task_description:
             return "Error: You must provide a task_description describing what to build/fix/change."
 
-        # Validate repo format
-        if "/" not in repo or repo.count("/") != 1:
-            return f"Error: Invalid repo format '{repo}'. Use owner/repo format (e.g. 'myorg/myrepo')."
+        # Resolve repo name (supports short names and aliases)
+        repo, account_label, error = await self._resolve_repo(db, user_id, repo_input, account_label)
+        if error:
+            return f"Error: {error}"
 
         from app.core.config import get_settings
         from app.db.repositories.coding_job import CodingJobRepository
@@ -181,20 +224,22 @@ class CodingAssistantTool(BaseTool):
         self, db: Any, user_id: str, session_id: str, kwargs: dict
     ) -> str:
         """Launch a container to explore a codebase and answer a question."""
-        repo = kwargs.get("repo")
+        repo_input = kwargs.get("repo")
         question = kwargs.get("question")
         account_label = kwargs.get("account_label")
 
-        if not repo:
+        if not repo_input:
             return (
-                "Error: You must specify which repository to query (repo parameter in owner/repo format). "
+                "Error: You must specify which repository to query. "
                 "Ask the user which repo they want to explore."
             )
         if not question:
             return "Error: You must provide a question to ask about the codebase."
 
-        if "/" not in repo or repo.count("/") != 1:
-            return f"Error: Invalid repo format '{repo}'. Use owner/repo format."
+        # Resolve repo name (supports short names and aliases)
+        repo, account_label, error = await self._resolve_repo(db, user_id, repo_input, account_label)
+        if error:
+            return f"Error: {error}"
 
         # Validate GitHub connection
         from app.db.repositories.oauth_token import OAuthTokenRepository

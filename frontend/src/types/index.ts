@@ -534,6 +534,35 @@ export interface SystemSettingUpdate {
   value: string
 }
 
+// User Repository Registry
+export interface UserRepo {
+  id: string
+  owner: string
+  repo_name: string
+  full_name: string
+  alias: string | null
+  github_account_label: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface UserRepoList {
+  items: UserRepo[]
+  total: number
+}
+
+export interface UserRepoCreate {
+  owner: string
+  repo_name: string
+  alias?: string | null
+  github_account_label?: string | null
+}
+
+export interface UserRepoUpdate {
+  alias?: string | null
+  github_account_label?: string | null
+}
+
 // GitHub Integration
 export interface GitHubConnection {
   id: string

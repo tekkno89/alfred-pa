@@ -29,6 +29,7 @@ from app.db.repositories.triage import (
     TriageUserSettingsRepository,
 )
 from app.db.repositories.user import UserRepository
+from app.db.repositories.user_repo_registry import RepoRegistryRepository
 from app.db.repositories.webhook import WebhookRepository
 from app.db.repositories.youtube import (
     YouTubePlaylistRepository,
@@ -64,4 +65,5 @@ __all__ = [
     "TriageFeedbackRepository",
     "SlackChannelCacheRepository",
     "CodingJobRepository",
+    "RepoRegistryRepository",
 ]

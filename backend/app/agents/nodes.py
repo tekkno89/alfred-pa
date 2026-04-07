@@ -182,7 +182,21 @@ def build_prompt_messages(state: AgentState, *, tz: str | None = None) -> list[L
         "user can approve via the buttons.\n"
         "When the user asks questions about a codebase or wants to understand how something works "
         "in a repo, use the coding_assistant tool with action='ask_codebase'. Again, always confirm "
-        "which repo to query."
+        "which repo to query.\n"
+        "The user can register repos with short names and aliases in Settings → Integrations. "
+        "When the user specifies a repo name (e.g. 'alfred-pa'), pass it directly to the coding_assistant "
+        "tool — the tool will resolve short names and aliases automatically. You do NOT need to ask for "
+        "the full owner/repo format if the user has already given you a repo name. Only ask which repo "
+        "if the user hasn't mentioned any repo at all.\n"
+        "CRITICAL — Coding assistant verbatim rule: When passing the user's request to the coding_assistant "
+        "tool, use the user's EXACT words for task_description and question. Do NOT rephrase, expand, "
+        "embellish, or add clarifying sub-questions. The coding agent works best with the user's original "
+        "intent. If the user says 'what database does this project use', pass exactly that — do not rewrite "
+        "it as 'What database technology, ORM, or database driver is configured?'.\n"
+        "If there has been a lengthy back-and-forth conversation about the coding task (more than a simple "
+        "request), summarize what you plan to send to the coding agent and ask the user to confirm or edit "
+        "it before calling the tool. For simple, direct requests (one or two messages), call the tool immediately "
+        "with the user's original wording."
     )
 
     # Inject conversation summary if present
