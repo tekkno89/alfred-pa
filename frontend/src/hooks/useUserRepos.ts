@@ -1,6 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiPost, apiPut, apiDelete } from '@/lib/api'
-import type { UserRepo, UserRepoList, UserRepoCreate, UserRepoUpdate } from '@/types'
+import type {
+  UserRepo, UserRepoList, UserRepoCreate, UserRepoUpdate,
+  AvailableRepoList, BulkImportRequest, BulkImportResponse,
+} from '@/types'
 
 export function useUserRepos() {
   return useQuery({
@@ -38,6 +41,26 @@ export function useDeleteUserRepo() {
 
   return useMutation({
     mutationFn: (id: string) => apiDelete(`/user-repos/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['user-repos'] })
+    },
+  })
+}
+
+export function useAvailableRepos(enabled = false) {
+  return useQuery({
+    queryKey: ['user-repos', 'available'],
+    queryFn: () => apiGet<AvailableRepoList>('/user-repos/available'),
+    enabled,
+  })
+}
+
+export function useImportRepos() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (data: BulkImportRequest) =>
+      apiPost<BulkImportResponse>('/user-repos/import', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user-repos'] })
     },

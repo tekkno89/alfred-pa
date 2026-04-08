@@ -403,6 +403,191 @@ class GitHubService:
 
         return response.json()["token"]
 
+    async def get_accessible_repos(self, user_id: str) -> list[dict]:
+        """List all repos the user's GitHub connections can access.
+
+        For each GitHub connection:
+        - If it has App installations, fetches repos per installation
+          and includes the installation-level permissions.
+        - Falls back to GET /user/repos (works for PATs and OAuth tokens),
+          using the token's scope as the permissions indicator.
+
+        Returns a list of dicts:
+            {owner, repo_name, full_name, private, account_label,
+             permissions, permission_source}
+        """
+        tokens = await self.token_repo.get_all_by_user_and_provider(user_id, "github")
+        if not tokens:
+            return []
+
+        repos: list[dict] = []
+        seen: set[str] = set()
+
+        def _add_repo(
+            repo_data: dict,
+            account_label: str,
+            permissions: dict[str, str],
+            permission_source: str,
+        ) -> None:
+            full_name = repo_data.get("full_name", "")
+            if not full_name or full_name in seen:
+                return
+            seen.add(full_name)
+            owner, _, name = full_name.partition("/")
+            repos.append({
+                "owner": owner,
+                "repo_name": name,
+                "full_name": full_name,
+                "private": repo_data.get("private", False),
+                "account_label": account_label,
+                "permissions": permissions,
+                "permission_source": permission_source,
+            })
+
+        for token_record in tokens:
+            access_token = await self.token_encryption.get_decrypted_access_token(
+                token_record
+            )
+            if not access_token:
+                continue
+
+            found_via_installation = False
+
+            # Try installation-based repo listing first
+            try:
+                installations = await self.get_installations(access_token)
+                for inst in installations:
+                    installation_id = inst.get("id")
+                    if not installation_id:
+                        continue
+
+                    # Permissions are set at installation level
+                    inst_permissions = inst.get("permissions", {})
+
+                    try:
+                        inst_repos = await self._get_installation_repos(
+                            access_token, installation_id
+                        )
+                        for repo in inst_repos:
+                            _add_repo(
+                                repo,
+                                token_record.account_label,
+                                inst_permissions,
+                                "app",
+                            )
+                        found_via_installation = True
+                    except Exception:
+                        logger.warning(
+                            f"Failed to fetch repos for installation {installation_id}"
+                        )
+            except Exception:
+                logger.debug(
+                    f"No installations for account {token_record.account_label}, "
+                    "falling back to user repos"
+                )
+
+            # Fall back to user repos API (works for PATs and OAuth without App)
+            if not found_via_installation:
+                # For PATs/OAuth, derive permissions from repo-level fields
+                try:
+                    user_repos = await self._get_user_repos(access_token)
+                    for repo in user_repos:
+                        # GitHub user/repos response includes per-repo permissions
+                        repo_perms = repo.get("permissions", {})
+                        permissions = {}
+                        if repo_perms.get("admin"):
+                            permissions["administration"] = "write"
+                        if repo_perms.get("push"):
+                            permissions["contents"] = "write"
+                        elif repo_perms.get("pull"):
+                            permissions["contents"] = "read"
+                        if repo_perms.get("pull"):
+                            permissions["metadata"] = "read"
+                        _add_repo(
+                            repo,
+                            token_record.account_label,
+                            permissions,
+                            "pat" if token_record.token_type == "pat" else "oauth",
+                        )
+                except Exception:
+                    logger.warning(
+                        f"Failed to fetch user repos for account {token_record.account_label}"
+                    )
+
+        return repos
+
+    async def _get_installation_repos(
+        self, access_token: str, installation_id: int
+    ) -> list[dict]:
+        """Fetch repos accessible to a specific installation (paginated)."""
+        all_repos: list[dict] = []
+        page = 1
+
+        async with httpx.AsyncClient() as client:
+            while True:
+                response = await client.get(
+                    f"{GITHUB_API_URL}/user/installations/{installation_id}/repositories",
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    params={"per_page": 100, "page": page},
+                )
+
+                if response.status_code != 200:
+                    raise ValueError(
+                        f"GitHub API error: {response.status_code}"
+                    )
+
+                data = response.json()
+                repos = data.get("repositories", [])
+                all_repos.extend(repos)
+
+                if len(repos) < 100:
+                    break
+                page += 1
+
+        return all_repos
+
+    async def _get_user_repos(self, access_token: str) -> list[dict]:
+        """Fetch repos the authenticated user has access to (paginated).
+
+        Works with PATs and OAuth tokens — does not require a GitHub App.
+        """
+        all_repos: list[dict] = []
+        page = 1
+
+        async with httpx.AsyncClient() as client:
+            while True:
+                response = await client.get(
+                    f"{GITHUB_API_URL}/user/repos",
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    params={
+                        "per_page": 100,
+                        "page": page,
+                        "sort": "full_name",
+                    },
+                )
+
+                if response.status_code != 200:
+                    raise ValueError(
+                        f"GitHub API error: {response.status_code}"
+                    )
+
+                repos = response.json()
+                all_repos.extend(repos)
+
+                if len(repos) < 100:
+                    break
+                page += 1
+
+        return all_repos
+
     async def delete_connection(self, connection_id: str, user_id: str) -> bool:
         """Delete a GitHub connection by ID with ownership check."""
         return await self.token_repo.delete_by_id(connection_id, user_id)

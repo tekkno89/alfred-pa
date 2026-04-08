@@ -563,6 +563,30 @@ export interface UserRepoUpdate {
   github_account_label?: string | null
 }
 
+export interface AvailableRepo {
+  owner: string
+  repo_name: string
+  full_name: string
+  private: boolean
+  account_label: string
+  already_registered: boolean
+  permissions: Record<string, string>
+  permission_source: 'app' | 'pat' | 'oauth' | string
+}
+
+export interface AvailableRepoList {
+  items: AvailableRepo[]
+}
+
+export interface BulkImportRequest {
+  repos: UserRepoCreate[]
+}
+
+export interface BulkImportResponse {
+  imported: number
+  skipped: number
+}
+
 // GitHub Integration
 export interface GitHubConnection {
   id: string
