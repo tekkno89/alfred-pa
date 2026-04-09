@@ -10,7 +10,7 @@ Alfred is a personal AI assistant built with LangGraph, FastAPI, React, and Slac
 - **Frontend:** `frontend/` - React + Tailwind + shadcn/ui
 - **Database:** PostgreSQL 16 + pgvector, Redis 7
 - **LLM:** Vertex AI (Gemini + Claude, configurable), OpenRouter
-- **Tools:** Web search (Tavily) with ReAct loop
+- **Tools:** Web search (Tavily), Slack, coding assistant, and more via ReAct loop
 - **Package Manager:** UV (Python), npm (Frontend)
 
 ## Development Commands
@@ -169,10 +169,10 @@ graph TD
 - `llm-providers.md` - LLM provider abstraction with tool-calling methods
 - `memory-flow.md` - Memory system flow
 - `streaming-flow.md` - SSE streaming flow with tool_use events
-- `tool-system.md` - Tool registry (5 tools), ToolContext, and adding new tools
+- `tool-system.md` - Tool registry (7 tools), ToolContext, and adding new tools
 - `slack-flow.md` - Slack integration flow
 - `encryption-flow.md` - Envelope encryption (DEK/KEK) for token storage
-- `github-flow.md` - GitHub App OAuth + PAT integration flow
+- `github-flow.md` - GitHub App OAuth + PAT integration flow, repo registry + auto-import
 - `google-calendar-flow.md` - Google Calendar OAuth, push notifications, agent tool, calendar UI
 - `triage-flow.md` - Triage classification pipeline, P0-P3 priorities, digest consolidation
 - `todo-flow.md` - Todo system with recurrence, reminders, Slack notifications
@@ -279,7 +279,10 @@ After making changes, **restart or rebuild the Docker containers as needed** and
 - OAuth flow + manual PAT entry supported
 - Multi-account support via `account_label` field (e.g., "personal", "work")
 - All tokens encrypted via TokenEncryptionService
-- Frontend: `/settings/integrations` page with connection management
+- **Repo registry**: Users register repos with short names/aliases for quick reference in chat
+- Auto-import from GitHub App installations or PAT-accessible repos with permissions display
+- Redis-cached resolution: alias → repo_name → full `owner/repo` format
+- Frontend: `/settings/integrations` page with connection management + repo registry card
 - See `.claude/diagrams/github-flow.md` for flow details
 
 ### Focus Mode Vocabulary

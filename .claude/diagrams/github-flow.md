@@ -92,7 +92,56 @@ graph TD
     T3 --> DB2
 ```
 
+## Repository Registry
+
+Users can register repos with short names and aliases for quick reference in chat. Repos can be imported from GitHub App installations or PAT-accessible repos.
+
+```mermaid
+flowchart TD
+    A[User says 'ask alfred-pa about...'] --> B{Contains '/'?}
+    B -->|Yes| C[Use as full_name directly]
+    B -->|No| D[RepoRegistryService.resolve]
+    D --> E{Redis cache hit?}
+    E -->|Yes| F[Return cached full_name]
+    E -->|No| G[Query DB]
+    G --> H{Try alias match}
+    H -->|Found| I[Cache + return full_name]
+    H -->|No match| J{Try repo_name match}
+    J -->|Single match| I
+    J -->|Multiple| K[AmbiguousRepoError]
+    J -->|None| L[RepoNotFoundError]
+```
+
+### Auto-Import Flow
+
+```mermaid
+sequenceDiagram
+    participant FE as Frontend
+    participant BE as Backend
+    participant GH as GitHub API
+
+    FE->>BE: GET /api/user-repos/available
+    BE->>BE: Get all GitHub tokens for user
+    loop Each token
+        alt Has App installations
+            BE->>GH: GET /user/installations
+            GH-->>BE: installations with permissions
+            BE->>GH: GET /user/installations/{id}/repositories
+            GH-->>BE: repos (scoped by user's install config)
+        else PAT/OAuth fallback
+            BE->>GH: GET /user/repos
+            GH-->>BE: repos with per-repo permissions
+        end
+    end
+    BE-->>FE: AvailableRepoList (with permissions + already_registered flag)
+    FE->>FE: User selects repos to import
+    FE->>BE: POST /api/user-repos/import {repos: [...]}
+    BE-->>FE: {imported: N, skipped: M}
+```
+
 ## API Endpoints
+
+### GitHub Connection Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -105,23 +154,40 @@ graph TD
 | POST | `/api/github/connections/pat` | Add a personal access token |
 | DELETE | `/api/github/connections/{connection_id}` | Remove a connection |
 
+### Repository Registry Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/user-repos` | List all registered repos for current user |
+| POST | `/api/user-repos` | Register a new repo (owner, repo_name, alias) |
+| GET | `/api/user-repos/available` | List repos accessible via GitHub connections (with permissions) |
+| POST | `/api/user-repos/import` | Bulk-import repos from GitHub |
+| PUT | `/api/user-repos/{id}` | Update alias or account label |
+| DELETE | `/api/user-repos/{id}` | Remove a registered repo |
+
 ## Components
 
 ### Backend
-- **GitHubService** (`app/services/github.py`): OAuth flow, PAT validation, token refresh, GitHub API calls, app config CRUD
+- **GitHubService** (`app/services/github.py`): OAuth flow, PAT validation, token refresh, GitHub API calls, app config CRUD, accessible repo listing
 - **GitHubAppConfigRepository** (`app/db/repositories/github_app_config.py`): CRUD for per-user app configs
 - **GitHubAppConfig model** (`app/db/models/github_app_config.py`): Per-user GitHub App credentials (encrypted)
 - **GitHub API endpoints** (`app/api/github.py`): REST endpoints for frontend
 - **GitHub schemas** (`app/schemas/github.py`): Pydantic request/response models
 - **OAuthStateStore** (`app/core/oauth_state.py`): Shared CSRF state management (stores app_config_id)
+- **RepoRegistryService** (`app/services/repo_registry.py`): CRUD + short name/alias resolution with Redis cache
+- **RepoRegistryRepository** (`app/db/repositories/user_repo_registry.py`): DB queries for user repos
+- **UserRepo model** (`app/db/models/user_repository.py`): Per-user repo registry entries
+- **User repos API** (`app/api/user_repositories.py`): CRUD + available repos + bulk import
 
 ### Frontend
 - **IntegrationsPage** (`pages/IntegrationsPage.tsx`): Hub page for all integrations
 - **GitHubConnectionCard** (`components/settings/GitHubConnectionCard.tsx`): App config list + connection list
+- **RepoRegistryCard** (`components/settings/RepoRegistryCard.tsx`): Repo management, import from GitHub, permissions display
 - **ConnectGitHubModal** (`components/settings/ConnectGitHubModal.tsx`): OAuth connect with account label + app config selection
 - **AddGitHubAppModal** (`components/settings/AddGitHubAppModal.tsx`): Register a per-user GitHub App
 - **AddPATModal** (`components/settings/AddPATModal.tsx`): Dialog for manual PAT entry
 - **useGitHub hook** (`hooks/useGitHub.ts`): React Query hooks for GitHub API (connections, app configs, OAuth)
+- **useUserRepos hook** (`hooks/useUserRepos.ts`): React Query hooks for repo registry (CRUD, available, import)
 
 ## Token Refresh
 

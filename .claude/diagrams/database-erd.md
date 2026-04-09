@@ -35,6 +35,8 @@ graph TD
     TC -->|N:1| G
     TC -->|self-ref| TC
     TC -->|1:0..1| TF[TriageFeedback]
+
+    A -->|1:N| UR[UserRepo]
 ```
 
 ## Tables
@@ -285,3 +287,14 @@ graph TD
 - `user_id` FK → User
 - `was_correct` boolean
 - `correct_priority` string(20) nullable — p0 | p1 | p2 | p3 | review
+
+### UserRepo
+- `id` UUID PK
+- `user_id` FK → User
+- `owner` string(255)
+- `repo_name` string(255)
+- `alias` string(100) nullable — user-defined short name
+- `github_account_label` string(100) nullable — links to UserOAuthToken.account_label
+- UNIQUE(user_id, owner, repo_name)
+- INDEX(user_id, repo_name) — for short-name lookup
+- INDEX(user_id, alias) — for alias lookup

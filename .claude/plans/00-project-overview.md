@@ -20,6 +20,7 @@
 | YouTube | ✅ Complete | Watch queue, playlists, oEmbed metadata, embedded player |
 | Phase 11: Observability | 🔲 Not Started | Prometheus metrics, Loki logging, dashboards |
 | Phase 12: CI/CD | 🔲 Not Started | GitHub Actions, Cloud Run deployment |
+| Coding Assistant | 🚧 In Progress | Ephemeral containers for code tasks, repo registry with short names |
 | Phase 13: Plugin System | 📋 Design | Installable feature modules from external repos |
 
 ---
@@ -348,11 +349,11 @@ docker-compose exec frontend npm test
 
 See [architecture.md](../diagrams/architecture.md) for the full Mermaid diagram.
 
-**API Modules:** Auth, Sessions, Slack, Dashboard, GitHub, Google Calendar, Todos, Notes, YouTube, Triage, Focus, Admin
+**API Modules:** Auth, Sessions, Slack, Dashboard, GitHub, Google Calendar, Todos, Notes, YouTube, Triage, Focus, Admin, User Repos, Coding Jobs
 
-**Agent Tools (5):** web_search, focus_mode, manage_todos, manage_calendar, manage_youtube
+**Agent Tools (7):** web_search, focus_mode, manage_todos, manage_calendar, manage_youtube, slack_messages, coding_assistant
 
-**Integrations:** Slack (bi-directional), Google Calendar (OAuth + push), GitHub (App + PAT), BART transit, Tavily web search, YouTube oEmbed
+**Integrations:** Slack (bi-directional), Google Calendar (OAuth + push), GitHub (App + PAT), BART transit, Tavily web search, YouTube oEmbed, Coding sandbox (ephemeral containers)
 
 **Data Layer:** PostgreSQL + pgvector, Redis, Vertex AI (Gemini + Claude), OpenRouter
 

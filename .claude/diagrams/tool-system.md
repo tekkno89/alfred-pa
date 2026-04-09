@@ -83,6 +83,7 @@ Tools return plain text strings. For UI metadata (e.g. calendar event IDs), tool
 | `CalendarTool` | `manage_calendar` | Yes | Google Calendar event CRUD with multi-account support |
 | `ManageYouTubeTool` | `manage_youtube` | Yes | YouTube watch queue and playlist management |
 | `SlackMessagesTool` | `slack_messages` | Yes | Search/read Slack messages, browse channels, find users |
+| `CodingAssistantTool` | `coding_assistant` | Yes | Code tasks via ephemeral containers — supports short repo names and aliases via registry |
 
 ## Web Search Flow
 

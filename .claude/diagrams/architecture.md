@@ -18,6 +18,8 @@ graph TD
     B --> TR[Triage API]
     B --> FO[Focus API]
     B --> AD[Admin API]
+    B --> UR[User Repos API]
+    B --> CJ[Coding Jobs API]
     DA --> BART[BART API]
     GH --> GHA[GitHub API<br/>github.com]
     GH --> ENC[Encryption Service]
@@ -34,6 +36,10 @@ graph TD
     T --> TODO[Manage Todos]
     T --> CAL[Manage Calendar]
     T --> YTOOL[Manage YouTube]
+    T --> SLK[Slack Messages]
+    T --> COD[Coding Assistant]
+    COD --> SAND[Sandbox Orchestrator]
+    SAND --> CONT[Ephemeral Containers]
     WS --> TV[Tavily API]
     WS -->|synthesis| H2[Synthesis LLM]
     H --> I[Vertex AI Gemini]
@@ -69,7 +75,7 @@ graph TD
 
 ### Agent & Tools
 - **AlfredAgent**: LangGraph conversation handler with ReAct loop
-- **Tool Registry**: Singleton registry with 5 tools (web_search, focus_mode, manage_todos, manage_calendar, manage_youtube)
+- **Tool Registry**: Singleton registry with 7 tools (web_search, focus_mode, manage_todos, manage_calendar, manage_youtube, slack_messages, coding_assistant)
 - **Encryption Service**: Envelope encryption (DEK/KEK) for all OAuth tokens — supports local Fernet, GCP KMS, AWS KMS
 
 ### External Services
@@ -81,5 +87,5 @@ graph TD
 
 ### Data Layer
 - **PostgreSQL + pgvector**: Primary database with vector search for memories
-- **Redis**: Event deduplication, linking codes, BART cache, triage channel set, todo reminder threads
+- **Redis**: Event deduplication, linking codes, BART cache, triage channel set, todo reminder threads, repo registry cache
 - **LLM Providers**: Vertex AI (Gemini + Claude), OpenRouter

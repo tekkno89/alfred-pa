@@ -42,6 +42,7 @@ graph TD
     MainContent --> AdminPage[AdminPage]
 
     IntegrationsPage --> GitHubConnectionCard[GitHubConnectionCard]
+    IntegrationsPage --> RepoRegistryCard[RepoRegistryCard]
     IntegrationsPage --> GoogleCalendarCard[GoogleCalendarCard]
     GitHubConnectionCard --> ConnectGitHubModal[ConnectGitHubModal]
     GitHubConnectionCard --> AddPATModal[AddPATModal]
@@ -151,6 +152,7 @@ flowchart TD
         FocusQueries[Focus Queries]
         TriageQueries[Triage Queries]
         GitHubQueries[GitHub Queries]
+        UserRepoQueries[User Repo Queries]
         GoogleCalQueries[Google Calendar Queries]
         Dashboard --> AvailableCards[Available Cards]
         Dashboard --> BartDepartures[BART Departures]
@@ -198,11 +200,12 @@ sequenceDiagram
 |----------|-------|
 | **Entry** | `main.tsx`, `App.tsx` |
 | **Lib** | `lib/api.ts`, `lib/auth.ts`, `lib/sse.ts` |
-| **Hooks** | `hooks/useSessions.ts`, `hooks/useChat.ts`, `hooks/useMemories.ts`, `hooks/useTodos.ts`, `hooks/useNotes.ts`, `hooks/useCalendar.ts`, `hooks/useYouTube.ts`, `hooks/useTriage.ts`, `hooks/useDashboard.ts`, `hooks/useAdmin.ts`, `hooks/useFocusMode.ts`, `hooks/useNotifications.ts`, `hooks/useAlertSound.ts`, `hooks/useTitleFlash.ts`, `hooks/useGitHub.ts`, `hooks/useGoogleCalendar.ts` |
+| **Hooks** | `hooks/useSessions.ts`, `hooks/useChat.ts`, `hooks/useMemories.ts`, `hooks/useTodos.ts`, `hooks/useNotes.ts`, `hooks/useCalendar.ts`, `hooks/useYouTube.ts`, `hooks/useTriage.ts`, `hooks/useDashboard.ts`, `hooks/useAdmin.ts`, `hooks/useFocusMode.ts`, `hooks/useNotifications.ts`, `hooks/useAlertSound.ts`, `hooks/useTitleFlash.ts`, `hooks/useGitHub.ts`, `hooks/useGoogleCalendar.ts`, `hooks/useUserRepos.ts` |
 | **Pages** | `pages/LoginPage.tsx`, `pages/ChatPage.tsx`, `pages/MemoriesPage.tsx`, `pages/TodosPage.tsx`, `pages/NotesPage.tsx`, `pages/NoteEditorPage.tsx`, `pages/CalendarPage.tsx`, `pages/YouTubePage.tsx`, `pages/BartPage.tsx`, `pages/TriagePage.tsx`, `pages/TriageSettingsPage.tsx`, `pages/AdminPage.tsx`, `pages/FocusPage.tsx`, `pages/FocusSettingsPage.tsx`, `pages/WebhooksPage.tsx`, `pages/IntegrationsPage.tsx` |
 | **Dashboard** | `components/dashboard/BartCard.tsx`, `TodosCard.tsx`, `NotesCard.tsx`, `CalendarCard.tsx`, `YouTubeCard.tsx`, `FocusCard.tsx`, `TriageCard.tsx`, `DashboardConfigDialog.tsx`, `BartStationPicker.tsx` |
 | **Layout** | `components/layout/AppLayout.tsx`, `Sidebar.tsx`, `Header.tsx` |
 | **Focus** | `components/focus/FocusToggle.tsx`, `PomodoroTimer.tsx`, `VipList.tsx` |
+| **Settings** | `components/settings/RepoRegistryCard.tsx` |
 | **Triage** | `components/triage/ClassificationDetailModal.tsx` |
 | **Notifications** | `components/notifications/NotificationProvider.tsx` (SSE events, sound loop, title flash), `NotificationBanner.tsx` (bypass alert banner) |
 | **UI** | `components/ui/*.tsx` (shadcn/ui: button, input, card, select, switch, dialog, etc.) |
