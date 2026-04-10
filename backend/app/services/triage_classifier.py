@@ -128,17 +128,14 @@ class TriageClassifier:
     async def _classify_dm(
         self, payload: EnrichedTriagePayload
     ) -> ClassificationResult:
-        """Classify a DM."""
-        # VIP senders are always P0
-        if payload.is_vip:
-            return ClassificationResult(
-                priority="p0",
-                confidence=1.0,
-                reason="Sender is on VIP list",
-                abstract=f"DM from VIP {payload.sender_name or payload.sender_slack_id}",
-            )
+        """
+        Classify a DM with content-aware VIP handling.
 
-        return await self._llm_classify(payload, path="dm")
+        VIP status influences classification but doesn't auto-P0.
+        Instead, VIP context is passed to LLM for higher priority consideration.
+        """
+        # VIP status is passed to LLM as context, not auto-P0
+        return await self._llm_classify(payload, path="dm", vip_boost=payload.is_vip)
 
     async def _classify_channel(
         self, payload: EnrichedTriagePayload
@@ -202,7 +199,7 @@ class TriageClassifier:
         return None
 
     async def _llm_classify(
-        self, payload: EnrichedTriagePayload, path: str
+        self, payload: EnrichedTriagePayload, path: str, vip_boost: bool = False
     ) -> ClassificationResult:
         """Use LLM to classify the message."""
         settings = get_settings()
@@ -214,6 +211,16 @@ class TriageClassifier:
             "medium": "Classify as P0 if the message appears to need immediate attention. Use P1 for time-sensitive requests.",
             "high": "Be liberal with P0/P1 classification. Any message that could be important should be marked P0 or P1.",
         }
+
+        # Build VIP context
+        vip_context = ""
+        if vip_boost:
+            vip_context = "\n\nIMPORTANT: This message is from a VIP contact. Prioritize higher if content warrants attention."
+
+        # Build thread context
+        thread_context = ""
+        if payload.thread_context_summary:
+            thread_context = f"\n\n{payload.thread_context_summary}"
 
         system_prompt = f"""You are a message triage classifier. Classify a Slack message into one of the following priority levels.
 
@@ -228,6 +235,7 @@ DMs and @mentions raise the likelihood a message is P0 or P1 — but still evalu
 
 Sensitivity: {self.sensitivity}
 {sensitivity_guidance.get(self.sensitivity, sensitivity_guidance['medium'])}
+{vip_context}{thread_context}
 
 Context:
 - Message type: {path}

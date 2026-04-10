@@ -102,17 +102,67 @@ class TriagePipeline:
             classification_path=event_type,
             keyword_matches=result.keyword_matches if result.keyword_matches else None,
         )
+
+        # Check if alerts are disabled for this priority - mark as alerted immediately
+        priority = result.priority
+        alerts_enabled = {
+            "p0": settings.p0_alerts_enabled if settings else True,
+            "p1": settings.p1_alerts_enabled if settings else True,
+            "p2": settings.p2_alerts_enabled if settings else True,
+            "p3": settings.p3_alerts_enabled if settings else True,
+        }.get(priority, True)
+
+        if not alerts_enabled:
+            # Mark as alerted immediately so it doesn't queue for digest
+            from datetime import datetime
+            classification.last_alerted_at = datetime.utcnow()
+            logger.info(
+                f"{priority.upper()} alerts disabled for user {user_id}, "
+                f"marking classification as alerted immediately"
+            )
+
         classification = await self.class_repo.create(classification)
         await self.db.commit()
 
-        # 4. Deliver P0 notifications
+        # 4. Deliver P0 notifications (with deduplication)
         if result.priority == "p0":
-            await self._deliver_urgent(
-                user_id=user_id,
-                classification=classification,
-                payload=payload,
-                result=result,
-            )
+            # Check if P0 alerts are enabled
+            p0_enabled = settings.p0_alerts_enabled if settings else True
+
+            if not p0_enabled:
+                logger.info(
+                    f"P0 alerts disabled for user {user_id}, skipping notification"
+                )
+            else:
+                from app.services.alert_deduplication import AlertDeduplicationService
+
+                dedup_service = AlertDeduplicationService(self.db)
+                dedup_window = (
+                    settings.alert_dedup_window_minutes if settings else 30
+                )
+
+                should_alert = await dedup_service.should_alert(
+                    user_id=user_id,
+                    classification_id=classification.id,
+                    thread_ts=thread_ts,
+                    sender_slack_id=sender_slack_id,
+                    dedup_window_minutes=dedup_window,
+                )
+
+                if should_alert:
+                    await self._deliver_urgent(
+                        user_id=user_id,
+                        classification=classification,
+                        payload=payload,
+                        result=result,
+                    )
+                    await dedup_service.mark_alerted(classification.id)
+                    await self.db.commit()
+                else:
+                    logger.info(
+                        f"P0 alert deduplicated for classification {classification.id} "
+                        f"(thread={thread_ts}, sender={sender_slack_id})"
+                    )
 
         # 5. Debug mode: enhanced logging and SSE payload (no raw text)
         if settings and settings.debug_mode:

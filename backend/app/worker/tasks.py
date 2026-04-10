@@ -306,3 +306,68 @@ async def transition_pomodoro(ctx: dict, user_id: str) -> dict:
         logger.info(f"Transitioning pomodoro phase for user {user_id}")
         orchestrator = FocusModeOrchestrator(db)
         return await orchestrator.transition_pomodoro_phase(user_id)
+
+
+async def send_digest(
+    ctx: dict,
+    user_id: str,
+    priority: str,
+    digest_type: str,
+) -> dict:
+    """
+    Send a digest for a specific priority level.
+
+    Called by scheduled jobs from DigestScheduler.
+    Re-fetches messages from Slack and creates intelligent summary.
+
+    Args:
+        user_id: User ID
+        priority: Priority level (p1, p2, or p3)
+        digest_type: Type of digest (scheduled, interval, daily)
+
+    Returns:
+        Dict with status and item count
+    """
+    async with get_db_session() as db:
+        from app.services.alert_deduplication import AlertDeduplicationService
+        from app.services.triage_delivery import TriageDeliveryService
+
+        delivery = TriageDeliveryService(db)
+        dedup = AlertDeduplicationService(db)
+
+        # Get unalerted items for this priority
+        items = await delivery.get_digest_items(user_id, priority)
+
+        if not items:
+            logger.info(f"No {priority} items to digest for user {user_id}")
+            return {"status": "no_items", "user_id": user_id, "priority": priority}
+
+        logger.info(
+            f"Sending {priority} {digest_type} digest to user {user_id}: {len(items)} items"
+        )
+
+        # Re-fetch messages from Slack for intelligent summary
+        messages = await delivery.refetch_messages_for_digest(items)
+
+        # Create intelligent summary
+        summary = await delivery.create_intelligent_summary(messages, priority)
+
+        # Send digest DM
+        await delivery.send_priority_digest_dm(user_id, summary, items, priority, digest_type)
+
+        # Mark items as alerted
+        for item in items:
+            await dedup.mark_alerted(item.id)
+
+        await db.commit()
+
+        logger.info(
+            f"Sent {priority} {digest_type} digest to user {user_id}: {len(items)} items"
+        )
+        return {
+            "status": "sent",
+            "user_id": user_id,
+            "priority": priority,
+            "digest_type": digest_type,
+            "item_count": len(items),
+        }

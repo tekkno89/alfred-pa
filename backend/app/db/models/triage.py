@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import JSON
+from sqlalchemy.dialects.postgresql import ARRAY, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
@@ -38,6 +38,30 @@ class TriageUserSettings(Base, UUIDMixin, TimestampMixin):
     p2_definition: Mapped[str | None] = mapped_column(Text, nullable=True)
     p3_definition: Mapped[str | None] = mapped_column(Text, nullable=True)
     digest_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Summary cadence configuration
+    p1_digest_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    p1_digest_active_hours_start: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    p1_digest_active_hours_end: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    p1_digest_times: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
+    p1_digest_outside_hours_behavior: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    p2_digest_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    p2_digest_active_hours_start: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    p2_digest_active_hours_end: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    p2_digest_times: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
+    p2_digest_outside_hours_behavior: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    p3_digest_time: Mapped[str | None] = mapped_column(String(10), nullable=True)
+
+    # Alert deduplication
+    alert_dedup_window_minutes: Mapped[int] = mapped_column(Integer, default=30, server_default="30")
+
+    # Alert enabled toggles per priority
+    p0_alerts_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    p1_alerts_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    p2_alerts_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    p3_alerts_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
 
     # Relationships
     user: Mapped["User"] = relationship("User")
@@ -157,6 +181,10 @@ class TriageClassification(Base, UUIDMixin, TimestampMixin):
         ForeignKey("triage_classifications.id", ondelete="SET NULL"), nullable=True
     )
     child_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Alert tracking
+    last_alerted_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    alert_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     # Relationships
     user: Mapped["User"] = relationship("User")

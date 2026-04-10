@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import {
   Select,
   SelectContent,
@@ -280,6 +281,48 @@ export function TriageSettingsPage() {
   const [p3Def, setP3Def] = useState<string | null>(null)
   const [digestInstr, setDigestInstr] = useState<string | null>(null)
 
+  // Alert cadence mode state
+  const [p1Mode, setP1Mode] = useState<'interval' | 'scheduled'>(
+    (settings?.p1_digest_interval_minutes ? 'interval' : settings?.p1_digest_times?.length ? 'scheduled' : 'interval')
+  )
+  const [p2Mode, setP2Mode] = useState<'interval' | 'scheduled'>(
+    (settings?.p2_digest_interval_minutes ? 'interval' : settings?.p2_digest_times?.length ? 'scheduled' : 'interval')
+  )
+
+  // Alert cadence local state (for save button pattern)
+  const [p0AlertsEnabled, setP0AlertsEnabled] = useState<boolean | null>(null)
+  const [p1AlertsEnabled, setP1AlertsEnabled] = useState<boolean | null>(null)
+  const [p2AlertsEnabled, setP2AlertsEnabled] = useState<boolean | null>(null)
+  const [p3AlertsEnabled, setP3AlertsEnabled] = useState<boolean | null>(null)
+  const [alertDedupWindow, setAlertDedupWindow] = useState<string | null>(null)
+  const [p1Interval, setP1Interval] = useState<string | null>(null)
+  const [p1ActiveHoursStart, setP1ActiveHoursStart] = useState<string | null>(null)
+  const [p1ActiveHoursEnd, setP1ActiveHoursEnd] = useState<string | null>(null)
+  const [p1OutsideHoursBehavior, setP1OutsideHoursBehavior] = useState<string | null>(null)
+  const [p1Times, setP1Times] = useState<string[] | null>(null)
+  const [p2Interval, setP2Interval] = useState<string | null>(null)
+  const [p2ActiveHoursStart, setP2ActiveHoursStart] = useState<string | null>(null)
+  const [p2ActiveHoursEnd, setP2ActiveHoursEnd] = useState<string | null>(null)
+  const [p2OutsideHoursBehavior, setP2OutsideHoursBehavior] = useState<string | null>(null)
+  const [p2Times, setP2Times] = useState<string[] | null>(null)
+  const [p3Time, setP3Time] = useState<string | null>(null)
+
+  // Update modes when settings change
+  useEffect(() => {
+    if (settings) {
+      setP1Mode(settings.p1_digest_interval_minutes ? 'interval' : settings.p1_digest_times?.length ? 'scheduled' : 'interval')
+      setP2Mode(settings.p2_digest_interval_minutes ? 'interval' : settings.p2_digest_times?.length ? 'scheduled' : 'interval')
+    }
+  }, [settings])
+
+  // Update modes when settings change
+  useEffect(() => {
+    if (settings) {
+      setP1Mode(settings.p1_digest_interval_minutes ? 'interval' : settings.p1_digest_times?.length ? 'scheduled' : 'interval')
+      setP2Mode(settings.p2_digest_interval_minutes ? 'interval' : settings.p2_digest_times?.length ? 'scheduled' : 'interval')
+    }
+  }, [settings])
+
   const hasRulesChanges =
     customRules !== null && customRules !== (settings?.custom_classification_rules ?? '')
   const hasDefChanges =
@@ -289,6 +332,23 @@ export function TriageSettingsPage() {
     (p3Def !== null && p3Def !== (settings?.p3_definition ?? ''))
   const hasDigestChanges =
     digestInstr !== null && digestInstr !== (settings?.digest_instructions ?? '')
+  const hasCadenceChanges =
+    (p0AlertsEnabled !== null && p0AlertsEnabled !== (settings?.p0_alerts_enabled ?? true)) ||
+    (p1AlertsEnabled !== null && p1AlertsEnabled !== (settings?.p1_alerts_enabled ?? true)) ||
+    (p2AlertsEnabled !== null && p2AlertsEnabled !== (settings?.p2_alerts_enabled ?? true)) ||
+    (p3AlertsEnabled !== null && p3AlertsEnabled !== (settings?.p3_alerts_enabled ?? true)) ||
+    (alertDedupWindow !== null && alertDedupWindow !== String(settings?.alert_dedup_window_minutes ?? 30)) ||
+    (p1Interval !== null && p1Interval !== (settings?.p1_digest_interval_minutes?.toString() ?? '')) ||
+    (p1ActiveHoursStart !== null && p1ActiveHoursStart !== (settings?.p1_digest_active_hours_start ?? '09:00')) ||
+    (p1ActiveHoursEnd !== null && p1ActiveHoursEnd !== (settings?.p1_digest_active_hours_end ?? '18:00')) ||
+    (p1OutsideHoursBehavior !== null && p1OutsideHoursBehavior !== (settings?.p1_digest_outside_hours_behavior ?? 'skip')) ||
+    (p1Times !== null && JSON.stringify(p1Times) !== JSON.stringify(settings?.p1_digest_times ?? [])) ||
+    (p2Interval !== null && p2Interval !== (settings?.p2_digest_interval_minutes?.toString() ?? '')) ||
+    (p2ActiveHoursStart !== null && p2ActiveHoursStart !== (settings?.p2_digest_active_hours_start ?? '09:00')) ||
+    (p2ActiveHoursEnd !== null && p2ActiveHoursEnd !== (settings?.p2_digest_active_hours_end ?? '18:00')) ||
+    (p2OutsideHoursBehavior !== null && p2OutsideHoursBehavior !== (settings?.p2_digest_outside_hours_behavior ?? 'skip')) ||
+    (p2Times !== null && JSON.stringify(p2Times) !== JSON.stringify(settings?.p2_digest_times ?? [])) ||
+    (p3Time !== null && p3Time !== (settings?.p3_digest_time ?? '17:00'))
 
   const channels = channelData?.channels ?? []
   const availableToAdd = useMemo(() => {
@@ -532,6 +592,394 @@ export function TriageSettingsPage() {
               }}
             >
               {updateSettings.isPending ? 'Saving...' : 'Save Instructions'}
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Alert Cadence Configuration */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Alert Cadence</CardTitle>
+          <CardDescription>
+            Configure when you want to receive notifications and summaries for each priority level
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* P0 - Immediate Alerts */}
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-base">P0 — Urgent</Label>
+              <p className="text-sm text-muted-foreground">Immediate notifications for urgent messages</p>
+            </div>
+            <Switch
+              checked={p0AlertsEnabled ?? settings?.p0_alerts_enabled ?? true}
+              onCheckedChange={(checked) => setP0AlertsEnabled(checked)}
+            />
+          </div>
+
+          {/* Alert Deduplication Window */}
+          <div className="space-y-3">
+            <Label>Alert Deduplication</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={1}
+                max={120}
+                value={alertDedupWindow ?? settings?.alert_dedup_window_minutes ?? 30}
+                onChange={(e) => setAlertDedupWindow(e.target.value)}
+                className="w-24"
+              />
+              <span className="text-sm text-muted-foreground">
+                Minutes between alerts for same thread/sender
+              </span>
+            </div>
+          </div>
+
+          {/* P1 Configuration */}
+          <div className="space-y-3 border-t pt-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-base">P1 — Important</Label>
+                <p className="text-sm text-muted-foreground">Digest summaries at configured intervals/times</p>
+              </div>
+              <Switch
+                checked={p1AlertsEnabled ?? settings?.p1_alerts_enabled ?? true}
+                onCheckedChange={(checked) => setP1AlertsEnabled(checked)}
+              />
+            </div>
+            <RadioGroup
+              value={p1Mode}
+              onValueChange={(val) => {
+                setP1Mode(val)
+                // Clear opposite mode's data when switching
+                if (val === 'interval') {
+                  updateSettings.mutate({ p1_digest_times: null })
+                } else {
+                  updateSettings.mutate({
+                    p1_digest_interval_minutes: null,
+                    p1_digest_active_hours_start: null,
+                    p1_digest_active_hours_end: null,
+                    p1_digest_outside_hours_behavior: null
+                  })
+                }
+              }}
+            >
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="interval" id="p1-interval" />
+                <Label htmlFor="p1-interval">Every X minutes during active hours</Label>
+              </div>
+              {p1Mode === 'interval' && (
+                <div className="ml-6 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={5}
+                      max={180}
+                      placeholder="30"
+                      value={p1Interval ?? settings?.p1_digest_interval_minutes ?? ''}
+                      onChange={(e) => setP1Interval(e.target.value)}
+                      className="w-24"
+                    />
+                    <span className="text-sm text-muted-foreground">minutes</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm">Active hours:</Label>
+                    <Input
+                      type="time"
+                      value={p1ActiveHoursStart ?? settings?.p1_digest_active_hours_start ?? '09:00'}
+                      onChange={(e) => setP1ActiveHoursStart(e.target.value)}
+                      className="w-32"
+                    />
+                    <span className="text-sm">to</span>
+                    <Input
+                      type="time"
+                      value={p1ActiveHoursEnd ?? settings?.p1_digest_active_hours_end ?? '18:00'}
+                      onChange={(e) => setP1ActiveHoursEnd(e.target.value)}
+                      className="w-32"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-sm">Outside active hours:</Label>
+                    <RadioGroup
+                      value={p1OutsideHoursBehavior ?? settings?.p1_digest_outside_hours_behavior ?? 'skip'}
+                      onValueChange={(val) => setP1OutsideHoursBehavior(val)}
+                    >
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="summary_next_window" id="p1-next-window" />
+                        <Label htmlFor="p1-next-window" className="text-sm font-normal">
+                          Summary at beginning of next window
+                        </Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="skip" id="p1-skip" />
+                        <Label htmlFor="p1-skip" className="text-sm font-normal">
+                          Skip silently (wait for next interval)
+                        </Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
+                </div>
+              )}
+              <div className="flex items-center space-x-2 mt-3">
+                <RadioGroupItem value="scheduled" id="p1-scheduled" />
+                <Label htmlFor="p1-scheduled">At specific times of day</Label>
+              </div>
+              {p1Mode === 'scheduled' && (
+                <div className="ml-6 space-y-2">
+                  {(p1Times ?? settings?.p1_digest_times ?? []).map((time, idx) => (
+                    <div key={idx} className="flex gap-2">
+                      <Input
+                        type="time"
+                        value={time}
+                        onChange={(e) => {
+                          const newTimes = [...(p1Times ?? settings?.p1_digest_times ?? [])]
+                          newTimes[idx] = e.target.value
+                          setP1Times(newTimes)
+                        }}
+                        className="w-32"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          const newTimes = (p1Times ?? settings?.p1_digest_times ?? []).filter((_, i) => i !== idx)
+                          setP1Times(newTimes.length > 0 ? newTimes : [])
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const currentTimes = p1Times ?? settings?.p1_digest_times ?? []
+                      setP1Times([...currentTimes, '09:00'])
+                    }}
+                  >
+                    <Plus className="h-4 w-4 mr-1" /> Add Time
+                  </Button>
+                </div>
+              )}
+            </RadioGroup>
+          </div>
+
+          {/* P2 Configuration - Similar to P1 */}
+          <div className="space-y-3 border-t pt-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-base">P2 — Notable</Label>
+                <p className="text-sm text-muted-foreground">Digest summaries at configured intervals/times</p>
+              </div>
+              <Switch
+                checked={p2AlertsEnabled ?? settings?.p2_alerts_enabled ?? true}
+                onCheckedChange={(checked) => setP2AlertsEnabled(checked)}
+              />
+            </div>
+            <RadioGroup value={p2Mode} onValueChange={setP2Mode}>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="interval" id="p2-interval" />
+                <Label htmlFor="p2-interval">Every X minutes during active hours</Label>
+              </div>
+              {p2Mode === 'interval' && (
+                <div className="ml-6 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={5}
+                      max={360}
+                      placeholder="60"
+                      value={p2Interval ?? settings?.p2_digest_interval_minutes ?? ''}
+                      onChange={(e) => setP2Interval(e.target.value)}
+                      className="w-24"
+                    />
+                    <span className="text-sm text-muted-foreground">minutes</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm">Active hours:</Label>
+                    <Input
+                      type="time"
+                      value={p2ActiveHoursStart ?? settings?.p2_digest_active_hours_start ?? '09:00'}
+                      onChange={(e) => setP2ActiveHoursStart(e.target.value)}
+                      className="w-32"
+                    />
+                    <span className="text-sm">to</span>
+                    <Input
+                      type="time"
+                      value={p2ActiveHoursEnd ?? settings?.p2_digest_active_hours_end ?? '18:00'}
+                      onChange={(e) => setP2ActiveHoursEnd(e.target.value)}
+                      className="w-32"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-sm">Outside active hours:</Label>
+                    <RadioGroup
+                      value={p2OutsideHoursBehavior ?? settings?.p2_digest_outside_hours_behavior ?? 'skip'}
+                      onValueChange={(val) => setP2OutsideHoursBehavior(val)}
+                    >
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="summary_next_window" id="p2-next-window" />
+                        <Label htmlFor="p2-next-window" className="text-sm font-normal">
+                          Summary at beginning of next window
+                        </Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="skip" id="p2-skip" />
+                        <Label htmlFor="p2-skip" className="text-sm font-normal">
+                          Skip silently
+                        </Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
+                </div>
+              )}
+              <div className="flex items-center space-x-2 mt-3">
+                <RadioGroupItem value="scheduled" id="p2-scheduled" />
+                <Label htmlFor="p2-scheduled">At specific times of day</Label>
+              </div>
+              {p2Mode === 'scheduled' && (
+                <div className="ml-6 space-y-2">
+                  {(p2Times ?? settings?.p2_digest_times ?? []).map((time, idx) => (
+                    <div key={idx} className="flex gap-2">
+                      <Input
+                        type="time"
+                        value={time}
+                        onChange={(e) => {
+                          const newTimes = [...(p2Times ?? settings?.p2_digest_times ?? [])]
+                          newTimes[idx] = e.target.value
+                          setP2Times(newTimes)
+                        }}
+                        className="w-32"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          const newTimes = (p2Times ?? settings?.p2_digest_times ?? []).filter((_, i) => i !== idx)
+                          setP2Times(newTimes.length > 0 ? newTimes : [])
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const currentTimes = p2Times ?? settings?.p2_digest_times ?? []
+                      setP2Times([...currentTimes, '12:00'])
+                    }}
+                  >
+                    <Plus className="h-4 w-4 mr-1" /> Add Time
+                  </Button>
+                </div>
+              )}
+            </RadioGroup>
+          </div>
+
+          {/* P3 Daily Digest */}
+          <div className="space-y-3 border-t pt-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-base">P3 — Daily Digest</Label>
+                <p className="text-sm text-muted-foreground">Daily summary at configured time</p>
+              </div>
+              <Switch
+                checked={p3AlertsEnabled ?? settings?.p3_alerts_enabled ?? true}
+                onCheckedChange={(checked) => setP3AlertsEnabled(checked)}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="time"
+                value={p3Time ?? settings?.p3_digest_time ?? '17:00'}
+                onChange={(e) => setP3Time(e.target.value)}
+                className="w-32"
+              />
+              <span className="text-sm text-muted-foreground">Daily digest time</span>
+            </div>
+          </div>
+
+          {/* Save button for cadence changes */}
+          {hasCadenceChanges && (
+            <Button
+              size="sm"
+              disabled={updateSettings.isPending}
+              onClick={() => {
+                const payload: Record<string, any> = {}
+
+                if (p0AlertsEnabled !== null) payload.p0_alerts_enabled = p0AlertsEnabled
+                if (p1AlertsEnabled !== null) payload.p1_alerts_enabled = p1AlertsEnabled
+                if (p2AlertsEnabled !== null) payload.p2_alerts_enabled = p2AlertsEnabled
+                if (p3AlertsEnabled !== null) payload.p3_alerts_enabled = p3AlertsEnabled
+
+                if (alertDedupWindow !== null) {
+                  const val = parseInt(alertDedupWindow, 10)
+                  if (val >= 1 && val <= 120) payload.alert_dedup_window_minutes = val
+                }
+
+                if (p1Mode === 'interval') {
+                  if (p1Interval !== null) {
+                    const val = parseInt(p1Interval, 10)
+                    if (val >= 5 && val <= 180) payload.p1_digest_interval_minutes = val
+                  }
+                  if (p1ActiveHoursStart !== null) payload.p1_digest_active_hours_start = p1ActiveHoursStart
+                  if (p1ActiveHoursEnd !== null) payload.p1_digest_active_hours_end = p1ActiveHoursEnd
+                  if (p1OutsideHoursBehavior !== null) payload.p1_digest_outside_hours_behavior = p1OutsideHoursBehavior
+                  payload.p1_digest_times = null
+                } else if (p1Mode === 'scheduled' && p1Times !== null) {
+                  payload.p1_digest_times = p1Times.length > 0 ? p1Times : null
+                  payload.p1_digest_interval_minutes = null
+                  payload.p1_digest_active_hours_start = null
+                  payload.p1_digest_active_hours_end = null
+                  payload.p1_digest_outside_hours_behavior = null
+                }
+
+                if (p2Mode === 'interval') {
+                  if (p2Interval !== null) {
+                    const val = parseInt(p2Interval, 10)
+                    if (val >= 5 && val <= 360) payload.p2_digest_interval_minutes = val
+                  }
+                  if (p2ActiveHoursStart !== null) payload.p2_digest_active_hours_start = p2ActiveHoursStart
+                  if (p2ActiveHoursEnd !== null) payload.p2_digest_active_hours_end = p2ActiveHoursEnd
+                  if (p2OutsideHoursBehavior !== null) payload.p2_digest_outside_hours_behavior = p2OutsideHoursBehavior
+                  payload.p2_digest_times = null
+                } else if (p2Mode === 'scheduled' && p2Times !== null) {
+                  payload.p2_digest_times = p2Times.length > 0 ? p2Times : null
+                  payload.p2_digest_interval_minutes = null
+                  payload.p2_digest_active_hours_start = null
+                  payload.p2_digest_active_hours_end = null
+                  payload.p2_digest_outside_hours_behavior = null
+                }
+
+                if (p3Time !== null) payload.p3_digest_time = p3Time
+
+                updateSettings.mutate(payload, {
+                  onSuccess: () => {
+                    setP0AlertsEnabled(null)
+                    setP1AlertsEnabled(null)
+                    setP2AlertsEnabled(null)
+                    setP3AlertsEnabled(null)
+                    setAlertDedupWindow(null)
+                    setP1Interval(null)
+                    setP1ActiveHoursStart(null)
+                    setP1ActiveHoursEnd(null)
+                    setP1OutsideHoursBehavior(null)
+                    setP1Times(null)
+                    setP2Interval(null)
+                    setP2ActiveHoursStart(null)
+                    setP2ActiveHoursEnd(null)
+                    setP2OutsideHoursBehavior(null)
+                    setP2Times(null)
+                    setP3Time(null)
+                  },
+                })
+              }}
+            >
+              {updateSettings.isPending ? 'Saving...' : 'Save Cadence Settings'}
             </Button>
           )}
         </CardContent>

@@ -35,6 +35,26 @@ class TriageSettingsUpdate(BaseModel):
     p3_definition: str | None = Field(None, max_length=2000)
     digest_instructions: str | None = Field(None, max_length=2000)
 
+    # Summary cadence configuration
+    p1_digest_interval_minutes: int | None = Field(None, ge=5, le=180)
+    p1_digest_active_hours_start: str | None = Field(None, max_length=10)
+    p1_digest_active_hours_end: str | None = Field(None, max_length=10)
+    p1_digest_times: list[str] | None = None
+    p1_digest_outside_hours_behavior: str | None = Field(None, pattern="^(summary_next_window|skip)$")
+
+    p2_digest_interval_minutes: int | None = Field(None, ge=5, le=360)
+    p2_digest_active_hours_start: str | None = Field(None, max_length=10)
+    p2_digest_active_hours_end: str | None = Field(None, max_length=10)
+    p2_digest_times: list[str] | None = None
+    p2_digest_outside_hours_behavior: str | None = Field(None, pattern="^(summary_next_window|skip)$")
+
+    p3_digest_time: str | None = Field(None, max_length=10)
+    alert_dedup_window_minutes: int | None = Field(None, ge=1, le=120)
+    p0_alerts_enabled: bool | None = None
+    p1_alerts_enabled: bool | None = None
+    p2_alerts_enabled: bool | None = None
+    p3_alerts_enabled: bool | None = None
+
 
 class TriageSettingsResponse(BaseModel):
     """Response with triage settings."""
@@ -53,6 +73,26 @@ class TriageSettingsResponse(BaseModel):
     p2_definition: str | None = None
     p3_definition: str | None = None
     digest_instructions: str | None = None
+
+    # Summary cadence configuration
+    p1_digest_interval_minutes: int | None = None
+    p1_digest_active_hours_start: str | None = None
+    p1_digest_active_hours_end: str | None = None
+    p1_digest_times: list[str] | None = None
+    p1_digest_outside_hours_behavior: str | None = None
+
+    p2_digest_interval_minutes: int | None = None
+    p2_digest_active_hours_start: str | None = None
+    p2_digest_active_hours_end: str | None = None
+    p2_digest_times: list[str] | None = None
+    p2_digest_outside_hours_behavior: str | None = None
+
+    p3_digest_time: str | None = None
+    alert_dedup_window_minutes: int = 30
+    p0_alerts_enabled: bool = True
+    p1_alerts_enabled: bool = True
+    p2_alerts_enabled: bool = True
+    p3_alerts_enabled: bool = True
 
 
 # --- Monitored Channels ---

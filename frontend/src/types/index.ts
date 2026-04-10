@@ -807,6 +807,26 @@ export interface TriageSettings {
   p2_definition: string | null
   p3_definition: string | null
   digest_instructions: string | null
+
+  // Summary cadence configuration
+  p1_digest_interval_minutes: number | null
+  p1_digest_active_hours_start: string | null
+  p1_digest_active_hours_end: string | null
+  p1_digest_times: string[] | null
+  p1_digest_outside_hours_behavior: string | null
+
+  p2_digest_interval_minutes: number | null
+  p2_digest_active_hours_start: string | null
+  p2_digest_active_hours_end: string | null
+  p2_digest_times: string[] | null
+  p2_digest_outside_hours_behavior: string | null
+
+  p3_digest_time: string | null
+  alert_dedup_window_minutes: number
+  p0_alerts_enabled: boolean
+  p1_alerts_enabled: boolean
+  p2_alerts_enabled: boolean
+  p3_alerts_enabled: boolean
 }
 
 export interface TriageSettingsUpdate {
@@ -821,6 +841,26 @@ export interface TriageSettingsUpdate {
   p2_definition?: string | null
   p3_definition?: string | null
   digest_instructions?: string | null
+
+  // Summary cadence configuration
+  p1_digest_interval_minutes?: number | null
+  p1_digest_active_hours_start?: string | null
+  p1_digest_active_hours_end?: string | null
+  p1_digest_times?: string[] | null
+  p1_digest_outside_hours_behavior?: string | null
+
+  p2_digest_interval_minutes?: number | null
+  p2_digest_active_hours_start?: string | null
+  p2_digest_active_hours_end?: string | null
+  p2_digest_times?: string[] | null
+  p2_digest_outside_hours_behavior?: string | null
+
+  p3_digest_time?: string | null
+  alert_dedup_window_minutes?: number
+  p0_alerts_enabled?: boolean
+  p1_alerts_enabled?: boolean
+  p2_alerts_enabled?: boolean
+  p3_alerts_enabled?: boolean
 }
 
 export interface MonitoredChannel {

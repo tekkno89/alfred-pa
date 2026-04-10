@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -12,6 +12,13 @@ import {
   Layers,
   AlertCircle,
   Bookmark,
+  MessageSquare,
+  ChevronDown,
+  ChevronUp,
+  MoreVertical,
+  Clock,
+  ArrowUpDown,
+  Star,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -22,6 +29,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { useClassifications, useTriageSessionStats, useMarkReviewed } from '@/hooks/useTriage'
 import { ClassificationDetailModal } from '@/components/triage/ClassificationDetailModal'
 import type { TriageClassification } from '@/types'
@@ -80,10 +93,16 @@ function ClassificationItem({
   item,
   onClick,
   onMarkReviewed,
+  onSnooze,
+  onChangePriority,
+  onAddVIP,
 }: {
   item: TriageClassification
   onClick: () => void
   onMarkReviewed: (id: string) => void
+  onSnooze?: (id: string) => void
+  onChangePriority?: (id: string) => void
+  onAddVIP?: (senderSlackId: string) => void
 }) {
   const badge = PRIORITY_BADGE[item.priority_level] ?? PRIORITY_BADGE.p2
   const Icon = badge.icon
@@ -162,8 +181,126 @@ function ClassificationItem({
                 <Check className="h-3.5 w-3.5" />
               </Button>
             )}
+            {/* Quick actions dropdown */}
+            {onSnooze && onChangePriority && onAddVIP && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <MoreVertical className="h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onSnooze(item.id)
+                    }}
+                  >
+                    <Clock className="h-4 w-4 mr-2" />
+                    Snooze 1 hour
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onChangePriority(item.id)
+                    }}
+                  >
+                    <ArrowUpDown className="h-4 w-4 mr-2" />
+                    Change Priority
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onAddVIP(item.sender_slack_id)
+                    }}
+                  >
+                    <Star className="h-4 w-4 mr-2" />
+                    Add sender to VIPs
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function ThreadGroup({
+  items,
+  onMarkReviewed,
+  onItemClick,
+  onSnooze,
+  onChangePriority,
+  onAddVIP,
+}: {
+  items: TriageClassification[]
+  onMarkReviewed: (id: string) => void
+  onItemClick: (item: TriageClassification) => void
+  onSnooze?: (id: string) => void
+  onChangePriority?: (id: string) => void
+  onAddVIP?: (senderSlackId: string) => void
+}) {
+  const [expanded, setExpanded] = useState(true)
+
+  if (items.length === 1) {
+    return (
+      <ClassificationItem
+        item={items[0]}
+        onClick={() => onItemClick(items[0])}
+        onMarkReviewed={onMarkReviewed}
+        onSnooze={onSnooze}
+        onChangePriority={onChangePriority}
+        onAddVIP={onAddVIP}
+      />
+    )
+  }
+
+  return (
+    <Card>
+      <CardContent className="py-3 px-4">
+        <Button
+          variant="ghost"
+          className="w-full justify-between h-auto py-2 px-3"
+          onClick={() => setExpanded(!expanded)}
+        >
+          <span className="flex items-center gap-2 text-sm">
+            <MessageSquare className="h-4 w-4" />
+            <span className="font-medium">Thread:</span>
+            <span className="text-muted-foreground">
+              {items[0].abstract?.slice(0, 60)}...
+            </span>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-secondary">
+              {items.length} messages
+            </span>
+          </span>
+          {expanded ? (
+            <ChevronUp className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          )}
+        </Button>
+        {expanded && (
+          <div className="mt-2 space-y-2 pl-4 border-l-2 border-border">
+            {items.map((item) => (
+              <ClassificationItem
+                key={item.id}
+                item={item}
+                onClick={() => onItemClick(item)}
+                onMarkReviewed={onMarkReviewed}
+                onSnooze={onSnooze}
+                onChangePriority={onChangePriority}
+                onAddVIP={onAddVIP}
+              />
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   )
@@ -203,8 +340,53 @@ export function TriagePage() {
     setModalOpen(true)
   }
 
+  const handleSnooze = (id: string) => {
+    // TODO: Implement snooze functionality
+    // For now, just mark as reviewed temporarily
+    markReviewed.mutate({
+      classification_ids: [id],
+      reviewed: true,
+    })
+  }
+
+  const handleChangePriority = (id: string) => {
+    // TODO: Open a priority change dialog
+    // For now, this could be implemented as a separate modal
+    console.log('Change priority for:', id)
+  }
+
+  const handleAddVIP = (senderSlackId: string) => {
+    // TODO: Navigate to focus settings or open VIP management dialog
+    // For now, navigate to triage settings
+    navigate('/settings/triage')
+  }
+
   const totalItems = classifications?.total ?? 0
   const hasMore = offset + limit < totalItems
+
+  // Group classifications by thread_ts
+  const groupedClassifications = useMemo(() => {
+    if (!classifications?.items) return []
+
+    const groups: Map<string | null, TriageClassification[]> = new Map()
+
+    classifications.items.forEach((item) => {
+      const key = item.thread_ts || null
+      if (!groups.has(key)) {
+        groups.set(key, [])
+      }
+      groups.get(key)!.push(item)
+    })
+
+    // Convert to array and sort by most recent message in each group
+    return Array.from(groups.entries())
+      .map(([threadTs, items]) => ({ threadTs, items }))
+      .sort((a, b) => {
+        const aTime = new Date(a.items[0].created_at || 0).getTime()
+        const bTime = new Date(b.items[0].created_at || 0).getTime()
+        return bTime - aTime
+      })
+  }, [classifications])
 
   return (
     <div className="h-full flex flex-col">
@@ -306,12 +488,15 @@ export function TriagePage() {
             </div>
           ) : (
             <div className="space-y-2">
-              {classifications.items.map((item) => (
-                <ClassificationItem
-                  key={item.id}
-                  item={item}
-                  onClick={() => handleCardClick(item)}
+              {groupedClassifications.map(({ threadTs, items }) => (
+                <ThreadGroup
+                  key={threadTs || items[0].id}
+                  items={items}
                   onMarkReviewed={handleMarkReviewed}
+                  onItemClick={handleCardClick}
+                  onSnooze={handleSnooze}
+                  onChangePriority={handleChangePriority}
+                  onAddVIP={handleAddVIP}
                 />
               ))}
             </div>

@@ -42,6 +42,7 @@ class EnrichedTriagePayload:
     thread_participant_count: int = 0
     user_participated_in_thread: bool = False
     mentions_user_directly: bool = False
+    thread_context_summary: str | None = None  # Summarized recent thread messages
 
     # Keyword rules for this channel
     keyword_rules: list = field(default_factory=list)
@@ -207,5 +208,21 @@ class TriageEnrichmentService:
                         pass
         except Exception:
             pass
+
+        # Fetch thread context for thread replies
+        if thread_ts and thread_ts != message_ts:
+            try:
+                from app.services.slack import SlackService
+                from app.services.thread_context import ThreadContextService
+
+                slack_service = SlackService()
+                thread_service = ThreadContextService(slack_service.client)
+                payload.thread_context_summary = await thread_service.get_thread_context(
+                    channel_id=channel_id,
+                    thread_ts=thread_ts,
+                    max_replies=10,
+                )
+            except Exception:
+                logger.exception(f"Failed to fetch thread context for {thread_ts}")
 
         return payload

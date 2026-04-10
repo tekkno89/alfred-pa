@@ -42,6 +42,15 @@ class TriageUserSettingsRepository(BaseRepository[TriageUserSettings]):
             settings = await self.create(settings)
         return settings
 
+    async def get_all_always_on(self) -> list[TriageUserSettings]:
+        """Get all user settings with always-on triage enabled."""
+        result = await self.db.execute(
+            select(TriageUserSettings).where(
+                TriageUserSettings.is_always_on == True  # noqa: E712
+            )
+        )
+        return list(result.scalars().all())
+
 
 class MonitoredChannelRepository(BaseRepository[MonitoredChannel]):
     """Repository for MonitoredChannel CRUD operations."""
@@ -347,6 +356,30 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         )
         await self.db.flush()
         return result.rowcount
+
+    async def get_unalerted_by_priority(
+        self, user_id: str, priority: str
+    ) -> list[TriageClassification]:
+        """Get unalerted items for a priority level digest."""
+        result = await self.db.execute(
+            select(TriageClassification)
+            .where(TriageClassification.user_id == user_id)
+            .where(TriageClassification.priority_level == priority)
+            .where(TriageClassification.last_alerted_at.is_(None))
+            .order_by(TriageClassification.created_at.asc())
+        )
+        return list(result.scalars().all())
+
+    async def count_unalerted(self, user_id: str, priority: str) -> int:
+        """Count unalerted items for a priority."""
+        result = await self.db.execute(
+            select(func.count())
+            .select_from(TriageClassification)
+            .where(TriageClassification.user_id == user_id)
+            .where(TriageClassification.priority_level == priority)
+            .where(TriageClassification.last_alerted_at.is_(None))
+        )
+        return result.scalar() or 0
 
 
 class SenderBehaviorModelRepository(BaseRepository[SenderBehaviorModel]):
