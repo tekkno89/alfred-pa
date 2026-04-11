@@ -97,3 +97,6 @@ logs/
 # Database
 *.db
 *.sqlite3
+
+# LiteLLM (optional local dev)
+litellm-config.yaml

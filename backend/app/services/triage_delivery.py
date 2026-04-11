@@ -361,7 +361,8 @@ class TriageDeliveryService:
 
         settings = get_settings()
         location = settings.triage_vertex_location or None
-        provider = get_llm_provider(settings.triage_synthesis_model or "gemini-2.5-flash", location=location)
+        # Use classification model for synthesis (same model, different use case)
+        provider = get_llm_provider(settings.triage_classification_model or "gemini-2.5-flash", location=location)
 
         # Build message list for LLM
         message_list = []

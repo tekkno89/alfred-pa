@@ -161,7 +161,10 @@ class DigestScheduler:
         if not last_digest:
             should_send = True
         else:
-            last_time = datetime.fromisoformat(last_digest.decode())
+            # Handle both bytes and string from Redis
+            if isinstance(last_digest, bytes):
+                last_digest = last_digest.decode()
+            last_time = datetime.fromisoformat(last_digest)
             if self._interval_elapsed(last_time, now, interval_minutes):
                 should_send = True
 

@@ -22,7 +22,6 @@ class TriageUserSettings(Base, UUIDMixin, TimestampMixin):
         ForeignKey("users.id"), nullable=False, unique=True
     )
     is_always_on: Mapped[bool] = mapped_column(Boolean, default=False)
-    always_on_min_priority: Mapped[str] = mapped_column(String(2), default="p3", server_default="p3")
     # low = fewer urgent, high = more urgent
     sensitivity: Mapped[str] = mapped_column(String(10), default="medium")
     debug_mode: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -185,6 +184,9 @@ class TriageClassification(Base, UUIDMixin, TimestampMixin):
     # Alert tracking
     last_alerted_at: Mapped[datetime | None] = mapped_column(nullable=True)
     alert_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+    # Digest queue tracking
+    queued_for_digest: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
 
     # Relationships
     user: Mapped["User"] = relationship("User")

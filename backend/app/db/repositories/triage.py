@@ -360,24 +360,24 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
     async def get_unalerted_by_priority(
         self, user_id: str, priority: str
     ) -> list[TriageClassification]:
-        """Get unalerted items for a priority level digest."""
+        """Get items queued for digest for a priority level."""
         result = await self.db.execute(
             select(TriageClassification)
             .where(TriageClassification.user_id == user_id)
             .where(TriageClassification.priority_level == priority)
-            .where(TriageClassification.last_alerted_at.is_(None))
+            .where(TriageClassification.queued_for_digest == True)
             .order_by(TriageClassification.created_at.asc())
         )
         return list(result.scalars().all())
 
     async def count_unalerted(self, user_id: str, priority: str) -> int:
-        """Count unalerted items for a priority."""
+        """Count items queued for digest for a priority."""
         result = await self.db.execute(
             select(func.count())
             .select_from(TriageClassification)
             .where(TriageClassification.user_id == user_id)
             .where(TriageClassification.priority_level == priority)
-            .where(TriageClassification.last_alerted_at.is_(None))
+            .where(TriageClassification.queued_for_digest == True)
         )
         return result.scalar() or 0
 

@@ -69,20 +69,6 @@ class TriagePipeline:
         )
         result = await classifier.classify(payload)
 
-        # 2b. Always-on priority filter: drop items below threshold
-        if payload.focus_session_id is None and result.priority != "review":
-            min_priority = (
-                settings.always_on_min_priority if settings else "p3"
-            )
-            result_order = PRIORITY_ORDER.get(result.priority)
-            threshold_order = PRIORITY_ORDER.get(min_priority, 3)
-            if result_order is not None and result_order > threshold_order:
-                logger.debug(
-                    f"[TRIAGE] Dropping {result.priority} (below threshold {min_priority}) "
-                    f"for user={user_id}"
-                )
-                return
-
         # 3. Store classification (no message text)
         classification = TriageClassification(
             user_id=user_id,
@@ -116,10 +102,18 @@ class TriagePipeline:
             # Mark as alerted immediately so it doesn't queue for digest
             from datetime import datetime
             classification.last_alerted_at = datetime.utcnow()
+            classification.queued_for_digest = False
             logger.info(
                 f"{priority.upper()} alerts disabled for user {user_id}, "
                 f"marking classification as alerted immediately"
             )
+        else:
+            # Queue for digest if P1/P2/P3
+            if priority in ("p1", "p2", "p3"):
+                classification.queued_for_digest = True
+            else:
+                # P0 - not queued for digest (immediate alert)
+                classification.queued_for_digest = False
 
         classification = await self.class_repo.create(classification)
         await self.db.commit()

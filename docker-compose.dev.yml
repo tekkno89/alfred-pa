@@ -113,6 +113,20 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8080 --reload
     # No port mapping — internal only (backend reaches it via service name)
 
+  # Optional: LiteLLM proxy for local development
+  # Create litellm-config.yaml from litellm-config.example.yaml
+  # Start with: docker-compose -f docker-compose.dev.yml --profile litellm up
+  litellm:
+    profiles:
+      - litellm
+    image: ghcr.io/berriai/litellm:main-latest
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm-config.yaml:/app/config.yaml
+      - $HOME/.config/gcloud:/root/.config/gcloud
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+
   # prometheus:
   #   image: prom/prometheus:latest
   #   volumes:

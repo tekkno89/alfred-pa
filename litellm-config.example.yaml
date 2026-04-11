@@ -1,0 +1,20 @@
+# LiteLLM Configuration for Local Development
+# Copy this file to litellm-config.yaml and customize
+
+model_list:
+  - model_name: claude-sonnet-4-6
+    litellm_params:
+      model: vertex_ai/zai-org/glm-5-maas
+      vertex_project: "your-vertex-project-id"
+
+  - model_name: claude-haiku-4-5
+    litellm_params:
+      model: vertex_ai/zai-org/glm-5-maas
+      vertex_project: "your-vertex-project-id"
+
+litellm_settings:
+  drop_params: true
+  disable_token_counting: true
+
+general_settings:
+  master_key: sk-1234

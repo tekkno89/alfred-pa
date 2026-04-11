@@ -796,7 +796,6 @@ export type ExclusionAction = 'exclude' | 'include'
 
 export interface TriageSettings {
   is_always_on: boolean
-  always_on_min_priority: 'p0' | 'p1' | 'p2' | 'p3'
   sensitivity: Sensitivity
   debug_mode: boolean
   slack_workspace_domain: string | null
@@ -831,7 +830,6 @@ export interface TriageSettings {
 
 export interface TriageSettingsUpdate {
   is_always_on?: boolean
-  always_on_min_priority?: 'p0' | 'p1' | 'p2' | 'p3'
   sensitivity?: Sensitivity
   debug_mode?: boolean
   classification_retention_days?: number

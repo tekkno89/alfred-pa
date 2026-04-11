@@ -108,6 +108,7 @@ class AlertDeduplicationService:
             .values(
                 last_alerted_at=func.now(),
                 alert_count=TriageClassification.alert_count + 1,
+                queued_for_digest=False,
             )
         )
         await self.db.flush()
