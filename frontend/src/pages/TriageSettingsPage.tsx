@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { ArrowLeft, Plus, Trash2, Hash, Lock, RefreshCw, ChevronsUpDown, Check, Sparkles } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, Hash, Lock, RefreshCw, ChevronsUpDown, Check, Sparkles, Settings } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -25,6 +25,14 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 import {
   useTriageSettings,
@@ -35,217 +43,15 @@ import {
   useUpdateMonitoredChannel,
   useAvailableSlackChannels,
   useRefreshSlackChannels,
-  useKeywordRules,
-  useAddKeywordRule,
-  useRemoveKeywordRule,
+  useAutoEnrollChannels,
   useSourceExclusions,
   useAddSourceExclusion,
   useRemoveSourceExclusion,
 } from '@/hooks/useTriage'
 import { useNotificationContext } from '@/components/notifications/NotificationProvider'
 import { ClassifierWizardModal } from '@/components/triage/ClassifierWizardModal'
+import { ChannelConfigModal } from '@/components/triage/ChannelConfigModal'
 import type { MonitoredChannel, ChannelPriority } from '@/types'
-
-function ChannelConfig({ channel }: { channel: MonitoredChannel }) {
-  const { data: rules = [] } = useKeywordRules(channel.id)
-  const { data: exclusions = [] } = useSourceExclusions(channel.id)
-  const addRule = useAddKeywordRule()
-  const removeRule = useRemoveKeywordRule()
-  const addExclusion = useAddSourceExclusion()
-  const removeExclusion = useRemoveSourceExclusion()
-  const updateChannel = useUpdateMonitoredChannel()
-  const removeChannel = useRemoveMonitoredChannel()
-
-  const [newKeyword, setNewKeyword] = useState('')
-  const [newExclusionId, setNewExclusionId] = useState('')
-
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {channel.channel_type === 'private' ? (
-              <Lock className="h-4 w-4 text-muted-foreground" />
-            ) : (
-              <Hash className="h-4 w-4 text-muted-foreground" />
-            )}
-            <CardTitle className="text-base">{channel.channel_name}</CardTitle>
-            <Badge variant={channel.is_active ? 'default' : 'secondary'}>
-              {channel.is_active ? 'Active' : 'Paused'}
-            </Badge>
-          </div>
-          <div className="flex items-center gap-2">
-            <Select
-              value={channel.priority}
-              onValueChange={(val) =>
-                updateChannel.mutate({
-                  id: channel.id,
-                  data: { priority: val as ChannelPriority },
-                })
-              }
-            >
-              <SelectTrigger className="w-28 h-8">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="low">Low</SelectItem>
-                <SelectItem value="medium">Medium</SelectItem>
-                <SelectItem value="high">High</SelectItem>
-                <SelectItem value="critical">Critical</SelectItem>
-              </SelectContent>
-            </Select>
-            <Switch
-              checked={channel.is_active}
-              onCheckedChange={(checked) =>
-                updateChannel.mutate({
-                  id: channel.id,
-                  data: { is_active: checked },
-                })
-              }
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => removeChannel.mutate(channel.id)}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Keyword Rules */}
-        <div>
-          <Label className="text-sm font-medium">Keyword Rules</Label>
-          <div className="flex gap-2 mt-1">
-            <Input
-              placeholder="Add keyword..."
-              value={newKeyword}
-              onChange={(e) => setNewKeyword(e.target.value)}
-              className="h-8"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && newKeyword.trim()) {
-                  addRule.mutate({
-                    channelId: channel.id,
-                    data: {
-                      keyword_pattern: newKeyword.trim(),
-                      priority_override: 'p0',
-                    },
-                  })
-                  setNewKeyword('')
-                }
-              }}
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8"
-              disabled={!newKeyword.trim()}
-              onClick={() => {
-                addRule.mutate({
-                  channelId: channel.id,
-                  data: {
-                    keyword_pattern: newKeyword.trim(),
-                    priority_override: 'p0',
-                  },
-                })
-                setNewKeyword('')
-              }}
-            >
-              <Plus className="h-3 w-3" />
-            </Button>
-          </div>
-          {rules.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-2">
-              {rules.map((rule) => (
-                <Badge key={rule.id} variant="outline" className="gap-1">
-                  {rule.keyword_pattern}
-                  <button
-                    className="ml-1 hover:text-destructive"
-                    onClick={() =>
-                      removeRule.mutate({
-                        channelId: channel.id,
-                        ruleId: rule.id,
-                      })
-                    }
-                  >
-                    x
-                  </button>
-                </Badge>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Source Exclusions */}
-        <div>
-          <Label className="text-sm font-medium">Bot/User Exclusions</Label>
-          <div className="flex gap-2 mt-1">
-            <Input
-              placeholder="Slack user/bot ID to exclude..."
-              value={newExclusionId}
-              onChange={(e) => setNewExclusionId(e.target.value)}
-              className="h-8"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && newExclusionId.trim()) {
-                  addExclusion.mutate({
-                    channelId: channel.id,
-                    data: {
-                      slack_entity_id: newExclusionId.trim(),
-                      entity_type: 'bot',
-                      action: 'exclude',
-                    },
-                  })
-                  setNewExclusionId('')
-                }
-              }}
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8"
-              disabled={!newExclusionId.trim()}
-              onClick={() => {
-                addExclusion.mutate({
-                  channelId: channel.id,
-                  data: {
-                    slack_entity_id: newExclusionId.trim(),
-                    entity_type: 'bot',
-                    action: 'exclude',
-                  },
-                })
-                setNewExclusionId('')
-              }}
-            >
-              <Plus className="h-3 w-3" />
-            </Button>
-          </div>
-          {exclusions.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-2">
-              {exclusions.map((ex) => (
-                <Badge key={ex.id} variant="outline" className="gap-1">
-                  {ex.display_name || ex.slack_entity_id} ({ex.action})
-                  <button
-                    className="ml-1 hover:text-destructive"
-                    onClick={() =>
-                      removeExclusion.mutate({
-                        channelId: channel.id,
-                        exclusionId: ex.id,
-                      })
-                    }
-                  >
-                    x
-                  </button>
-                </Badge>
-              ))}
-            </div>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
 
 const DEFAULT_P0 = 'Needs immediate attention RIGHT NOW. Production incidents, emergencies, someone explicitly saying something is urgent/critical.'
 const DEFAULT_P1 = 'Time-sensitive requests that need action soon. Direct asks requiring a response, important questions needing input.'
@@ -259,6 +65,8 @@ export function TriageSettingsPage() {
   const { data: channelData, isLoading: channelsLoading } = useMonitoredChannels()
   const { data: slackChannels = [] } = useAvailableSlackChannels()
   const addChannel = useAddMonitoredChannel()
+  const updateChannel = useUpdateMonitoredChannel()
+  const removeChannel = useRemoveMonitoredChannel()
   const refreshChannels = useRefreshSlackChannels()
 
   // Wire SSE events to the refresh hook so it knows when the job finishes
@@ -273,6 +81,13 @@ export function TriageSettingsPage() {
   const [selectedChannelId, setSelectedChannelId] = useState('')
   const [customRules, setCustomRules] = useState<string | null>(null)
   const [wizardOpen, setWizardOpen] = useState(false)
+
+  // Channel configuration modal state
+  const [configChannel, setConfigChannel] = useState<MonitoredChannel | null>(null)
+  const [configModalOpen, setConfigModalOpen] = useState(false)
+
+  // Auto-enroll
+  const autoEnroll = useAutoEnrollChannels()
 
   // Priority definition local state
   const [p0Def, setP0Def] = useState<string | null>(null)
@@ -1038,102 +853,125 @@ export function TriageSettingsPage() {
             <div>
               <CardTitle>Monitored Channels</CardTitle>
               <CardDescription>
-                Select Slack channels to monitor for important messages
+                Your Slack channels are automatically monitored for important messages
               </CardDescription>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              disabled={refreshChannels.refreshing || refreshChannels.isPending}
-              onClick={() => refreshChannels.mutate()}
-              title="Refresh channel list from Slack"
-            >
-              <RefreshCw className={`h-4 w-4 ${refreshChannels.refreshing || refreshChannels.isPending ? 'animate-spin' : ''}`} />
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => autoEnroll.mutate()}
+                disabled={autoEnroll.isPending}
+              >
+                <RefreshCw className={`h-4 w-4 mr-1 ${autoEnroll.isPending ? 'animate-spin' : ''}`} />
+                Sync Channels
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-2 mb-4">
-            <Popover open={comboboxOpen} onOpenChange={setComboboxOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  role="combobox"
-                  aria-expanded={comboboxOpen}
-                  className="flex-1 justify-between font-normal"
-                >
-                  {selectedChannel
-                    ? `${selectedChannel.is_private ? '🔒' : '#'} ${selectedChannel.name}`
-                    : 'Search channels...'}
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                <Command>
-                  <CommandInput placeholder="Type to search channels..." />
-                  <CommandList>
-                    <CommandEmpty>No channels found.</CommandEmpty>
-                    <CommandGroup>
-                      {availableToAdd.map((ch) => (
-                        <CommandItem
-                          key={ch.id}
-                          value={ch.name}
-                          onSelect={() => {
-                            setSelectedChannelId(ch.id === selectedChannelId ? '' : ch.id)
-                            setComboboxOpen(false)
+          {channelsLoading ? (
+            <div className="text-center py-4 text-muted-foreground">Loading channels...</div>
+          ) : channels.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-muted-foreground mb-4">No channels monitored yet</p>
+              <Button onClick={() => autoEnroll.mutate()} disabled={autoEnroll.isPending}>
+                {autoEnroll.isPending ? 'Syncing...' : 'Sync All My Channels'}
+              </Button>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Channel</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Priority</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {channels.map((channel) => (
+                  <TableRow key={channel.id}>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        {channel.channel_type === 'private' ? (
+                          <Lock className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <Hash className="h-4 w-4 text-muted-foreground" />
+                        )}
+                        <span className="font-medium">{channel.channel_name}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Switch
+                        checked={channel.is_active}
+                        onCheckedChange={(checked) =>
+                          updateChannel.mutate({
+                            id: channel.id,
+                            data: { is_active: checked },
+                          })
+                        }
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={channel.priority}
+                        onValueChange={(val) =>
+                          updateChannel.mutate({
+                            id: channel.id,
+                            data: { priority: val as ChannelPriority },
+                          })
+                        }
+                      >
+                        <SelectTrigger className="w-28 h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="low">Low</SelectItem>
+                          <SelectItem value="medium">Medium</SelectItem>
+                          <SelectItem value="high">High</SelectItem>
+                          <SelectItem value="critical">Critical</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setConfigChannel(channel)
+                            setConfigModalOpen(true)
                           }}
                         >
-                          <Check
-                            className={cn(
-                              'mr-2 h-4 w-4',
-                              selectedChannelId === ch.id ? 'opacity-100' : 'opacity-0'
-                            )}
-                          />
-                          {ch.is_private ? '🔒' : '#'} {ch.name}
-                          <span className="ml-auto text-xs text-muted-foreground">
-                            {ch.num_members} members
-                          </span>
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-            <Button
-              disabled={!selectedChannelId || addChannel.isPending}
-              onClick={() => {
-                if (selectedChannel) {
-                  addChannel.mutate({
-                    slack_channel_id: selectedChannel.id,
-                    channel_name: selectedChannel.name,
-                    channel_type: selectedChannel.is_private ? 'private' : 'public',
-                  })
-                  setSelectedChannelId('')
-                }
-              }}
-            >
-              <Plus className="h-4 w-4 mr-1" /> Add
-            </Button>
-          </div>
+                          <Settings className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeChannel.mutate(channel.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
-      {/* Channel Configs */}
-      {channelsLoading ? (
-        <div className="text-center py-4 text-muted-foreground">Loading channels...</div>
-      ) : channels.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground">
-          No channels monitored yet. Add a channel above to get started.
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {channels.map((channel) => (
-            <ChannelConfig key={channel.id} channel={channel} />
-          ))}
-        </div>
-      )}
+      {/* Channel Configuration Modal */}
+      <ChannelConfigModal
+        channel={configChannel}
+        open={configModalOpen}
+        onOpenChange={(open) => {
+          setConfigModalOpen(open)
+          if (!open) setConfigChannel(null)
+        }}
+      />
     </div>
 
     {/* AI Wizard Modal */}

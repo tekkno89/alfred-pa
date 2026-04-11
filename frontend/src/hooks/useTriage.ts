@@ -8,8 +8,7 @@ import type {
   MonitoredChannelCreate,
   MonitoredChannel,
   MonitoredChannelUpdate,
-  KeywordRule,
-  KeywordRuleCreate,
+  ChannelMember,
   SourceExclusion,
   SourceExclusionCreate,
   ClassificationList,
@@ -95,34 +94,24 @@ export function useRemoveMonitoredChannel() {
   })
 }
 
-// --- Keyword Rules ---
+// --- Channel Members ---
 
-export function useKeywordRules(channelId: string) {
+export function useChannelMembers(channelId: string | null) {
   return useQuery({
-    queryKey: ['triage-rules', channelId],
-    queryFn: () => apiGet<KeywordRule[]>(`/triage/channels/${channelId}/rules`),
+    queryKey: ['triage-channel-members', channelId],
+    queryFn: () => apiGet<ChannelMember[]>(`/triage/channels/${channelId}/members`),
     enabled: !!channelId,
   })
 }
 
-export function useAddKeywordRule() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: ({ channelId, data }: { channelId: string; data: KeywordRuleCreate }) =>
-      apiPost<KeywordRule, KeywordRuleCreate>(`/triage/channels/${channelId}/rules`, data),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['triage-rules', variables.channelId] })
-    },
-  })
-}
+// --- Auto-Enroll ---
 
-export function useRemoveKeywordRule() {
+export function useAutoEnrollChannels() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ channelId, ruleId }: { channelId: string; ruleId: string }) =>
-      apiDelete<void>(`/triage/channels/${channelId}/rules/${ruleId}`),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['triage-rules', variables.channelId] })
+    mutationFn: () => apiPost<{ enrolled_count: number; total_monitored: number }>('/triage/channels/auto-enroll'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['triage-channels'] })
     },
   })
 }
