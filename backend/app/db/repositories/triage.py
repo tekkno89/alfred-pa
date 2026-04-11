@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.focus import FocusModeState
 from app.db.models.triage import (
-    ChannelKeywordRule,
     ChannelSourceExclusion,
     MonitoredChannel,
     SenderBehaviorModel,
@@ -98,23 +97,6 @@ class MonitoredChannelRepository(BaseRepository[MonitoredChannel]):
             .where(MonitoredChannel.slack_channel_id == slack_channel_id)
         )
         return result.scalar_one_or_none()
-
-
-class ChannelKeywordRuleRepository(BaseRepository[ChannelKeywordRule]):
-    """Repository for ChannelKeywordRule CRUD operations."""
-
-    def __init__(self, db: AsyncSession):
-        super().__init__(ChannelKeywordRule, db)
-
-    async def get_by_channel(
-        self, monitored_channel_id: str, user_id: str
-    ) -> list[ChannelKeywordRule]:
-        result = await self.db.execute(
-            select(ChannelKeywordRule)
-            .where(ChannelKeywordRule.monitored_channel_id == monitored_channel_id)
-            .where(ChannelKeywordRule.user_id == user_id)
-        )
-        return list(result.scalars().all())
 
 
 class ChannelSourceExclusionRepository(BaseRepository[ChannelSourceExclusion]):

@@ -96,30 +96,6 @@ class MonitoredChannel(Base, UUIDMixin, TimestampMixin):
         return f"<MonitoredChannel(user_id={self.user_id}, channel={self.channel_name})>"
 
 
-class ChannelKeywordRule(Base, UUIDMixin, TimestampMixin):
-    """Keyword-based urgency override for a monitored channel."""
-
-    __tablename__ = "channel_keyword_rules"
-
-    monitored_channel_id: Mapped[str] = mapped_column(
-        ForeignKey("monitored_channels.id", ondelete="CASCADE"), nullable=False
-    )
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
-    keyword_pattern: Mapped[str] = mapped_column(String(255), nullable=False)
-    # exact | contains (semantic deferred to v2)
-    match_type: Mapped[str] = mapped_column(String(20), default="contains")
-    # p0 | p1 | p2 | p3 | review | null (null = no override, use LLM)
-    priority_override: Mapped[str | None] = mapped_column(String(20), nullable=True)
-
-    # Relationships
-    channel: Mapped["MonitoredChannel"] = relationship(
-        "MonitoredChannel", back_populates="keyword_rules"
-    )
-
-    def __repr__(self) -> str:
-        return f"<ChannelKeywordRule(channel={self.monitored_channel_id}, pattern={self.keyword_pattern})>"
-
-
 class ChannelSourceExclusion(Base, UUIDMixin, TimestampMixin):
     """Per-channel bot/user exclusion or inclusion override."""
 

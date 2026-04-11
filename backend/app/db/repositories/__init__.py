@@ -19,7 +19,6 @@ from app.db.repositories.session import SessionRepository
 from app.db.repositories.system_settings import SystemSettingsRepository
 from app.db.repositories.todo import TodoRepository
 from app.db.repositories.triage import (
-    ChannelKeywordRuleRepository,
     ChannelSourceExclusionRepository,
     MonitoredChannelRepository,
     SenderBehaviorModelRepository,
@@ -58,7 +57,6 @@ __all__ = [
     "SystemSettingsRepository",
     "TriageUserSettingsRepository",
     "MonitoredChannelRepository",
-    "ChannelKeywordRuleRepository",
     "ChannelSourceExclusionRepository",
     "TriageClassificationRepository",
     "SenderBehaviorModelRepository",
