@@ -868,6 +868,7 @@ export interface MonitoredChannel {
   channel_type: 'public' | 'private'
   priority: ChannelPriority
   is_active: boolean
+  is_hidden: boolean
   triage_instructions: string | null
   created_at: string | null
 }
@@ -883,6 +884,7 @@ export interface MonitoredChannelUpdate {
   channel_name?: string
   priority?: ChannelPriority
   is_active?: boolean
+  is_hidden?: boolean
   triage_instructions?: string | null
 }
 

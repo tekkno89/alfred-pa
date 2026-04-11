@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { ArrowLeft, Plus, Trash2, Hash, Lock, RefreshCw, ChevronsUpDown, Check, Sparkles, Settings } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, Hash, Lock, RefreshCw, Sparkles, Settings } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -16,29 +16,14 @@ import {
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command'
 import { cn } from '@/lib/utils'
 import {
   useTriageSettings,
   useUpdateTriageSettings,
   useMonitoredChannels,
-  useAddMonitoredChannel,
-  useRemoveMonitoredChannel,
   useUpdateMonitoredChannel,
-  useAvailableSlackChannels,
   useRefreshSlackChannels,
   useAutoEnrollChannels,
-  useSourceExclusions,
-  useAddSourceExclusion,
-  useRemoveSourceExclusion,
 } from '@/hooks/useTriage'
 import { useNotificationContext } from '@/components/notifications/NotificationProvider'
 import { ClassifierWizardModal } from '@/components/triage/ClassifierWizardModal'
@@ -55,10 +40,7 @@ export function TriageSettingsPage() {
   const { data: settings, isLoading: settingsLoading } = useTriageSettings()
   const updateSettings = useUpdateTriageSettings()
   const { data: channelData, isLoading: channelsLoading } = useMonitoredChannels()
-  const { data: slackChannels = [] } = useAvailableSlackChannels()
-  const addChannel = useAddMonitoredChannel()
   const updateChannel = useUpdateMonitoredChannel()
-  const removeChannel = useRemoveMonitoredChannel()
   const refreshChannels = useRefreshSlackChannels()
 
   // Wire SSE events to the refresh hook so it knows when the job finishes
@@ -69,14 +51,13 @@ export function TriageSettingsPage() {
     }
   }, [lastEvent]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const [comboboxOpen, setComboboxOpen] = useState(false)
-  const [selectedChannelId, setSelectedChannelId] = useState('')
   const [customRules, setCustomRules] = useState<string | null>(null)
   const [wizardOpen, setWizardOpen] = useState(false)
 
   // Channel configuration modal state
   const [configChannel, setConfigChannel] = useState<MonitoredChannel | null>(null)
   const [configModalOpen, setConfigModalOpen] = useState(false)
+  const [showHiddenChannels, setShowHiddenChannels] = useState(false)
 
   // Auto-enroll
   const autoEnroll = useAutoEnrollChannels()
@@ -158,12 +139,10 @@ export function TriageSettingsPage() {
     (p3Time !== null && p3Time !== (settings?.p3_digest_time ?? '17:00'))
 
   const channels = channelData?.channels ?? []
-  const availableToAdd = useMemo(() => {
-    const monitoredIds = new Set(channels.map((c) => c.slack_channel_id))
-    return slackChannels.filter((c) => !monitoredIds.has(c.id))
-  }, [slackChannels, channels])
-
-  const selectedChannel = slackChannels.find((c) => c.id === selectedChannelId)
+  const visibleChannels = useMemo(() => {
+    return showHiddenChannels ? channels : channels.filter((c) => !c.is_hidden)
+  }, [channels, showHiddenChannels])
+  const hiddenCount = channels.filter((c) => c.is_hidden).length
 
   if (settingsLoading) {
     return (
@@ -849,6 +828,16 @@ export function TriageSettingsPage() {
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
+              {hiddenCount > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowHiddenChannels(!showHiddenChannels)}
+                >
+                  <Settings className="h-4 w-4 mr-1" />
+                  {showHiddenChannels ? 'Hide Hidden' : `Show Hidden (${hiddenCount})`}
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -877,13 +866,13 @@ export function TriageSettingsPage() {
                 <thead className="bg-muted/50">
                   <tr>
                     <th className="text-left p-3 font-medium">Channel</th>
-                    <th className="text-left p-3 font-medium">Status</th>
+                    <th className="text-left p-3 font-medium">Enabled</th>
                     <th className="text-left p-3 font-medium">Priority</th>
                     <th className="text-right p-3 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {channels.map((channel) => (
+                  {visibleChannels.map((channel) => (
                     <tr key={channel.id} className="hover:bg-muted/30">
                       <td className="p-3">
                         <div className="flex items-center gap-2">
@@ -893,6 +882,9 @@ export function TriageSettingsPage() {
                             <Hash className="h-4 w-4 text-muted-foreground" />
                           )}
                           <span className="font-medium">{channel.channel_name}</span>
+                          {channel.is_hidden && (
+                            <Badge variant="outline" className="ml-2">Hidden</Badge>
+                          )}
                         </div>
                       </td>
                       <td className="p-3">
@@ -904,6 +896,10 @@ export function TriageSettingsPage() {
                               data: { is_active: checked },
                             })
                           }
+                          className={cn(
+                            "data-[state=checked]:bg-green-500",
+                            "data-[state=unchecked]:bg-red-400"
+                          )}
                         />
                       </td>
                       <td className="p-3">
@@ -942,9 +938,14 @@ export function TriageSettingsPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => removeChannel.mutate(channel.id)}
+                            onClick={() =>
+                              updateChannel.mutate({
+                                id: channel.id,
+                                data: { is_hidden: !channel.is_hidden },
+                              })
+                            }
                           >
-                            <Trash2 className="h-4 w-4" />
+                            {channel.is_hidden ? 'Show' : 'Hide'}
                           </Button>
                         </div>
                       </td>

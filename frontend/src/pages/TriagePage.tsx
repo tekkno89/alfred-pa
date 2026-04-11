@@ -355,7 +355,7 @@ export function TriagePage() {
     console.log('Change priority for:', id)
   }
 
-  const handleAddVIP = (senderSlackId: string) => {
+  const handleAddVIP = (_senderSlackId: string) => {
     // TODO: Navigate to focus settings or open VIP management dialog
     // For now, navigate to triage settings
     navigate('/settings/triage')

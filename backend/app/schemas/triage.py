@@ -111,6 +111,7 @@ class MonitoredChannelUpdate(BaseModel):
     channel_name: str | None = None
     priority: str | None = Field(None, pattern="^(low|medium|high|critical)$")
     is_active: bool | None = None
+    is_hidden: bool | None = None
     triage_instructions: str | None = Field(None, max_length=2000)
 
 
@@ -125,6 +126,7 @@ class MonitoredChannelResponse(BaseModel):
     channel_type: str
     priority: str
     is_active: bool
+    is_hidden: bool = False
     triage_instructions: str | None = None
     created_at: UTCDatetime = None
 

@@ -82,6 +82,7 @@ class MonitoredChannel(Base, UUIDMixin, TimestampMixin):
     # low | medium | high | critical
     priority: Mapped[str] = mapped_column(String(10), default="medium")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_hidden: Mapped[bool] = mapped_column(Boolean, default=False)
     triage_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
