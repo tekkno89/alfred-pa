@@ -60,6 +60,16 @@ class DigestScheduler:
         """Schedule digests for a single user."""
         user_id = settings.user_id
 
+        # Skip scheduled digests if user is in focus mode
+        # All messages will be delivered in the post-focus digest
+        from app.services.focus import FocusModeService
+
+        focus_service = FocusModeService(self.db)
+        in_focus = await focus_service.is_in_focus_mode(user_id)
+        if in_focus:
+            logger.debug(f"Skipping scheduled digests for user {user_id} (in focus mode)")
+            return
+
         # P1 time-based digest
         if settings.p1_alerts_enabled and settings.p1_digest_times and current_time in settings.p1_digest_times:
             logger.info(f"Scheduling P1 time-based digest for user {user_id} at {current_time}")
