@@ -418,8 +418,7 @@ export function TriageSettingsPage() {
                 updateSettings.mutate({ sensitivity: val as 'low' | 'medium' | 'high' })
               }
             >
-              <SelectTrigger className="w-32"
-                        disabled={!settings?.is_always_on}>
+              <SelectTrigger className="w-32">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -682,7 +681,6 @@ export function TriageSettingsPage() {
                       value={p1ActiveHoursStart ?? settings?.p1_digest_active_hours_start ?? '09:00'}
                       onChange={(e) => setP1ActiveHoursStart(e.target.value)}
                       className="w-32"
-                        disabled={!settings?.is_always_on}
                       disabled={!settings?.is_always_on}
                     />
                     <span className="text-sm">to</span>
@@ -691,7 +689,6 @@ export function TriageSettingsPage() {
                       value={p1ActiveHoursEnd ?? settings?.p1_digest_active_hours_end ?? '18:00'}
                       onChange={(e) => setP1ActiveHoursEnd(e.target.value)}
                       className="w-32"
-                        disabled={!settings?.is_always_on}
                       disabled={!settings?.is_always_on}
                     />
                   </div>
@@ -735,7 +732,6 @@ export function TriageSettingsPage() {
                           setP1Times(newTimes)
                         }}
                         className="w-32"
-                        disabled={!settings?.is_always_on}
                         disabled={!settings?.is_always_on}
                       />
                       <Button
@@ -807,7 +803,6 @@ export function TriageSettingsPage() {
                       value={p2ActiveHoursStart ?? settings?.p2_digest_active_hours_start ?? '09:00'}
                       onChange={(e) => setP2ActiveHoursStart(e.target.value)}
                       className="w-32"
-                        disabled={!settings?.is_always_on}
                       disabled={!settings?.is_always_on}
                     />
                     <span className="text-sm">to</span>
@@ -816,7 +811,6 @@ export function TriageSettingsPage() {
                       value={p2ActiveHoursEnd ?? settings?.p2_digest_active_hours_end ?? '18:00'}
                       onChange={(e) => setP2ActiveHoursEnd(e.target.value)}
                       className="w-32"
-                        disabled={!settings?.is_always_on}
                       disabled={!settings?.is_always_on}
                     />
                   </div>
@@ -860,7 +854,6 @@ export function TriageSettingsPage() {
                           setP2Times(newTimes)
                         }}
                         className="w-32"
-                        disabled={!settings?.is_always_on}
                       />
                       <Button
                         variant="ghost"
@@ -907,7 +900,6 @@ export function TriageSettingsPage() {
                 value={p3Time ?? settings?.p3_digest_time ?? '17:00'}
                 onChange={(e) => setP3Time(e.target.value)}
                 className="w-32"
-                        disabled={!settings?.is_always_on}
               />
               <span className="text-sm text-muted-foreground">Daily digest time</span>
             </div>
