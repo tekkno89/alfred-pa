@@ -14,7 +14,6 @@ from app.db.repositories import FeatureAccessRepository
 from app.db.repositories.triage import (
     ChannelSourceExclusionRepository,
     MonitoredChannelRepository,
-    SlackChannelCacheRepository,
     TriageClassificationRepository,
     TriageFeedbackRepository,
     TriageUserSettingsRepository,
@@ -149,77 +148,86 @@ async def auto_enroll_channels(
 ) -> dict:
     """Manually sync all user's Slack channels to monitored channels.
 
-    Creates MonitoredChannel records for channels not yet monitored.
+    Adds channels the user is a member of but not yet monitoring.
+    Removes channels the user is no longer a member of.
     Sets default priority: private=high, public=medium.
     """
     await _check_triage_access(current_user.id, db, current_user.role)
 
-    # Fetch all channels user belongs to
-    cache_repo = SlackChannelCacheRepository(db)
-    slack_channels = await cache_repo.get_all()
+    # Fetch channels user belongs to using their OAuth token
+    from app.services.slack import fetch_user_channels
+    from app.services.slack_user import SlackUserService
 
-    # Also fetch private channels via user token
+    user_svc = SlackUserService(db)
+    user_token = await user_svc.get_raw_token(current_user.id)
+
+    if not user_token:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No Slack token found. Please connect your Slack account.",
+        )
+
     try:
-        from app.services.slack_user import SlackUserService
-        from app.services.slack import _paginate_conversations
-        from slack_sdk.web.async_client import AsyncWebClient
+        slack_channels = await fetch_user_channels(user_token)
+    except SlackApiError as e:
+        logger.error(f"Error fetching user channels: {e.response['error']}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to fetch channels from Slack",
+        ) from e
 
-        user_svc = SlackUserService(db)
-        user_token = await user_svc.get_raw_token(current_user.id)
-
-        if user_token:
-            client = AsyncWebClient(token=user_token)
-            private_channels = await _paginate_conversations(
-                client, "private_channel", max_retries=3
-            )
-        else:
-            private_channels = []
-    except Exception:
-        private_channels = []
+    # Get current Slack channel IDs the user is a member of
+    slack_channel_ids = {ch["id"] for ch in slack_channels}
 
     # Get existing monitored channels
     ch_repo = MonitoredChannelRepository(db)
     existing = await ch_repo.get_by_user(current_user.id, active_only=False)
     existing_ids = {c.slack_channel_id for c in existing}
 
-    # Create new monitored channels
+    # Create new monitored channels for channels the user joined
     new_channels = []
     for ch in slack_channels:
-        if ch.slack_channel_id not in existing_ids:
-            mc = MonitoredChannel(
-                user_id=current_user.id,
-                slack_channel_id=ch.slack_channel_id,
-                channel_name=ch.name,
-                channel_type="private" if ch.is_private else "public",
-                priority="high" if ch.is_private else "medium",
-            )
-            new_channels.append(mc)
-
-    for ch in private_channels:
         ch_id = ch["id"]
         if ch_id not in existing_ids:
             mc = MonitoredChannel(
                 user_id=current_user.id,
                 slack_channel_id=ch_id,
                 channel_name=ch.get("name", ch_id),
-                channel_type="private",
-                priority="high",
+                channel_type="private" if ch.get("is_private") else "public",
+                priority="high" if ch.get("is_private") else "medium",
             )
             new_channels.append(mc)
 
-    # Bulk create
+    # Remove monitored channels for channels the user left
+    removed_channels = []
+    cache = TriageCacheService()
+    for monitored_channel in existing:
+        if monitored_channel.slack_channel_id not in slack_channel_ids:
+            removed_channels.append(monitored_channel)
+            await ch_repo.delete(monitored_channel)
+
+            # Check if any other user monitors this channel
+            remaining = await ch_repo.get_users_for_channel(
+                monitored_channel.slack_channel_id
+            )
+            if not remaining:
+                await cache.remove_channel(monitored_channel.slack_channel_id)
+
+    # Bulk create new channels
     if new_channels:
         db.add_all(new_channels)
+
+    if new_channels or removed_channels:
         await db.commit()
 
-        # Update Redis set
-        cache = TriageCacheService()
+        # Update Redis set for new channels
         for mc in new_channels:
             await cache.add_channel(mc.slack_channel_id)
 
     return {
         "enrolled_count": len(new_channels),
-        "total_monitored": len(existing) + len(new_channels),
+        "removed_count": len(removed_channels),
+        "total_monitored": len(existing) - len(removed_channels) + len(new_channels),
     }
 
 
@@ -369,80 +377,51 @@ async def list_available_slack_channels(
     db: DbSession,
     search: str = Query("", description="Filter channels by name"),
 ) -> list[SlackChannelInfo]:
-    """List available Slack channels.
+    """List available Slack channels the user is a member of.
 
-    Public channels come from the persistent DB cache.
-    Private channels are fetched per-user via their Slack token so users
-    only see private channels they belong to.
+    Fetches all channels (public and private) that the user belongs to
+    via their Slack OAuth token.
     """
     await _check_triage_access(current_user.id, db, current_user.role)
 
-    cache_repo = SlackChannelCacheRepository(db)
+    from app.services.slack import fetch_user_channels
+    from app.services.slack_user import SlackUserService
 
-    # If cache is empty (first deploy), populate synchronously from Slack
-    if await cache_repo.count() == 0:
-        try:
-            from app.services.slack import fetch_all_slack_channels
+    user_svc = SlackUserService(db)
+    user_token = await user_svc.get_raw_token(current_user.id)
 
-            raw_channels = await fetch_all_slack_channels()  # bot token
-            await cache_repo.upsert_batch(raw_channels)
-            await db.commit()
-        except SlackApiError as e:
-            logger.error(f"Error listing Slack channels: {e.response['error']}")
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Failed to list Slack channels",
-            ) from e
-
-    search_term = search.strip() or None
-
-    # 1. Public channels from DB cache
-    rows = await cache_repo.get_all(search=search_term)
-    results: list[SlackChannelInfo] = [
-        SlackChannelInfo(
-            id=r.slack_channel_id,
-            name=r.name,
-            is_private=r.is_private,
-            num_members=r.num_members,
+    if not user_token:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No Slack token found. Please connect your Slack account.",
         )
-        for r in rows
-    ]
 
-    # 2. Private channels fetched per-user via their Slack token
     try:
-        from app.services.slack_user import SlackUserService
+        # Fetch channels user belongs to (public and private)
+        slack_channels = await fetch_user_channels(user_token)
+    except SlackApiError as e:
+        logger.error(f"Error listing Slack channels: {e.response['error']}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to list Slack channels",
+        ) from e
 
-        user_svc = SlackUserService(db)
-        user_token = await user_svc.get_raw_token(current_user.id)
-        if user_token:
-            from app.services.slack import _paginate_conversations
-            from slack_sdk.web.async_client import AsyncWebClient
+    search_term = search.strip().lower() if search.strip() else None
 
-            client = AsyncWebClient(token=user_token)
-            try:
-                private_channels = await _paginate_conversations(
-                    client, "private_channel", max_retries=3
-                )
-            except SlackApiError:
-                private_channels = []
-
-            seen_ids = {r.id for r in results}
-            for ch in private_channels:
-                if ch["id"] in seen_ids:
-                    continue
-                name = ch.get("name", "")
-                if search_term and search_term.lower() not in name.lower():
-                    continue
-                results.append(
-                    SlackChannelInfo(
-                        id=ch["id"],
-                        name=name,
-                        is_private=True,
-                        num_members=ch.get("num_members", 0),
-                    )
-                )
-    except Exception:
-        logger.exception("Failed to fetch user's private channels")
+    results: list[SlackChannelInfo] = []
+    for ch in slack_channels:
+        name = ch.get("name", "")
+        # Filter by search term if provided
+        if search_term and search_term not in name.lower():
+            continue
+        results.append(
+            SlackChannelInfo(
+                id=ch["id"],
+                name=name,
+                is_private=ch.get("is_private", False),
+                num_members=ch.get("num_members", 0),
+            )
+        )
 
     results.sort(key=lambda c: c.name.lower())
     return results

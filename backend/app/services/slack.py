@@ -263,6 +263,62 @@ async def _paginate_conversations(
     return raw_channels
 
 
+async def fetch_user_channels(
+    user_token: str,
+    max_retries: int = 3,
+) -> list[dict]:
+    """Fetch all channels a user is a member of using users.conversations.
+
+    This is different from fetch_all_slack_channels which uses conversations.list
+    and returns ALL public channels in the workspace. users.conversations only
+    returns channels the user actually belongs to.
+
+    Args:
+        user_token: User's Slack OAuth token
+        max_retries: Number of rate-limit retries per page
+
+    Returns a list of dicts with keys: id, name, is_private, num_members.
+    """
+    client = AsyncWebClient(token=user_token)
+    raw_channels: list[dict] = []
+    cursor = None
+
+    while True:
+        for attempt in range(max_retries + 1):
+            try:
+                response = await client.users_conversations(
+                    types="public_channel,private_channel",
+                    exclude_archived=True,
+                    limit=200,
+                    cursor=cursor,
+                )
+                break
+            except SlackApiError as e:
+                if e.response.get("error") != "ratelimited" or attempt == max_retries:
+                    raise
+                retry_after = int(e.response.headers.get("Retry-After", 3))
+                logger.warning(
+                    f"Slack rate limited on users.conversations, retrying in {retry_after}s "
+                    f"(attempt {attempt + 1}/{max_retries})"
+                )
+                await asyncio.sleep(retry_after)
+
+        for ch in response.get("channels", []):
+            raw_channels.append(
+                {
+                    "id": ch["id"],
+                    "name": ch.get("name", ""),
+                    "is_private": ch.get("is_private", False),
+                    "num_members": ch.get("num_members", 0),
+                }
+            )
+        cursor = response.get("response_metadata", {}).get("next_cursor")
+        if not cursor:
+            break
+
+    return raw_channels
+
+
 # Singleton instance
 _slack_service: SlackService | None = None
 

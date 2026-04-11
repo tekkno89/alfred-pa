@@ -7,7 +7,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.dashboard import UserFeatureAccess
-from app.db.models.triage import MonitoredChannel, ChannelKeywordRule, ChannelSourceExclusion
+from app.db.models.triage import MonitoredChannel, ChannelSourceExclusion
 from tests.conftest import auth_headers
 from tests.factories import UserFactory
 

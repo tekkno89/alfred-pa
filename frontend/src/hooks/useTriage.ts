@@ -78,7 +78,33 @@ export function useUpdateMonitoredChannel() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: MonitoredChannelUpdate }) =>
       apiPatch<MonitoredChannel, MonitoredChannelUpdate>(`/triage/channels/${id}`, data),
-    onSuccess: () => {
+    onMutate: async ({ id, data }) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['triage-channels'] })
+
+      // Snapshot previous value
+      const previous = queryClient.getQueryData<MonitoredChannelList>(['triage-channels'])
+
+      // Optimistically update the cache
+      if (previous) {
+        queryClient.setQueryData<MonitoredChannelList>(['triage-channels'], {
+          ...previous,
+          channels: previous.channels.map((ch) =>
+            ch.id === id ? { ...ch, ...data } : ch
+          ),
+        })
+      }
+
+      return { previous }
+    },
+    onError: (err, variables, context) => {
+      // Roll back on error
+      if (context?.previous) {
+        queryClient.setQueryData(['triage-channels'], context.previous)
+      }
+    },
+    onSettled: () => {
+      // Always refetch to ensure cache is in sync with server
       queryClient.invalidateQueries({ queryKey: ['triage-channels'] })
     },
   })
@@ -109,7 +135,7 @@ export function useChannelMembers(channelId: string | null) {
 export function useAutoEnrollChannels() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () => apiPost<{ enrolled_count: number; total_monitored: number }>('/triage/channels/auto-enroll'),
+    mutationFn: () => apiPost<{ enrolled_count: number; removed_count: number; total_monitored: number }>('/triage/channels/auto-enroll'),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['triage-channels'] })
     },
