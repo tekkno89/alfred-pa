@@ -25,14 +25,6 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 import {
   useTriageSettings,
@@ -880,85 +872,87 @@ export function TriageSettingsPage() {
               </Button>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Channel</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Priority</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {channels.map((channel) => (
-                  <TableRow key={channel.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        {channel.channel_type === 'private' ? (
-                          <Lock className="h-4 w-4 text-muted-foreground" />
-                        ) : (
-                          <Hash className="h-4 w-4 text-muted-foreground" />
-                        )}
-                        <span className="font-medium">{channel.channel_name}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Switch
-                        checked={channel.is_active}
-                        onCheckedChange={(checked) =>
-                          updateChannel.mutate({
-                            id: channel.id,
-                            data: { is_active: checked },
-                          })
-                        }
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Select
-                        value={channel.priority}
-                        onValueChange={(val) =>
-                          updateChannel.mutate({
-                            id: channel.id,
-                            data: { priority: val as ChannelPriority },
-                          })
-                        }
-                      >
-                        <SelectTrigger className="w-28 h-8">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="low">Low</SelectItem>
-                          <SelectItem value="medium">Medium</SelectItem>
-                          <SelectItem value="high">High</SelectItem>
-                          <SelectItem value="critical">Critical</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setConfigChannel(channel)
-                            setConfigModalOpen(true)
-                          }}
+            <div className="border rounded-lg overflow-hidden">
+              <table className="w-full">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left p-3 font-medium">Channel</th>
+                    <th className="text-left p-3 font-medium">Status</th>
+                    <th className="text-left p-3 font-medium">Priority</th>
+                    <th className="text-right p-3 font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {channels.map((channel) => (
+                    <tr key={channel.id} className="hover:bg-muted/30">
+                      <td className="p-3">
+                        <div className="flex items-center gap-2">
+                          {channel.channel_type === 'private' ? (
+                            <Lock className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <Hash className="h-4 w-4 text-muted-foreground" />
+                          )}
+                          <span className="font-medium">{channel.channel_name}</span>
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <Switch
+                          checked={channel.is_active}
+                          onCheckedChange={(checked) =>
+                            updateChannel.mutate({
+                              id: channel.id,
+                              data: { is_active: checked },
+                            })
+                          }
+                        />
+                      </td>
+                      <td className="p-3">
+                        <Select
+                          value={channel.priority}
+                          onValueChange={(val) =>
+                            updateChannel.mutate({
+                              id: channel.id,
+                              data: { priority: val as ChannelPriority },
+                            })
+                          }
                         >
-                          <Settings className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeChannel.mutate(channel.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                          <SelectTrigger className="w-28 h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="low">Low</SelectItem>
+                            <SelectItem value="medium">Medium</SelectItem>
+                            <SelectItem value="high">High</SelectItem>
+                            <SelectItem value="critical">Critical</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </td>
+                      <td className="p-3 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setConfigChannel(channel)
+                              setConfigModalOpen(true)
+                            }}
+                          >
+                            <Settings className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeChannel.mutate(channel.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </CardContent>
       </Card>
