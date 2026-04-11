@@ -222,6 +222,11 @@ class TriageClassifier:
         if payload.thread_context_summary:
             thread_context = f"\n\n{payload.thread_context_summary}"
 
+        # Build DM conversation context
+        dm_context = ""
+        if payload.dm_conversation_context:
+            dm_context = f"\n\n{payload.dm_conversation_context}"
+
         system_prompt = f"""You are a message triage classifier. Classify a Slack message into one of the following priority levels.
 
 Priority levels:
@@ -233,9 +238,22 @@ Priority levels:
 
 DMs and @mentions raise the likelihood a message is P0 or P1 — but still evaluate the actual message content before classifying.
 
+**How to use conversation context:**
+When provided with thread or DM conversation context (previous messages), use it to understand:
+1. Is this part of an active, ongoing conversation? (messages within hours, same topic)
+2. Is this a new/stale conversation? (messages days apart, different topics)
+3. Does the context clarify the current message's urgency or topic?
+
+DO NOT summarize all previous messages. ONLY use context that is directly relevant to understanding the current message's priority. If previous messages are stale or unrelated, ignore them.
+
+**Examples:**
+- Active thread with urgent topic → Context matters, may increase priority
+- DM from 3 days ago, new unrelated message today → Ignore old context
+- Conversation with ongoing issue → Context shows escalation, may increase priority
+
 Sensitivity: {self.sensitivity}
 {sensitivity_guidance.get(self.sensitivity, sensitivity_guidance['medium'])}
-{vip_context}{thread_context}
+{vip_context}{thread_context}{dm_context}
 
 Context:
 - Message type: {path}
@@ -248,7 +266,7 @@ Context:
 Respond with valid JSON only:
 {{"priority": "p0|p1|p2|p3|review", "confidence": 0.0-1.0, "reason": "brief explanation", "abstract": "1-sentence summary of the message topic without quoting the message"}}
 
-IMPORTANT: The "abstract" must be a brief topic summary. Do NOT reproduce the original message text."""
+IMPORTANT: The "abstract" must be a brief topic summary of the CURRENT message only. Do NOT reproduce the original message text."""
 
         if self.custom_classification_rules:
             system_prompt += f"""

@@ -44,6 +44,9 @@ class EnrichedTriagePayload:
     mentions_user_directly: bool = False
     thread_context_summary: str | None = None  # Summarized recent thread messages
 
+    # DM conversation context
+    dm_conversation_context: str | None = None  # Summarized recent DM messages
+
     # Keyword rules for this channel
     keyword_rules: list = field(default_factory=list)
 
@@ -224,5 +227,20 @@ class TriageEnrichmentService:
                 )
             except Exception:
                 logger.exception(f"Failed to fetch thread context for {thread_ts}")
+
+        # Fetch DM conversation context for direct messages
+        if event_type == "dm":
+            try:
+                from app.services.slack import SlackService
+                from app.services.thread_context import ThreadContextService
+
+                slack_service = SlackService()
+                thread_service = ThreadContextService(slack_service.client)
+                payload.dm_conversation_context = await thread_service.get_dm_conversation_context(
+                    channel_id=channel_id,
+                    max_messages=10,
+                )
+            except Exception:
+                logger.exception(f"Failed to fetch DM conversation context for {channel_id}")
 
         return payload
