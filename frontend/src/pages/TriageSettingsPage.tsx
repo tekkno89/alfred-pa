@@ -418,8 +418,7 @@ export function TriageSettingsPage() {
                 updateSettings.mutate({ sensitivity: val as 'low' | 'medium' | 'high' })
               }
             >
-              <SelectTrigger className="w-32"
-                        disabled={!settings?.is_always_on}>
+              <SelectTrigger className="w-32" disabled={!settings?.is_always_on}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -641,7 +640,7 @@ export function TriageSettingsPage() {
             <RadioGroup
               value={p1Mode}
               onValueChange={(val) => {
-                setP1Mode(val)
+                setP1Mode(val as 'interval' | 'scheduled')
                 // Clear opposite mode's data when switching
                 if (val === 'interval') {
                   updateSettings.mutate({ p1_digest_times: null })
@@ -683,7 +682,6 @@ export function TriageSettingsPage() {
                       onChange={(e) => setP1ActiveHoursStart(e.target.value)}
                       className="w-32"
                         disabled={!settings?.is_always_on}
-                      disabled={!settings?.is_always_on}
                     />
                     <span className="text-sm">to</span>
                     <Input
@@ -692,7 +690,6 @@ export function TriageSettingsPage() {
                       onChange={(e) => setP1ActiveHoursEnd(e.target.value)}
                       className="w-32"
                         disabled={!settings?.is_always_on}
-                      disabled={!settings?.is_always_on}
                     />
                   </div>
                   <div className="space-y-2">
@@ -735,7 +732,6 @@ export function TriageSettingsPage() {
                           setP1Times(newTimes)
                         }}
                         className="w-32"
-                        disabled={!settings?.is_always_on}
                         disabled={!settings?.is_always_on}
                       />
                       <Button
@@ -780,7 +776,11 @@ export function TriageSettingsPage() {
                 disabled={!settings?.is_always_on}
               />
             </div>
-            <RadioGroup value={p2Mode} onValueChange={setP2Mode} disabled={!settings?.is_always_on}>
+            <RadioGroup
+              value={p2Mode}
+              onValueChange={(val) => setP2Mode(val as 'interval' | 'scheduled')}
+              disabled={!settings?.is_always_on}
+            >
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="interval" id="p2-interval" />
                 <Label htmlFor="p2-interval">Every X minutes during active hours</Label>
@@ -808,7 +808,6 @@ export function TriageSettingsPage() {
                       onChange={(e) => setP2ActiveHoursStart(e.target.value)}
                       className="w-32"
                         disabled={!settings?.is_always_on}
-                      disabled={!settings?.is_always_on}
                     />
                     <span className="text-sm">to</span>
                     <Input
@@ -817,7 +816,6 @@ export function TriageSettingsPage() {
                       onChange={(e) => setP2ActiveHoursEnd(e.target.value)}
                       className="w-32"
                         disabled={!settings?.is_always_on}
-                      disabled={!settings?.is_always_on}
                     />
                   </div>
                   <div className="space-y-2">
@@ -869,6 +867,7 @@ export function TriageSettingsPage() {
                           const newTimes = (p2Times ?? settings?.p2_digest_times ?? []).filter((_, i) => i !== idx)
                           setP2Times(newTimes.length > 0 ? newTimes : [])
                         }}
+                        disabled={!settings?.is_always_on}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -881,6 +880,7 @@ export function TriageSettingsPage() {
                       const currentTimes = p2Times ?? settings?.p2_digest_times ?? []
                       setP2Times([...currentTimes, '12:00'])
                     }}
+                    disabled={!settings?.is_always_on}
                   >
                     <Plus className="h-4 w-4 mr-1" /> Add Time
                   </Button>
@@ -899,6 +899,7 @@ export function TriageSettingsPage() {
               <Switch
                 checked={p3AlertsEnabled ?? settings?.p3_alerts_enabled ?? true}
                 onCheckedChange={(checked) => setP3AlertsEnabled(checked)}
+                disabled={!settings?.is_always_on}
               />
             </div>
             <div className="flex items-center gap-2">
@@ -907,7 +908,7 @@ export function TriageSettingsPage() {
                 value={p3Time ?? settings?.p3_digest_time ?? '17:00'}
                 onChange={(e) => setP3Time(e.target.value)}
                 className="w-32"
-                        disabled={!settings?.is_always_on}
+                disabled={!settings?.is_always_on}
               />
               <span className="text-sm text-muted-foreground">Daily digest time</span>
             </div>
@@ -917,7 +918,7 @@ export function TriageSettingsPage() {
           {hasCadenceChanges && (
             <Button
               size="sm"
-              disabled={updateSettings.isPending}
+              disabled={updateSettings.isPending || !settings?.is_always_on}
               onClick={() => {
                 const payload: Record<string, any> = {}
 

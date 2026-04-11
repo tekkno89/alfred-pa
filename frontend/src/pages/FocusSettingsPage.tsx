@@ -141,6 +141,29 @@ export function FocusSettingsPage() {
       <h1 className="text-3xl font-bold mb-6">Focus Mode Settings</h1>
 
       <div className="space-y-6">
+        {/* Triage Note */}
+        <Card className="border-blue-200 bg-blue-50">
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-3">
+              <MessageSquare className="h-5 w-5 text-blue-600 mt-0.5" />
+              <div className="flex-1">
+                <p className="font-medium text-blue-900">Configure Triage Priority Definitions</p>
+                <p className="text-sm text-blue-700 mt-1">
+                  Customize how messages are classified during focus mode (P0-P3 priority levels).
+                  These definitions are used for post-focus digests even when Always-On Mode is disabled.
+                </p>
+                <Button
+                  variant="link"
+                  className="px-0 text-blue-700 hover:text-blue-900 mt-2"
+                  onClick={() => window.location.href = '/settings/triage'}
+                >
+                  Go to Triage Settings →
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* General Settings */}
         <Card>
           <CardHeader>
