@@ -7,13 +7,11 @@ from slack_sdk.errors import SlackApiError
 
 from app.api.deps import CurrentUser, DbSession
 from app.db.models.triage import (
-    ChannelKeywordRule,
     ChannelSourceExclusion,
     MonitoredChannel,
 )
 from app.db.repositories import FeatureAccessRepository
 from app.db.repositories.triage import (
-    ChannelKeywordRuleRepository,
     ChannelSourceExclusionRepository,
     MonitoredChannelRepository,
     SlackChannelCacheRepository,
@@ -22,14 +20,12 @@ from app.db.repositories.triage import (
     TriageUserSettingsRepository,
 )
 from app.schemas.triage import (
+    ChannelMemberInfo,
     ClassificationList,
     ClassificationResponse,
     DigestResponse,
     GenerateDefinitionsRequest,
     GenerateDefinitionsResponse,
-    KeywordRuleCreate,
-    KeywordRuleResponse,
-    KeywordRuleUpdate,
     MarkReviewedRequest,
     MonitoredChannelCreate,
     MonitoredChannelList,
@@ -146,6 +142,87 @@ async def add_monitored_channel(
     return MonitoredChannelResponse.model_validate(channel)
 
 
+@router.post("/channels/auto-enroll")
+async def auto_enroll_channels(
+    current_user: CurrentUser,
+    db: DbSession,
+) -> dict:
+    """Manually sync all user's Slack channels to monitored channels.
+
+    Creates MonitoredChannel records for channels not yet monitored.
+    Sets default priority: private=high, public=medium.
+    """
+    await _check_triage_access(current_user.id, db, current_user.role)
+
+    # Fetch all channels user belongs to
+    cache_repo = SlackChannelCacheRepository(db)
+    slack_channels = await cache_repo.get_all()
+
+    # Also fetch private channels via user token
+    try:
+        from app.services.slack_user import SlackUserService
+        from app.services.slack import _paginate_conversations
+        from slack_sdk.web.async_client import AsyncWebClient
+
+        user_svc = SlackUserService(db)
+        user_token = await user_svc.get_raw_token(current_user.id)
+
+        if user_token:
+            client = AsyncWebClient(token=user_token)
+            private_channels = await _paginate_conversations(
+                client, "private_channel", max_retries=3
+            )
+        else:
+            private_channels = []
+    except Exception:
+        private_channels = []
+
+    # Get existing monitored channels
+    ch_repo = MonitoredChannelRepository(db)
+    existing = await ch_repo.get_by_user(current_user.id, active_only=False)
+    existing_ids = {c.slack_channel_id for c in existing}
+
+    # Create new monitored channels
+    new_channels = []
+    for ch in slack_channels:
+        if ch.slack_channel_id not in existing_ids:
+            mc = MonitoredChannel(
+                user_id=current_user.id,
+                slack_channel_id=ch.slack_channel_id,
+                channel_name=ch.name,
+                channel_type="private" if ch.is_private else "public",
+                priority="high" if ch.is_private else "medium",
+            )
+            new_channels.append(mc)
+
+    for ch in private_channels:
+        ch_id = ch["id"]
+        if ch_id not in existing_ids:
+            mc = MonitoredChannel(
+                user_id=current_user.id,
+                slack_channel_id=ch_id,
+                channel_name=ch.get("name", ch_id),
+                channel_type="private",
+                priority="high",
+            )
+            new_channels.append(mc)
+
+    # Bulk create
+    if new_channels:
+        db.add_all(new_channels)
+        await db.commit()
+
+        # Update Redis set
+        cache = TriageCacheService()
+        for mc in new_channels:
+            await cache.add_channel(mc.slack_channel_id)
+
+    return {
+        "enrolled_count": len(new_channels),
+        "total_monitored": len(existing) + len(new_channels),
+    }
+
+
 @router.patch("/channels/{channel_id}", response_model=MonitoredChannelResponse)
 async def update_monitored_channel(
     channel_id: str,
@@ -196,117 +273,6 @@ async def remove_monitored_channel(
 
 
 # --- Keyword Rules ---
-
-
-@router.get(
-    "/channels/{channel_id}/rules", response_model=list[KeywordRuleResponse]
-)
-async def list_keyword_rules(
-    channel_id: str,
-    current_user: CurrentUser,
-    db: DbSession,
-) -> list[KeywordRuleResponse]:
-    """List keyword rules for a monitored channel."""
-    await _check_triage_access(current_user.id, db, current_user.role)
-    # Verify channel ownership
-    ch_repo = MonitoredChannelRepository(db)
-    channel = await ch_repo.get(channel_id)
-    if not channel or channel.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Channel not found",
-        )
-    repo = ChannelKeywordRuleRepository(db)
-    rules = await repo.get_by_channel(channel_id, current_user.id)
-    return [KeywordRuleResponse.model_validate(r) for r in rules]
-
-
-@router.post(
-    "/channels/{channel_id}/rules",
-    response_model=KeywordRuleResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def add_keyword_rule(
-    channel_id: str,
-    data: KeywordRuleCreate,
-    current_user: CurrentUser,
-    db: DbSession,
-) -> KeywordRuleResponse:
-    """Add a keyword rule to a monitored channel."""
-    await _check_triage_access(current_user.id, db, current_user.role)
-    ch_repo = MonitoredChannelRepository(db)
-    channel = await ch_repo.get(channel_id)
-    if not channel or channel.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Channel not found",
-        )
-    repo = ChannelKeywordRuleRepository(db)
-    rule = ChannelKeywordRule(
-        monitored_channel_id=channel_id,
-        user_id=current_user.id,
-        keyword_pattern=data.keyword_pattern,
-        match_type=data.match_type,
-        priority_override=data.priority_override,
-    )
-    rule = await repo.create(rule)
-    return KeywordRuleResponse.model_validate(rule)
-
-
-@router.patch(
-    "/channels/{channel_id}/rules/{rule_id}",
-    response_model=KeywordRuleResponse,
-)
-async def update_keyword_rule(
-    channel_id: str,
-    rule_id: str,
-    data: KeywordRuleUpdate,
-    current_user: CurrentUser,
-    db: DbSession,
-) -> KeywordRuleResponse:
-    """Update a keyword rule."""
-    await _check_triage_access(current_user.id, db, current_user.role)
-    repo = ChannelKeywordRuleRepository(db)
-    rule = await repo.get(rule_id)
-    if (
-        not rule
-        or rule.user_id != current_user.id
-        or rule.monitored_channel_id != channel_id
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Rule not found",
-        )
-    updates = data.model_dump(exclude_unset=True)
-    if updates:
-        rule = await repo.update(rule, **updates)
-    return KeywordRuleResponse.model_validate(rule)
-
-
-@router.delete(
-    "/channels/{channel_id}/rules/{rule_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-async def remove_keyword_rule(
-    channel_id: str,
-    rule_id: str,
-    current_user: CurrentUser,
-    db: DbSession,
-) -> None:
-    """Remove a keyword rule."""
-    await _check_triage_access(current_user.id, db, current_user.role)
-    repo = ChannelKeywordRuleRepository(db)
-    rule = await repo.get(rule_id)
-    if (
-        not rule
-        or rule.user_id != current_user.id
-        or rule.monitored_channel_id != channel_id
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Rule not found",
-        )
-    await repo.delete(rule)
 
 
 # --- Source Exclusions ---
@@ -507,6 +473,135 @@ async def refresh_slack_channels(
         _job_id=f"refresh_slack_channel_cache:{_uuid.uuid4().hex[:8]}",
     )
     return {"status": "queued"}
+
+
+@router.get(
+    "/channels/{channel_id}/members",
+    response_model=list[ChannelMemberInfo],
+)
+async def get_channel_members(
+    channel_id: str,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> list[ChannelMemberInfo]:
+    """Fetch members of a Slack channel (users, bots, apps).
+
+    Used for populating exclusion multiselect dropdown.
+    Results are cached in Redis for 1 hour.
+    """
+    await _check_triage_access(current_user.id, db, current_user.role)
+
+    # Verify user has access to this channel
+    ch_repo = MonitoredChannelRepository(db)
+    channel = await ch_repo.get_by_user_and_channel(current_user.id, channel_id)
+    if not channel:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Channel not found in your monitored channels",
+        )
+
+    # Check Redis cache first
+    from app.core.redis import get_redis
+
+    redis_client = await get_redis()
+    cache_key = f"triage:channel_members:{channel_id}"
+    cached = await redis_client.get(cache_key)
+
+    if cached:
+        import json
+        members_data = json.loads(cached)
+        return [ChannelMemberInfo(**m) for m in members_data]
+
+    # Fetch from Slack API
+    try:
+        from app.services.slack import SlackService
+        from app.services.slack_user import SlackUserService
+
+        slack_service = SlackService()
+        user_svc = SlackUserService(db)
+        user_token = await user_svc.get_raw_token(current_user.id)
+
+        if not user_token:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No Slack user token available",
+            )
+
+        from slack_sdk.web.async_client import AsyncWebClient
+
+        client = AsyncWebClient(token=user_token)
+        members = []
+        cursor = None
+
+        # Paginate through all members
+        while True:
+            resp = await client.conversations_members(
+                channel=channel_id,
+                limit=100,
+                cursor=cursor,
+            )
+
+            if not resp["ok"]:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"Failed to fetch channel members: {resp.get('error', 'Unknown error')}",
+                )
+
+            member_ids = resp.get("members", [])
+
+            # Fetch user info for each member
+            for user_id in member_ids:
+                try:
+                    user_info = await slack_service.get_user_info(user_id)
+                    is_bot = user_info.get("is_bot", False)
+                    is_app = user_info.get("is_app", False)
+
+                    # Get display name
+                    profile = user_info.get("profile", {})
+                    display_name = (
+                        profile.get("display_name")
+                        or profile.get("real_name")
+                        or user_info.get("real_name")
+                        or user_info.get("name")
+                        or user_id
+                    )
+
+                    members.append(
+                        ChannelMemberInfo(
+                            slack_user_id=user_id,
+                            display_name=display_name,
+                            is_bot=is_bot,
+                            is_app=is_app,
+                        )
+                    )
+                except SlackApiError:
+                    # Skip users we can't fetch info for
+                    continue
+
+            # Check for next page
+            cursor = resp.get("response_metadata", {}).get("next_cursor")
+            if not cursor:
+                break
+
+        # Sort by name
+        members.sort(key=lambda m: m.display_name.lower())
+
+        # Cache for 1 hour
+        import json
+        await redis_client.set(
+            cache_key,
+            json.dumps([m.model_dump() for m in members]),
+            ex=3600,
+        )
+
+        return members
+
+    except SlackApiError as e:
+        logger.error(f"Failed to fetch channel members: {e.response['error']}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to fetch channel members: {e.response['error']}",
+        )
 
 
 # --- Classifications ---

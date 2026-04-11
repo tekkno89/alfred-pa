@@ -868,6 +868,7 @@ export interface MonitoredChannel {
   channel_type: 'public' | 'private'
   priority: ChannelPriority
   is_active: boolean
+  triage_instructions: string | null
   created_at: string | null
 }
 
@@ -882,23 +883,18 @@ export interface MonitoredChannelUpdate {
   channel_name?: string
   priority?: ChannelPriority
   is_active?: boolean
+  triage_instructions?: string | null
 }
 
 export interface MonitoredChannelList {
   channels: MonitoredChannel[]
 }
 
-export interface KeywordRule {
-  id: string
-  keyword_pattern: string
-  match_type: MatchType
-  priority_override: PriorityLevel | null
-}
-
-export interface KeywordRuleCreate {
-  keyword_pattern: string
-  match_type?: MatchType
-  priority_override?: PriorityLevel | null
+export interface ChannelMember {
+  slack_user_id: string
+  display_name: string
+  is_bot: boolean
+  is_app: boolean
 }
 
 export interface SourceExclusion {

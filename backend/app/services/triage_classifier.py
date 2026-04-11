@@ -274,6 +274,13 @@ IMPORTANT: The "abstract" must be a brief topic summary of the CURRENT message o
 User-defined classification rules (follow these):
 {self.custom_classification_rules}"""
 
+        # Add channel-specific triage instructions
+        if payload.channel_triage_instructions:
+            system_prompt += f"""
+
+Channel-specific triage instructions (follow these):
+{payload.channel_triage_instructions}"""
+
         user_prompt = f"Classify this message:\n\n{payload.message_text}"
 
         try:

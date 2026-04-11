@@ -252,6 +252,123 @@ async def refresh_slack_channel_cache(ctx: dict, user_id: str | None = None) -> 
     return {"status": "ok", "count": count}
 
 
+async def auto_enroll_user_channels(ctx: dict) -> dict:
+    """
+    Cron job: auto-enroll user's Slack channels to monitored channels.
+
+    Runs every 5 minutes to:
+    - Add new channels user has joined
+    - Remove channels user has left
+    - Set default priority (private=high, public=medium)
+    """
+    from app.db.models.oauth_token import UserOAuthToken
+    from app.db.models.triage import MonitoredChannel, TriageUserSettings
+    from app.db.repositories.triage import MonitoredChannelRepository
+    from app.services.slack import fetch_all_slack_channels
+    from app.services.slack_user import SlackUserService
+    from app.services.triage_cache import TriageCacheService
+    from sqlalchemy import select
+
+    async with get_db_session() as db:
+        # Get all users with triage enabled
+        result = await db.execute(
+            select(TriageUserSettings.user_id).where(
+                TriageUserSettings.is_always_on == True
+            )
+        )
+        user_ids = list(result.scalars().all())
+
+    enrolled_total = 0
+    removed_total = 0
+
+    for user_id in user_ids:
+        try:
+            async with get_db_session() as db:
+                # Get user's Slack token
+                user_svc = SlackUserService(db)
+                user_token = await user_svc.get_raw_token(user_id)
+
+                if not user_token:
+                    continue
+
+                # Fetch user's channels (public + private)
+                from app.services.slack import _paginate_conversations
+                from slack_sdk.web.async_client import AsyncWebClient
+
+                client = AsyncWebClient(token=user_token)
+
+                # Public channels
+                public_channels = await _paginate_conversations(
+                    client, "public_channel", max_retries=3
+                )
+
+                # Private channels
+                private_channels = await _paginate_conversations(
+                    client, "private_channel", max_retries=3
+                )
+
+                all_channel_ids = {ch["id"] for ch in public_channels + private_channels}
+
+                # Get existing monitored channels
+                ch_repo = MonitoredChannelRepository(db)
+                existing = await ch_repo.get_by_user(user_id, active_only=False)
+                existing_ids = {c.slack_channel_id: c for c in existing}
+
+                # Remove channels user no longer belongs to
+                for mc in existing:
+                    if mc.slack_channel_id not in all_channel_ids:
+                        await db.delete(mc)
+                        removed_total += 1
+
+                # Add new channels
+                for ch in public_channels:
+                    ch_id = ch["id"]
+                    if ch_id not in existing_ids:
+                        mc = MonitoredChannel(
+                            user_id=user_id,
+                            slack_channel_id=ch_id,
+                            channel_name=ch.get("name", ch_id),
+                            channel_type="public",
+                            priority="medium",
+                        )
+                        db.add(mc)
+                        enrolled_total += 1
+
+                for ch in private_channels:
+                    ch_id = ch["id"]
+                    if ch_id not in existing_ids:
+                        mc = MonitoredChannel(
+                            user_id=user_id,
+                            slack_channel_id=ch_id,
+                            channel_name=ch.get("name", ch_id),
+                            channel_type="private",
+                            priority="high",
+                        )
+                        db.add(mc)
+                        enrolled_total += 1
+
+                await db.commit()
+
+                # Update Redis cache
+                cache = TriageCacheService()
+                for mc in await ch_repo.get_by_user(user_id, active_only=False):
+                    await cache.add_channel(mc.slack_channel_id)
+
+        except Exception as e:
+            logger.error(f"Error auto-enrolling channels for user {user_id}: {e}")
+
+    logger.info(
+        f"Auto-enrolled {enrolled_total} new channels, removed {removed_total} channels "
+        f"for {len(user_ids)} users"
+    )
+    return {
+        "status": "complete",
+        "enrolled_count": enrolled_total,
+        "removed_count": removed_total,
+        "users_processed": len(user_ids),
+    }
+
+
 async def update_user_channel_participation(ctx: dict) -> dict:
     """
     Daily cron: update channel participation data for all Slack-connected users.

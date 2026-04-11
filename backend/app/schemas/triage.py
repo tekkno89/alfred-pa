@@ -111,6 +111,7 @@ class MonitoredChannelUpdate(BaseModel):
     channel_name: str | None = None
     priority: str | None = Field(None, pattern="^(low|medium|high|critical)$")
     is_active: bool | None = None
+    triage_instructions: str | None = Field(None, max_length=2000)
 
 
 class MonitoredChannelResponse(BaseModel):
@@ -124,6 +125,7 @@ class MonitoredChannelResponse(BaseModel):
     channel_type: str
     priority: str
     is_active: bool
+    triage_instructions: str | None = None
     created_at: UTCDatetime = None
 
 
@@ -276,6 +278,15 @@ class SlackChannelInfo(BaseModel):
     name: str
     is_private: bool = False
     num_members: int = 0
+
+
+class ChannelMemberInfo(BaseModel):
+    """Member of a Slack channel (user, bot, or app)."""
+
+    slack_user_id: str
+    display_name: str
+    is_bot: bool = False
+    is_app: bool = False
 
 
 # --- AI Wizard ---

@@ -82,12 +82,10 @@ class MonitoredChannel(Base, UUIDMixin, TimestampMixin):
     # low | medium | high | critical
     priority: Mapped[str] = mapped_column(String(10), default="medium")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    triage_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
     user: Mapped["User"] = relationship("User")
-    keyword_rules: Mapped[list["ChannelKeywordRule"]] = relationship(
-        "ChannelKeywordRule", back_populates="channel", cascade="all, delete-orphan"
-    )
     source_exclusions: Mapped[list["ChannelSourceExclusion"]] = relationship(
         "ChannelSourceExclusion",
         back_populates="channel",

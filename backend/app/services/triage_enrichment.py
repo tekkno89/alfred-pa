@@ -47,8 +47,8 @@ class EnrichedTriagePayload:
     # DM conversation context
     dm_conversation_context: str | None = None  # Summarized recent DM messages
 
-    # Keyword rules for this channel
-    keyword_rules: list = field(default_factory=list)
+    # Channel-specific triage instructions
+    channel_triage_instructions: str | None = None
 
     # User-defined classification guidance
     custom_classification_rules: str | None = None
@@ -156,14 +156,7 @@ class TriageEnrichmentService:
             if mc:
                 payload.channel_priority = mc.priority
                 payload.channel_name = mc.channel_name
-
-                # Load keyword rules
-                from app.db.repositories.triage import ChannelKeywordRuleRepository
-
-                rule_repo = ChannelKeywordRuleRepository(self.db)
-                payload.keyword_rules = await rule_repo.get_by_channel(
-                    mc.id, user_id
-                )
+                payload.channel_triage_instructions = mc.triage_instructions
 
         # Resolve sender and channel display names (best-effort)
         try:
