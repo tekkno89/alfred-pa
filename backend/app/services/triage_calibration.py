@@ -20,7 +20,7 @@ class TriageCalibrationService:
         self.db = db
 
     async def sample_user_messages(
-        self, user_id: str, target_count: int = 10
+        self, user_id: str, exclude_message_ids: list[str] | None = None, target_count: int = 10
     ) -> list[dict[str, Any]]:
         """
         Sample recent messages from user's Slack channels for calibration.
@@ -32,13 +32,17 @@ class TriageCalibrationService:
 
         Args:
             user_id: User ID
+            exclude_message_ids: List of message IDs to exclude (format: "channel_id:ts")
             target_count: Target number of messages to sample (default 10)
 
         Returns:
             List of message dicts with keys:
-            - message_text, sender_name, channel_name, channel_type
+            - message_id, message_text, sender_name, channel_name, channel_type
             - message_ts, channel_id, permalink
         """
+        if exclude_message_ids is None:
+            exclude_message_ids = []
+
         # Get user's Slack token
         user_svc = SlackUserService(self.db)
         user_token = await user_svc.get_raw_token(user_id)
@@ -54,35 +58,60 @@ class TriageCalibrationService:
             raise
 
         # Categorize channels by type
-        public_channels = [ch for ch in channels if not ch.get("is_private")]
+        public_channels = [ch for ch in channels if not ch.get("is_private") and not ch.get("is_im")]
         private_channels = [ch for ch in channels if ch.get("is_private")]
-
-        # Note: DM channels are harder to identify from users.conversations
-        # We'll sample from public/private channels for now
+        dm_channels = [ch for ch in channels if ch.get("is_im")]
 
         messages: list[dict[str, Any]] = []
+        collected_ids: set[str] = set(exclude_message_ids)  # Track all message IDs to avoid duplicates
+        collected_content: set[str] = set()  # Track message content to avoid near-duplicates
 
-        # Sample from public channels (2-3)
-        if public_channels:
-            sampled_public = random.sample(
-                public_channels, min(3, len(public_channels))
-            )
-            for ch in sampled_public:
-                ch_messages = await self._fetch_channel_messages(
-                    user_token, ch["id"], ch.get("name", "unknown"), "public", limit=2
-                )
-                messages.extend(ch_messages)
+        # Helper to collect messages from a list of channels
+        async def collect_from_channels(channels: list[dict], channel_type: str) -> None:
+            """Fetch messages from channels until we have enough or run out of channels."""
+            nonlocal messages, collected_ids, collected_content
 
-        # Sample from private channels (2-3)
-        if private_channels:
-            sampled_private = random.sample(
-                private_channels, min(3, len(private_channels))
-            )
-            for ch in sampled_private:
+            for ch in channels:
+                if len(messages) >= target_count:
+                    break
+
                 ch_messages = await self._fetch_channel_messages(
-                    user_token, ch["id"], ch.get("name", "unknown"), "private", limit=2
+                    user_token, ch["id"], ch.get("name", "unknown"), channel_type, limit=10, exclude_message_ids=list(collected_ids)
                 )
-                messages.extend(ch_messages)
+
+                logger.info(f"Fetched {len(ch_messages)} messages from {channel_type} channel {ch.get('name', 'unknown')}")
+
+                # Add messages we haven't seen yet
+                for msg in ch_messages:
+                    if msg["message_id"] not in collected_ids:
+                        # Check for content similarity (first 100 chars, normalized)
+                        content_key = msg['message_text'][:100].lower().strip()
+
+                        if content_key not in collected_content:
+                            messages.append(msg)
+                            collected_ids.add(msg["message_id"])
+                            collected_content.add(content_key)
+                            logger.info(f"Added message {msg['message_id']}: {msg['message_text'][:50]}...")
+                        else:
+                            logger.info(f"Skipped similar content message: {msg['message_id']}")
+                    else:
+                        logger.warning(f"Duplicate message ID detected: {msg['message_id']}")
+
+                if len(messages) >= target_count:
+                    break
+
+        # Try to get messages from each channel type
+        # DM channels
+        if dm_channels:
+            await collect_from_channels(dm_channels, "dm")
+
+        # Public channels
+        if public_channels and len(messages) < target_count:
+            await collect_from_channels(public_channels, "public")
+
+        # Private channels
+        if private_channels and len(messages) < target_count:
+            await collect_from_channels(private_channels, "private")
 
         # Shuffle and return up to target_count
         random.shuffle(messages)
@@ -95,6 +124,7 @@ class TriageCalibrationService:
         channel_name: str,
         channel_type: str,
         limit: int = 5,
+        exclude_message_ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """
         Fetch recent messages from a Slack channel.
@@ -105,10 +135,14 @@ class TriageCalibrationService:
             channel_name: Channel name for display
             channel_type: "public", "private", or "dm"
             limit: Max messages to fetch
+            exclude_message_ids: List of message IDs to exclude (format: "channel_id:ts")
 
         Returns:
             List of formatted message dicts
         """
+        if exclude_message_ids is None:
+            exclude_message_ids = []
+
         from slack_sdk.web.async_client import AsyncWebClient
 
         client = AsyncWebClient(token=token)
@@ -116,7 +150,7 @@ class TriageCalibrationService:
 
         try:
             response = await client.conversations_history(
-                channel=channel_id, limit=limit
+                channel=channel_id, limit=limit * 2  # Fetch extra to account for exclusions
             )
 
             for msg in response.get("messages", []):
@@ -128,6 +162,14 @@ class TriageCalibrationService:
                 if len(text) < 10:  # Skip very short messages
                     continue
 
+                # Create unique message ID
+                message_ts = msg["ts"]
+                message_id = f"{channel_id}:{message_ts}"
+
+                # Skip if this message was already shown
+                if message_id in exclude_message_ids:
+                    continue
+
                 # Get sender info
                 sender_id = msg.get("user", "Unknown")
                 sender_name = await self._get_user_display_name(client, sender_id)
@@ -135,7 +177,7 @@ class TriageCalibrationService:
                 # Get permalink
                 try:
                     permalink_response = await client.chat_getPermalink(
-                        channel=channel_id, message_ts=msg["ts"]
+                        channel=channel_id, message_ts=message_ts
                     )
                     permalink = permalink_response.get("permalink", "")
                 except SlackApiError:
@@ -143,12 +185,13 @@ class TriageCalibrationService:
 
                 messages.append(
                     {
+                        "message_id": message_id,
                         "message_text": text[:500],  # Truncate long messages
                         "sender_name": sender_name,
                         "sender_slack_id": sender_id,
                         "channel_name": channel_name,
                         "channel_type": channel_type,
-                        "message_ts": msg["ts"],
+                        "message_ts": message_ts,
                         "channel_id": channel_id,
                         "permalink": permalink,
                     }

@@ -39,8 +39,8 @@ Each definition should be 1-3 sentences, written as instructions for the classif
 Priority levels:
 - P0: Immediate attention required — the user gets notified right away, even during focus time
 - P1: Important and time-sensitive — delivered in the next digest/break
-- P2: Noteworthy but can wait — included in session digest
-- P3: Low priority — stored but no notification
+- P2: Notable messages — included in session digest
+- P3: Low priority — included in daily digest
 
 Respond with valid JSON only:
 {"p0_definition": "...", "p1_definition": "...", "p2_definition": "...", "p3_definition": "..."}"""
@@ -149,8 +149,8 @@ Each definition should be 1-3 sentences, written as instructions for the classif
 Priority levels:
 - P0: Immediate attention required — the user gets notified right away, even during focus time
 - P1: Important and time-sensitive — delivered in the next digest/break
-- P2: Noteworthy but can wait — included in session digest
-- P3: Low priority — stored but no notification
+- P2: Notable messages — included in summary digests
+- P3: Low priority — included in daily digest
 
 Learn from the calibration examples the user provided. Identify patterns in what they rated as each priority level.
 

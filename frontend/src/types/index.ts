@@ -998,6 +998,7 @@ export interface GenerateDefinitionsResponse {
 }
 
 export interface CalibrationMessage {
+  message_id: string
   message_text: string
   sender_name: string
   sender_slack_id: string
@@ -1009,6 +1010,7 @@ export interface CalibrationMessage {
 }
 
 export interface CalibrationRating {
+  message_id: string
   message_text: string
   sender_name: string
   channel_name: string
@@ -1022,4 +1024,8 @@ export interface CalibrateGenerateRequest {
   can_wait: string
   priority_senders?: string
   ratings: CalibrationRating[]
+}
+
+export interface SampleMessagesRequest {
+  exclude_message_ids?: string[]
 }

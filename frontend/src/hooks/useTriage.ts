@@ -323,8 +323,8 @@ export function useGenerateDefinitions() {
 
 export function useSampleCalibrationMessages() {
   return useMutation({
-    mutationFn: () =>
-      apiPost<CalibrationMessage[]>('/triage/settings/calibrate/sample-messages'),
+    mutationFn: (data?: { exclude_message_ids?: string[] }) =>
+      apiPost<CalibrationMessage[]>('/triage/settings/calibrate/sample-messages', data || {}),
   })
 }
 

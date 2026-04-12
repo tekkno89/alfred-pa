@@ -318,6 +318,7 @@ class GenerateDefinitionsResponse(BaseModel):
 class CalibrationMessage(BaseModel):
     """A Slack message sampled for priority calibration."""
 
+    message_id: str  # Unique ID: "{channel_id}:{message_ts}"
     message_text: str
     sender_name: str
     sender_slack_id: str
@@ -331,6 +332,7 @@ class CalibrationMessage(BaseModel):
 class CalibrationRating(BaseModel):
     """User's priority rating for a calibration message."""
 
+    message_id: str  # Unique ID to track which messages were rated
     message_text: str
     sender_name: str
     channel_name: str
@@ -346,3 +348,9 @@ class CalibrateGenerateRequest(BaseModel):
     can_wait: str = Field(..., min_length=1, max_length=1000)
     priority_senders: str = Field("", max_length=1000)
     ratings: list[CalibrationRating] = Field(..., min_length=1)
+
+
+class SampleMessagesRequest(BaseModel):
+    """Request to sample messages for calibration."""
+
+    exclude_message_ids: list[str] = Field(default_factory=list, max_length=100)

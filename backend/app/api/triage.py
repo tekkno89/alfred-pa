@@ -32,6 +32,7 @@ from app.schemas.triage import (
     MonitoredChannelList,
     MonitoredChannelResponse,
     MonitoredChannelUpdate,
+    SampleMessagesRequest,
     SlackChannelInfo,
     SourceExclusionCreate,
     SourceExclusionResponse,
@@ -863,14 +864,18 @@ async def generate_definitions(
 async def sample_calibration_messages(
     current_user: CurrentUser,
     db: DbSession,
+    data: SampleMessagesRequest | None = None,
 ) -> list[CalibrationMessage]:
     """Sample Slack messages for priority calibration."""
     await _check_triage_access(current_user.id, db, current_user.role)
     from app.services.triage_calibration import TriageCalibrationService
 
+    exclude_ids = data.exclude_message_ids if data else []
     calibration_svc = TriageCalibrationService(db)
     try:
-        messages = await calibration_svc.sample_user_messages(current_user.id, target_count=10)
+        messages = await calibration_svc.sample_user_messages(
+            current_user.id, exclude_message_ids=exclude_ids, target_count=10
+        )
         return [CalibrationMessage(**msg) for msg in messages]
     except ValueError as e:
         raise HTTPException(
