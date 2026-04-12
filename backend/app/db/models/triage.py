@@ -29,9 +29,7 @@ class TriageUserSettings(Base, UUIDMixin, TimestampMixin):
         String(255), nullable=True
     )
     classification_retention_days: Mapped[int] = mapped_column(Integer, default=30)
-    custom_classification_rules: Mapped[str | None] = mapped_column(
-        Text, nullable=True
-    )
+    custom_classification_rules: Mapped[str | None] = mapped_column(Text, nullable=True)
     p0_definition: Mapped[str | None] = mapped_column(Text, nullable=True)
     p1_definition: Mapped[str | None] = mapped_column(Text, nullable=True)
     p2_definition: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -39,28 +37,58 @@ class TriageUserSettings(Base, UUIDMixin, TimestampMixin):
     digest_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Summary cadence configuration
-    p1_digest_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    p1_digest_active_hours_start: Mapped[str | None] = mapped_column(String(10), nullable=True)
-    p1_digest_active_hours_end: Mapped[str | None] = mapped_column(String(10), nullable=True)
-    p1_digest_times: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
-    p1_digest_outside_hours_behavior: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    p1_digest_interval_minutes: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    p1_digest_active_hours_start: Mapped[str | None] = mapped_column(
+        String(10), nullable=True
+    )
+    p1_digest_active_hours_end: Mapped[str | None] = mapped_column(
+        String(10), nullable=True
+    )
+    p1_digest_times: Mapped[list[str] | None] = mapped_column(
+        ARRAY(String), nullable=True
+    )
+    p1_digest_outside_hours_behavior: Mapped[str | None] = mapped_column(
+        String(20), nullable=True
+    )
 
-    p2_digest_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    p2_digest_active_hours_start: Mapped[str | None] = mapped_column(String(10), nullable=True)
-    p2_digest_active_hours_end: Mapped[str | None] = mapped_column(String(10), nullable=True)
-    p2_digest_times: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
-    p2_digest_outside_hours_behavior: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    p2_digest_interval_minutes: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    p2_digest_active_hours_start: Mapped[str | None] = mapped_column(
+        String(10), nullable=True
+    )
+    p2_digest_active_hours_end: Mapped[str | None] = mapped_column(
+        String(10), nullable=True
+    )
+    p2_digest_times: Mapped[list[str] | None] = mapped_column(
+        ARRAY(String), nullable=True
+    )
+    p2_digest_outside_hours_behavior: Mapped[str | None] = mapped_column(
+        String(20), nullable=True
+    )
 
     p3_digest_time: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
     # Alert deduplication
-    alert_dedup_window_minutes: Mapped[int] = mapped_column(Integer, default=30, server_default="30")
+    alert_dedup_window_minutes: Mapped[int] = mapped_column(
+        Integer, default=30, server_default="30"
+    )
 
     # Alert enabled toggles per priority
-    p0_alerts_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
-    p1_alerts_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
-    p2_alerts_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
-    p3_alerts_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    p0_alerts_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
+    p1_alerts_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
+    p2_alerts_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
+    p3_alerts_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
 
     # Relationships
     user: Mapped["User"] = relationship("User")
@@ -94,7 +122,9 @@ class MonitoredChannel(Base, UUIDMixin, TimestampMixin):
     )
 
     def __repr__(self) -> str:
-        return f"<MonitoredChannel(user_id={self.user_id}, channel={self.channel_name})>"
+        return (
+            f"<MonitoredChannel(user_id={self.user_id}, channel={self.channel_name})>"
+        )
 
 
 class ChannelSourceExclusion(Base, UUIDMixin, TimestampMixin):
@@ -161,7 +191,12 @@ class TriageClassification(Base, UUIDMixin, TimestampMixin):
     alert_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     # Digest queue tracking
-    queued_for_digest: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    queued_for_digest: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
+
+    # Digest type: "focus" for focus session summaries, "scheduled" for scheduled digests
+    digest_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # Relationships
     user: Mapped["User"] = relationship("User")
@@ -207,7 +242,9 @@ class SlackChannelCache(Base, UUIDMixin, TimestampMixin):
 
     __tablename__ = "slack_channel_cache"
 
-    slack_channel_id: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    slack_channel_id: Mapped[str] = mapped_column(
+        String(50), unique=True, nullable=False
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     is_private: Mapped[bool] = mapped_column(Boolean, default=False)
     num_members: Mapped[int] = mapped_column(Integer, default=0)

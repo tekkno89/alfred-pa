@@ -936,12 +936,17 @@ export interface TriageClassification {
   focus_started_at: string | null
   digest_summary_id: string | null
   child_count: number | null
+  digest_type: string | null
   created_at: string | null
 }
 
 export interface MarkReviewedRequest {
   classification_ids: string[]
   reviewed: boolean
+}
+
+export interface MarkAllReviewedRequest {
+  filter: 'needs_attention' | 'focus' | 'scheduled' | 'review'
 }
 
 export interface ClassificationList {

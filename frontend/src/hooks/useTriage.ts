@@ -16,6 +16,7 @@ import type {
   TriageFeedbackCreate,
   TriageClassification,
   MarkReviewedRequest,
+  MarkAllReviewedRequest,
   SlackChannelInfo,
   TriageSessionStats,
   GenerateDefinitionsRequest,
@@ -99,7 +100,7 @@ export function useUpdateMonitoredChannel() {
 
       return { previous }
     },
-    onError: (err, variables, context) => {
+    onError: (_err, _variables, context) => {
       // Roll back on error
       if (context?.previous) {
         queryClient.setQueryData(['triage-channels'], context.previous)
@@ -221,23 +222,20 @@ export function useRefreshSlackChannels() {
 
 // --- Classifications ---
 
+export type TriageFilter = 'needs_attention' | 'p0' | 'focus' | 'scheduled' | 'review' | 'reviewed'
+
 export function useClassifications(params?: {
-  priority?: string
-  channel_id?: string
-  reviewed?: boolean
-  hide_active_digest?: boolean
+  filter?: TriageFilter
   limit?: number
   offset?: number
 }) {
+  const filter = params?.filter ?? 'needs_attention'
   const searchParams = new URLSearchParams()
-  if (params?.priority) searchParams.set('priority', params.priority)
-  if (params?.channel_id) searchParams.set('channel_id', params.channel_id)
-  if (params?.reviewed !== undefined) searchParams.set('reviewed', String(params.reviewed))
-  if (params?.hide_active_digest !== undefined) searchParams.set('hide_active_digest', String(params.hide_active_digest))
+  searchParams.set('filter', filter)
   if (params?.limit) searchParams.set('limit', String(params.limit))
   if (params?.offset) searchParams.set('offset', String(params.offset))
   const qs = searchParams.toString()
-  const path = `/triage/classifications${qs ? `?${qs}` : ''}`
+  const path = `/triage/classifications?${qs}`
 
   return useQuery({
     queryKey: ['triage-classifications', params],
@@ -280,6 +278,21 @@ export function useMarkReviewed() {
   return useMutation({
     mutationFn: (data: MarkReviewedRequest) =>
       apiPatch<{ updated: number }, MarkReviewedRequest>('/triage/classifications/reviewed', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['triage-classifications'] })
+      queryClient.invalidateQueries({ queryKey: ['triage-session-stats'] })
+    },
+  })
+}
+
+export function useMarkAllReviewed() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: MarkAllReviewedRequest) =>
+      apiPost<{ updated: number }, MarkAllReviewedRequest>(
+        '/triage/classifications/mark-all-reviewed',
+        data
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['triage-classifications'] })
       queryClient.invalidateQueries({ queryKey: ['triage-session-stats'] })

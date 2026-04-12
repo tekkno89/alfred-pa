@@ -39,13 +39,17 @@ class TriageSettingsUpdate(BaseModel):
     p1_digest_active_hours_start: str | None = Field(None, max_length=10)
     p1_digest_active_hours_end: str | None = Field(None, max_length=10)
     p1_digest_times: list[str] | None = None
-    p1_digest_outside_hours_behavior: str | None = Field(None, pattern="^(summary_next_window|skip)$")
+    p1_digest_outside_hours_behavior: str | None = Field(
+        None, pattern="^(summary_next_window|skip)$"
+    )
 
     p2_digest_interval_minutes: int | None = Field(None, ge=5, le=360)
     p2_digest_active_hours_start: str | None = Field(None, max_length=10)
     p2_digest_active_hours_end: str | None = Field(None, max_length=10)
     p2_digest_times: list[str] | None = None
-    p2_digest_outside_hours_behavior: str | None = Field(None, pattern="^(summary_next_window|skip)$")
+    p2_digest_outside_hours_behavior: str | None = Field(
+        None, pattern="^(summary_next_window|skip)$"
+    )
 
     p3_digest_time: str | None = Field(None, max_length=10)
     alert_dedup_window_minutes: int | None = Field(None, ge=1, le=120)
@@ -145,9 +149,7 @@ class KeywordRuleCreate(BaseModel):
 
     keyword_pattern: str = Field(..., min_length=1, max_length=255)
     match_type: str = Field("contains", pattern="^(exact|contains)$")
-    priority_override: str | None = Field(
-        None, pattern="^(p0|p1|p2|p3|review)$"
-    )
+    priority_override: str | None = Field(None, pattern="^(p0|p1|p2|p3|review)$")
 
 
 class KeywordRuleUpdate(BaseModel):
@@ -155,9 +157,7 @@ class KeywordRuleUpdate(BaseModel):
 
     keyword_pattern: str | None = Field(None, min_length=1, max_length=255)
     match_type: str | None = Field(None, pattern="^(exact|contains)$")
-    priority_override: str | None = Field(
-        None, pattern="^(p0|p1|p2|p3|review)$"
-    )
+    priority_override: str | None = Field(None, pattern="^(p0|p1|p2|p3|review)$")
 
 
 class KeywordRuleResponse(BaseModel):
@@ -224,6 +224,7 @@ class ClassificationResponse(BaseModel):
     focus_started_at: UTCDatetime = None
     digest_summary_id: str | None = None
     child_count: int | None = None
+    digest_type: str | None = None
     created_at: UTCDatetime = None
 
 
@@ -232,6 +233,14 @@ class MarkReviewedRequest(BaseModel):
 
     classification_ids: list[str] = Field(..., min_length=1)
     reviewed: bool = True
+
+
+class MarkAllReviewedRequest(BaseModel):
+    """Request to mark all classifications matching a filter as reviewed."""
+
+    filter: str = Field(
+        "needs_attention", pattern="^(needs_attention|focus|scheduled|review)$"
+    )
 
 
 class ClassificationList(BaseModel):
@@ -264,9 +273,7 @@ class TriageFeedbackCreate(BaseModel):
 
     classification_id: str = Field(..., min_length=1)
     was_correct: bool
-    correct_priority: str | None = Field(
-        None, pattern="^(p0|p1|p2|p3|review)$"
-    )
+    correct_priority: str | None = Field(None, pattern="^(p0|p1|p2|p3|review)$")
     feedback_text: str | None = Field(None, max_length=2000)
 
 

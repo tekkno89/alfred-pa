@@ -34,7 +34,7 @@ export function TriageCard() {
   const navigate = useNavigate()
   const { data: settings, isLoading: loadingSettings } = useTriageSettings()
   const { data: stats, isLoading: loadingStats } = useTriageSessionStats()
-  const { data: recent } = useClassifications({ limit: 5, priority: 'needs_attention', reviewed: false })
+  const { data: recent } = useClassifications({ limit: 5, filter: 'needs_attention' })
 
   const isActive = settings?.is_always_on ?? false
 

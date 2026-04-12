@@ -163,9 +163,7 @@ async def process_triage_job(
             thread_ts=thread_ts,
             message_text=message_text,
         )
-        logger.info(
-            f"Triage pipeline complete for user={user_id} channel={channel_id}"
-        )
+        logger.info(f"Triage pipeline complete for user={user_id} channel={channel_id}")
         return {"status": "processed", "user_id": user_id}
 
 
@@ -226,6 +224,7 @@ async def refresh_slack_channel_cache(ctx: dict, user_id: str | None = None) -> 
         if user_id:
             try:
                 from app.services.notifications import NotificationService
+
                 await NotificationService.publish_to_sse(
                     user_id, "slack_channels.refreshed", {"status": "error"}
                 )
@@ -243,6 +242,7 @@ async def refresh_slack_channel_cache(ctx: dict, user_id: str | None = None) -> 
     if user_id:
         try:
             from app.services.notifications import NotificationService
+
             await NotificationService.publish_to_sse(
                 user_id, "slack_channels.refreshed", {"status": "ok", "count": count}
             )
@@ -307,7 +307,9 @@ async def auto_enroll_user_channels(ctx: dict) -> dict:
                     client, "private_channel", max_retries=3
                 )
 
-                all_channel_ids = {ch["id"] for ch in public_channels + private_channels}
+                all_channel_ids = {
+                    ch["id"] for ch in public_channels + private_channels
+                }
 
                 # Get existing monitored channels
                 ch_repo = MonitoredChannelRepository(db)
@@ -394,8 +396,14 @@ async def update_user_channel_participation(ctx: dict) -> dict:
         except Exception as e:
             logger.error(f"Error updating participation for user {uid}: {e}")
 
-    logger.info(f"Updated channel participation for {updated_count}/{len(user_ids)} users")
-    return {"status": "complete", "updated_count": updated_count, "total_users": len(user_ids)}
+    logger.info(
+        f"Updated channel participation for {updated_count}/{len(user_ids)} users"
+    )
+    return {
+        "status": "complete",
+        "updated_count": updated_count,
+        "total_users": len(user_ids),
+    }
 
 
 async def update_channel_summaries(ctx: dict) -> dict:
@@ -436,6 +444,7 @@ async def send_digest(
 
     Called by scheduled jobs from DigestScheduler.
     Re-fetches messages from Slack and creates intelligent summary.
+    Creates a digest_summary record for UI display.
 
     Args:
         user_id: User ID
@@ -446,14 +455,16 @@ async def send_digest(
         Dict with status and item count
     """
     async with get_db_session() as db:
+        from app.db.repositories.triage import TriageClassificationRepository
         from app.services.alert_deduplication import AlertDeduplicationService
         from app.services.triage_delivery import TriageDeliveryService
 
         delivery = TriageDeliveryService(db)
         dedup = AlertDeduplicationService(db)
+        class_repo = TriageClassificationRepository(db)
 
-        # Get unalerted items for this priority
-        items = await delivery.get_digest_items(user_id, priority)
+        # Get items queued for scheduled digest (not part of focus session)
+        items = await class_repo.get_unalerted_scheduled_items(user_id, priority)
 
         if not items:
             logger.info(f"No {priority} items to digest for user {user_id}")
@@ -467,10 +478,21 @@ async def send_digest(
         messages = await delivery.refetch_messages_for_digest(items)
 
         # Create intelligent summary
-        summary = await delivery.create_intelligent_summary(messages, priority)
+        intelligent_summary = await delivery.create_intelligent_summary(
+            messages, priority
+        )
+
+        # Create digest_summary record for UI
+        summary_record = await delivery.create_scheduled_digest_summary(
+            user_id=user_id,
+            items=items,
+            intelligent_summary=intelligent_summary,
+        )
 
         # Send digest DM
-        await delivery.send_priority_digest_dm(user_id, summary, items, priority, digest_type)
+        await delivery.send_priority_digest_dm(
+            user_id, intelligent_summary, items, priority, digest_type
+        )
 
         # Mark items as alerted
         for item in items:
@@ -479,7 +501,8 @@ async def send_digest(
         await db.commit()
 
         logger.info(
-            f"Sent {priority} {digest_type} digest to user {user_id}: {len(items)} items"
+            f"Sent {priority} {digest_type} digest to user {user_id}: {len(items)} items, "
+            f"summary_id={summary_record.id}"
         )
         return {
             "status": "sent",
@@ -487,4 +510,5 @@ async def send_digest(
             "priority": priority,
             "digest_type": digest_type,
             "item_count": len(items),
+            "summary_id": summary_record.id,
         }

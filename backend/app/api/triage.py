@@ -27,6 +27,7 @@ from app.schemas.triage import (
     DigestResponse,
     GenerateDefinitionsRequest,
     GenerateDefinitionsResponse,
+    MarkAllReviewedRequest,
     MarkReviewedRequest,
     MonitoredChannelCreate,
     MonitoredChannelList,
@@ -256,9 +257,7 @@ async def update_monitored_channel(
     return MonitoredChannelResponse.model_validate(channel)
 
 
-@router.delete(
-    "/channels/{channel_id}", status_code=status.HTTP_204_NO_CONTENT
-)
+@router.delete("/channels/{channel_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_monitored_channel(
     channel_id: str,
     current_user: CurrentUser,
@@ -491,6 +490,7 @@ async def get_channel_members(
 
     if cached:
         import json
+
         members_data = json.loads(cached)
         return [ChannelMemberInfo(**m) for m in members_data]
 
@@ -570,6 +570,7 @@ async def get_channel_members(
 
         # Cache for 1 hour
         import json
+
         await redis_client.set(
             cache_key,
             json.dumps([m.model_dump() for m in members]),
@@ -593,38 +594,126 @@ async def get_channel_members(
 async def list_classifications(
     current_user: CurrentUser,
     db: DbSession,
-    priority: str | None = Query(None, pattern="^(p0|p1|p2|p3|review|digest_summary|needs_attention)$"),
-    channel_id: str | None = Query(None),
-    reviewed: bool | None = Query(None),
-    hide_active_digest: bool = Query(True),
+    filter: str = Query(
+        "needs_attention",
+        pattern="^(needs_attention|p0|focus|scheduled|review|reviewed)$",
+    ),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> ClassificationList:
-    """List recent classifications."""
+    """List classifications with new filter options.
+
+    Filters:
+    - needs_attention: P0 alerts + unreviewed summaries (default)
+    - p0: P0 alerts only
+    - focus: Focus session summaries
+    - scheduled: Scheduled digest summaries
+    - review: Summaries containing review items
+    - reviewed: Reviewed summaries
+    """
     await _check_triage_access(current_user.id, db, current_user.role)
     repo = TriageClassificationRepository(db)
 
-    # Translate "needs_attention" pseudo-filter into a list of priority levels
-    priority_filter: str | list[str] | None = priority
-    if priority == "needs_attention":
-        priority_filter = ["p0", "review", "digest_summary"]
+    items = []
+    total = 0
 
-    items = await repo.get_recent(
-        current_user.id,
-        limit=limit,
-        offset=offset,
-        priority_level=priority_filter,
-        channel_id=channel_id,
-        reviewed=reviewed,
-        exclude_active_session_digest=hide_active_digest,
-    )
-    total = await repo.count_filtered(
-        current_user.id,
-        priority_level=priority_filter,
-        channel_id=channel_id,
-        reviewed=reviewed,
-        exclude_active_session_digest=hide_active_digest,
-    )
+    if filter == "p0":
+        # P0 alerts only (individual items)
+        items = await repo.get_recent(
+            current_user.id,
+            limit=limit,
+            offset=offset,
+            priority_level="p0",
+        )
+        total = await repo.count_filtered(
+            current_user.id,
+            priority_level="p0",
+        )
+    elif filter == "reviewed":
+        # Reviewed summaries
+        items = await repo.get_summaries_by_filter(
+            current_user.id,
+            reviewed=True,
+            limit=limit,
+            offset=offset,
+        )
+        total = await repo.count_summaries_by_filter(
+            current_user.id,
+            reviewed=True,
+        )
+    elif filter == "focus":
+        # Focus session summaries
+        items = await repo.get_summaries_by_filter(
+            current_user.id,
+            digest_type="focus",
+            reviewed=False,
+            limit=limit,
+            offset=offset,
+        )
+        total = await repo.count_summaries_by_filter(
+            current_user.id,
+            digest_type="focus",
+            reviewed=False,
+        )
+    elif filter == "scheduled":
+        # Scheduled digest summaries
+        items = await repo.get_summaries_by_filter(
+            current_user.id,
+            digest_type="scheduled",
+            reviewed=False,
+            limit=limit,
+            offset=offset,
+        )
+        total = await repo.count_summaries_by_filter(
+            current_user.id,
+            digest_type="scheduled",
+            reviewed=False,
+        )
+    elif filter == "review":
+        # Summaries containing review items
+        items = await repo.get_summaries_by_filter(
+            current_user.id,
+            has_review=True,
+            reviewed=False,
+            limit=limit,
+            offset=offset,
+        )
+        total = await repo.count_summaries_by_filter(
+            current_user.id,
+            has_review=True,
+            reviewed=False,
+        )
+    else:
+        # needs_attention: P0 + unreviewed summaries
+        # Get P0 items
+        p0_items = await repo.get_recent(
+            current_user.id,
+            limit=limit,
+            offset=0,  # We'll paginate summaries separately
+            priority_level="p0",
+            reviewed=False,
+        )
+        # Get unreviewed summaries
+        summaries = await repo.get_summaries_by_filter(
+            current_user.id,
+            reviewed=False,
+            limit=limit,
+            offset=offset,
+        )
+        # Combine: P0 first, then summaries
+        items = p0_items + summaries
+        # Total count
+        p0_count = await repo.count_filtered(
+            current_user.id,
+            priority_level="p0",
+            reviewed=False,
+        )
+        summary_count = await repo.count_summaries_by_filter(
+            current_user.id,
+            reviewed=False,
+        )
+        total = p0_count + summary_count
+
     return ClassificationList(
         items=[ClassificationResponse.model_validate(i) for i in items],
         total=total,
@@ -649,6 +738,36 @@ async def mark_classifications_reviewed(
     return {"updated": count}
 
 
+@router.post("/classifications/mark-all-reviewed")
+async def mark_all_classifications_reviewed(
+    data: MarkAllReviewedRequest,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> dict:
+    """Mark all classifications matching a filter as reviewed."""
+    await _check_triage_access(current_user.id, db, current_user.role)
+    repo = TriageClassificationRepository(db)
+
+    if data.filter == "needs_attention":
+        # Mark all unreviewed summaries as reviewed
+        count = await repo.mark_all_reviewed_by_filter(current_user.id)
+    elif data.filter == "focus":
+        count = await repo.mark_all_reviewed_by_filter(
+            current_user.id, digest_type="focus"
+        )
+    elif data.filter == "scheduled":
+        count = await repo.mark_all_reviewed_by_filter(
+            current_user.id, digest_type="scheduled"
+        )
+    elif data.filter == "review":
+        count = await repo.mark_all_reviewed_by_filter(current_user.id, has_review=True)
+    else:
+        count = 0
+
+    await db.commit()
+    return {"updated": count}
+
+
 @router.get(
     "/classifications/{classification_id}/digest-children",
     response_model=list[ClassificationResponse],
@@ -669,9 +788,7 @@ async def get_digest_children(
         )
     if classification.priority_level != "digest_summary":
         return []
-    children = await repo.get_digest_children(
-        classification_id, current_user.id
-    )
+    children = await repo.get_digest_children(classification_id, current_user.id)
     return [ClassificationResponse.model_validate(c) for c in children]
 
 
@@ -728,7 +845,10 @@ async def submit_feedback(
     current_user: CurrentUser,
     db: DbSession,
 ) -> dict:
-    """Submit feedback on a classification."""
+    """Submit feedback on a classification.
+
+    If correct_priority is provided, also updates the classification's priority.
+    """
     await _check_triage_access(current_user.id, db, current_user.role)
     # Verify classification exists and belongs to user
     class_repo = TriageClassificationRepository(db)
@@ -738,6 +858,8 @@ async def submit_feedback(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Classification not found",
         )
+
+    # Create feedback record
     feedback_repo = TriageFeedbackRepository(db)
     await feedback_repo.create_feedback(
         classification_id=data.classification_id,
@@ -746,6 +868,16 @@ async def submit_feedback(
         correct_priority=data.correct_priority,
         feedback_text=data.feedback_text,
     )
+
+    # Update classification priority if correct_priority provided
+    if data.correct_priority:
+        await class_repo.update_priority(
+            classification_id=data.classification_id,
+            user_id=current_user.id,
+            new_priority=data.correct_priority,
+        )
+
+    await db.commit()
     return {"status": "ok"}
 
 
@@ -761,22 +893,34 @@ async def get_session_stats(
     await _check_triage_access(current_user.id, db, current_user.role)
     repo = TriageClassificationRepository(db)
     p0 = await repo.count_filtered(
-        current_user.id, priority_level="p0", reviewed=False,
+        current_user.id,
+        priority_level="p0",
+        reviewed=False,
     )
     p1 = await repo.count_filtered(
-        current_user.id, priority_level="p1", reviewed=False,
+        current_user.id,
+        priority_level="p1",
+        reviewed=False,
     )
     p2 = await repo.count_filtered(
-        current_user.id, priority_level="p2", reviewed=False,
+        current_user.id,
+        priority_level="p2",
+        reviewed=False,
     )
     p3 = await repo.count_filtered(
-        current_user.id, priority_level="p3", reviewed=False,
+        current_user.id,
+        priority_level="p3",
+        reviewed=False,
     )
     review = await repo.count_filtered(
-        current_user.id, priority_level="review", reviewed=False,
+        current_user.id,
+        priority_level="review",
+        reviewed=False,
     )
     digest_summary = await repo.count_filtered(
-        current_user.id, priority_level="digest_summary", reviewed=False,
+        current_user.id,
+        priority_level="digest_summary",
+        reviewed=False,
     )
     return {
         "p0": p0,

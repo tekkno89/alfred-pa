@@ -51,7 +51,10 @@ class TriageDeliveryService:
 
         # Create consolidated digest summary
         summary = await self._create_digest_summary(
-            user_id, focus_session_id, focus_started_at, items,
+            user_id,
+            focus_session_id,
+            focus_started_at,
+            items,
             focus_mode=focus_mode,
         )
 
@@ -106,7 +109,10 @@ class TriageDeliveryService:
             ids = [item.id for item in unconsolidated]
             await self.class_repo.mark_surfaced_at_break(ids)
             await self._create_digest_summary(
-                user_id, focus_session_id, focus_started_at, unconsolidated,
+                user_id,
+                focus_session_id,
+                focus_started_at,
+                unconsolidated,
                 focus_mode=focus_mode,
             )
 
@@ -120,21 +126,21 @@ class TriageDeliveryService:
             try:
                 slack_service = SlackService()
                 from app.core.config import get_settings
+
                 settings = get_settings()
                 triage_url = f"{settings.frontend_url}/triage"
 
                 header = "*Focus Session Triage Digest*\n"
-                stats = (
-                    f"P1: {p1_count} | "
-                    f"P2: {p2_count}\n"
-                )
+                stats = f"P1: {p1_count} | P2: {p2_count}\n"
 
                 lines = [header, stats]
 
                 # Show P1 items (top 3 by confidence)
                 p1_items = [i for i in all_items if i.priority_level == "p1"]
                 if p1_items:
-                    sorted_p1 = sorted(p1_items, key=lambda x: (-x.confidence, x.created_at))
+                    sorted_p1 = sorted(
+                        p1_items, key=lambda x: (-x.confidence, x.created_at)
+                    )
                     top_p1 = sorted_p1[:3]
                     remaining_p1 = len(p1_items) - 3
 
@@ -150,12 +156,16 @@ class TriageDeliveryService:
                         lines.append(f"- <@{sender}>: {abstract}{link}")
 
                     if remaining_p1 > 0:
-                        lines.append(f"\n📌 {remaining_p1} more P1 messages. <{triage_url}|Check Alfred Triage>")
+                        lines.append(
+                            f"\n📌 {remaining_p1} more P1 messages. <{triage_url}|Check Alfred Triage>"
+                        )
 
                 # Show P2 items (top 3 by confidence)
                 p2_items = [i for i in all_items if i.priority_level == "p2"]
                 if p2_items:
-                    sorted_p2 = sorted(p2_items, key=lambda x: (-x.confidence, x.created_at))
+                    sorted_p2 = sorted(
+                        p2_items, key=lambda x: (-x.confidence, x.created_at)
+                    )
                     top_p2 = sorted_p2[:3]
                     remaining_p2 = len(p2_items) - 3
 
@@ -171,7 +181,9 @@ class TriageDeliveryService:
                         lines.append(f"- <@{sender}>: {abstract}{link}")
 
                     if remaining_p2 > 0:
-                        lines.append(f"\n📌 {remaining_p2} more P2 messages. <{triage_url}|Check Alfred Triage>")
+                        lines.append(
+                            f"\n📌 {remaining_p2} more P2 messages. <{triage_url}|Check Alfred Triage>"
+                        )
 
                 await slack_service.send_message(
                     channel=user.slack_user_id,
@@ -183,13 +195,16 @@ class TriageDeliveryService:
     async def _create_digest_summary(
         self,
         user_id: str,
-        focus_session_id: str,
+        focus_session_id: str | None,
         focus_started_at: datetime | None,
         items: list[TriageClassification],
         focus_mode: str | None = None,
+        digest_type: str = "focus",
+        abstract: str | None = None,
     ) -> TriageClassification:
         """Create a consolidated digest_summary row from individual digest items."""
-        abstract = f"{len(items)} noteworthy messages"
+        if not abstract:
+            abstract = f"{len(items)} noteworthy messages"
 
         summary = TriageClassification(
             user_id=user_id,
@@ -197,21 +212,23 @@ class TriageDeliveryService:
             focus_started_at=focus_started_at,
             sender_slack_id="SYSTEM",
             sender_name=None,
-            channel_id=items[0].channel_id,
+            channel_id=items[0].channel_id if items else "SYSTEM",
             channel_name=None,
-            message_ts=items[-1].message_ts,
+            message_ts=items[-1].message_ts if items else "",
             priority_level="digest_summary",
             confidence=1.0,
             classification_reason=f"Consolidated {len(items)} digest items",
             abstract=abstract,
-            classification_path=focus_mode or "simple",
+            classification_path=focus_mode or "scheduled",
             child_count=len(items),
+            digest_type=digest_type,
         )
         summary = await self.class_repo.create(summary)
 
-        # Link children to summary
-        child_ids = [item.id for item in items]
-        await self.class_repo.link_to_summary(child_ids, summary.id)
+        # Link children to summary and clear queued_for_digest
+        if items:
+            child_ids = [item.id for item in items]
+            await self.class_repo.link_to_summary(child_ids, summary.id)
 
         return summary
 
@@ -241,7 +258,9 @@ class TriageDeliveryService:
                 for item in top_items:
                     sender = item.sender_slack_id
                     link = (
-                        f" <{item.slack_permalink}|View>" if item.slack_permalink else ""
+                        f" <{item.slack_permalink}|View>"
+                        if item.slack_permalink
+                        else ""
                     )
                     abstract = item.abstract or "Message"
                     lines.append(f"- <@{sender}>: {abstract}{link}")
@@ -249,9 +268,12 @@ class TriageDeliveryService:
             # Add triage page link if there are remaining items
             if remaining_count > 0:
                 from app.core.config import get_settings
+
                 settings = get_settings()
                 triage_url = f"{settings.frontend_url}/triage"
-                lines.append(f"\n📌 {remaining_count} more messages to review. <{triage_url}|Check Alfred Triage>")
+                lines.append(
+                    f"\n📌 {remaining_count} more messages to review. <{triage_url}|Check Alfred Triage>"
+                )
 
             await slack_service.send_message(
                 channel=user.slack_user_id,
@@ -316,31 +338,35 @@ class TriageDeliveryService:
                 msg = response.get("messages", [{}])[0]
                 text = msg.get("text", "")
 
-                messages.append({
-                    "text": text,
-                    "sender_slack_id": item.sender_slack_id,
-                    "sender_name": item.sender_name,
-                    "channel_id": item.channel_id,
-                    "channel_name": item.channel_name,
-                    "message_ts": item.message_ts,
-                    "thread_ts": item.thread_ts,
-                    "permalink": item.slack_permalink,
-                })
+                messages.append(
+                    {
+                        "text": text,
+                        "sender_slack_id": item.sender_slack_id,
+                        "sender_name": item.sender_name,
+                        "channel_id": item.channel_id,
+                        "channel_name": item.channel_name,
+                        "message_ts": item.message_ts,
+                        "thread_ts": item.thread_ts,
+                        "permalink": item.slack_permalink,
+                    }
+                )
             except Exception as e:
                 logger.warning(
                     f"Failed to fetch message {item.message_ts} in {item.channel_id}: {e}"
                 )
                 # Use stored abstract as fallback
-                messages.append({
-                    "text": item.abstract or "Message unavailable",
-                    "sender_slack_id": item.sender_slack_id,
-                    "sender_name": item.sender_name,
-                    "channel_id": item.channel_id,
-                    "channel_name": item.channel_name,
-                    "message_ts": item.message_ts,
-                    "thread_ts": item.thread_ts,
-                    "permalink": item.slack_permalink,
-                })
+                messages.append(
+                    {
+                        "text": item.abstract or "Message unavailable",
+                        "sender_slack_id": item.sender_slack_id,
+                        "sender_name": item.sender_name,
+                        "channel_id": item.channel_id,
+                        "channel_name": item.channel_name,
+                        "message_ts": item.message_ts,
+                        "thread_ts": item.thread_ts,
+                        "permalink": item.slack_permalink,
+                    }
+                )
 
         return messages
 
@@ -371,7 +397,10 @@ class TriageDeliveryService:
         settings = get_settings()
         location = settings.triage_vertex_location or None
         # Use classification model for synthesis (same model, different use case)
-        provider = get_llm_provider(settings.triage_classification_model or "gemini-2.5-flash", location=location)
+        provider = get_llm_provider(
+            settings.triage_classification_model or "gemini-2.5-flash",
+            location=location,
+        )
 
         # Build message list for LLM
         message_list = []
@@ -410,8 +439,12 @@ If there are no common themes, just summarize: "You have {len(messages)} message
         except Exception as e:
             logger.exception(f"Failed to create intelligent summary: {e}")
             # Fallback: simple summary
-            senders = set(msg.get("sender_name") or msg.get("sender_slack_id") for msg in messages)
-            channels = set(msg.get("channel_name") or msg.get("channel_id") for msg in messages)
+            senders = set(
+                msg.get("sender_name") or msg.get("sender_slack_id") for msg in messages
+            )
+            channels = set(
+                msg.get("channel_name") or msg.get("channel_id") for msg in messages
+            )
             return f"You have {len(messages)} messages from {len(senders)} senders in {len(channels)} channels."
 
     async def send_priority_digest_dm(
@@ -465,16 +498,23 @@ If there are no common themes, just summarize: "You have {len(messages)} message
                 lines.append("*Top 3 messages to review:*\n")
                 for item in top_items:
                     sender = item.sender_slack_id
-                    link = f" <{item.slack_permalink}|View>" if item.slack_permalink else ""
+                    link = (
+                        f" <{item.slack_permalink}|View>"
+                        if item.slack_permalink
+                        else ""
+                    )
                     abstract = item.abstract or "Message"
                     lines.append(f"- <@{sender}>: {abstract}{link}")
 
             # Add triage page link if there are remaining items
             if remaining_count > 0:
                 from app.core.config import get_settings
+
                 settings = get_settings()
                 triage_url = f"{settings.frontend_url}/triage"
-                lines.append(f"\n📌 {remaining_count} more messages to review. <{triage_url}|Check Alfred Triage>")
+                lines.append(
+                    f"\n📌 {remaining_count} more messages to review. <{triage_url}|Check Alfred Triage>"
+                )
 
             await slack_service.send_message(
                 channel=user.slack_user_id,
@@ -482,3 +522,29 @@ If there are no common themes, just summarize: "You have {len(messages)} message
             )
         except Exception:
             logger.exception(f"Failed to send {priority} digest DM for user={user_id}")
+
+    async def create_scheduled_digest_summary(
+        self,
+        user_id: str,
+        items: list[TriageClassification],
+        intelligent_summary: str,
+    ) -> TriageClassification:
+        """Create a digest_summary record for scheduled digests.
+
+        Args:
+            user_id: User ID
+            items: List of TriageClassification items to consolidate
+            intelligent_summary: LLM-generated summary text
+
+        Returns:
+            The created digest_summary TriageClassification
+        """
+        return await self._create_digest_summary(
+            user_id=user_id,
+            focus_session_id=None,
+            focus_started_at=None,
+            items=items,
+            focus_mode=None,
+            digest_type="scheduled",
+            abstract=intelligent_summary,
+        )

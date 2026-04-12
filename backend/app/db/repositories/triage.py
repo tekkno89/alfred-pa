@@ -28,9 +28,7 @@ class TriageUserSettingsRepository(BaseRepository[TriageUserSettings]):
 
     async def get_by_user_id(self, user_id: str) -> TriageUserSettings | None:
         result = await self.db.execute(
-            select(TriageUserSettings).where(
-                TriageUserSettings.user_id == user_id
-            )
+            select(TriageUserSettings).where(TriageUserSettings.user_id == user_id)
         )
         return result.scalar_one_or_none()
 
@@ -60,9 +58,7 @@ class MonitoredChannelRepository(BaseRepository[MonitoredChannel]):
     async def get_by_user(
         self, user_id: str, active_only: bool = True
     ) -> list[MonitoredChannel]:
-        query = select(MonitoredChannel).where(
-            MonitoredChannel.user_id == user_id
-        )
+        query = select(MonitoredChannel).where(MonitoredChannel.user_id == user_id)
         if active_only:
             query = query.where(MonitoredChannel.is_active == True)  # noqa: E712
         result = await self.db.execute(query)
@@ -110,9 +106,7 @@ class ChannelSourceExclusionRepository(BaseRepository[ChannelSourceExclusion]):
     ) -> list[ChannelSourceExclusion]:
         result = await self.db.execute(
             select(ChannelSourceExclusion)
-            .where(
-                ChannelSourceExclusion.monitored_channel_id == monitored_channel_id
-            )
+            .where(ChannelSourceExclusion.monitored_channel_id == monitored_channel_id)
             .where(ChannelSourceExclusion.user_id == user_id)
         )
         return list(result.scalars().all())
@@ -201,11 +195,12 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         query = query.where(TriageClassification.user_id == user_id)
         # Hide items that have been consolidated into a digest summary,
         # unless the user is explicitly filtering by a digest-eligible level
-        show_consolidated = isinstance(priority_level, str) and priority_level in ("p1", "p2")
+        show_consolidated = isinstance(priority_level, str) and priority_level in (
+            "p1",
+            "p2",
+        )
         if not show_consolidated:
-            query = query.where(
-                TriageClassification.digest_summary_id.is_(None)
-            )
+            query = query.where(TriageClassification.digest_summary_id.is_(None))
         if priority_level:
             if isinstance(priority_level, list):
                 query = query.where(
@@ -218,13 +213,9 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         if channel_id:
             query = query.where(TriageClassification.channel_id == channel_id)
         if reviewed is True:
-            query = query.where(
-                TriageClassification.reviewed_at.isnot(None)
-            )
+            query = query.where(TriageClassification.reviewed_at.isnot(None))
         elif reviewed is False:
-            query = query.where(
-                TriageClassification.reviewed_at.is_(None)
-            )
+            query = query.where(TriageClassification.reviewed_at.is_(None))
         if exclude_active_session_digest:
             active_session_ids = select(FocusModeState.id).where(
                 FocusModeState.is_active == True  # noqa: E712
@@ -251,8 +242,12 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
             TriageClassification.created_at.desc()
         )
         query = self._apply_filters(
-            query, user_id, priority_level, channel_id,
-            reviewed, exclude_active_session_digest,
+            query,
+            user_id,
+            priority_level,
+            channel_id,
+            reviewed,
+            exclude_active_session_digest,
         )
         query = query.offset(offset).limit(limit)
         result = await self.db.execute(query)
@@ -269,15 +264,17 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         """Count classifications matching the same filters as get_recent."""
         query = select(func.count()).select_from(TriageClassification)
         query = self._apply_filters(
-            query, user_id, priority_level, channel_id,
-            reviewed, exclude_active_session_digest,
+            query,
+            user_id,
+            priority_level,
+            channel_id,
+            reviewed,
+            exclude_active_session_digest,
         )
         result = await self.db.execute(query)
         return result.scalar() or 0
 
-    async def mark_reviewed(
-        self, ids: list[str], user_id: str
-    ) -> int:
+    async def mark_reviewed(self, ids: list[str], user_id: str) -> int:
         """Mark classifications as reviewed. Returns count updated."""
         if not ids:
             return 0
@@ -290,9 +287,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         await self.db.flush()
         return result.rowcount
 
-    async def mark_unreviewed(
-        self, ids: list[str], user_id: str
-    ) -> int:
+    async def mark_unreviewed(self, ids: list[str], user_id: str) -> int:
         """Mark classifications as unreviewed. Returns count updated."""
         if not ids:
             return 0
@@ -318,13 +313,13 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         return list(result.scalars().all())
 
     async def link_to_summary(self, ids: list[str], summary_id: str) -> None:
-        """Link digest items to their summary row."""
+        """Link digest items to their summary row and clear queued_for_digest."""
         if not ids:
             return
         await self.db.execute(
             update(TriageClassification)
             .where(TriageClassification.id.in_(ids))
-            .values(digest_summary_id=summary_id)
+            .values(digest_summary_id=summary_id, queued_for_digest=False)
         )
         await self.db.flush()
 
@@ -362,6 +357,132 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
             .where(TriageClassification.queued_for_digest == True)
         )
         return result.scalar() or 0
+
+    async def get_unalerted_scheduled_items(
+        self, user_id: str, priority: str
+    ) -> list[TriageClassification]:
+        """Get items queued for scheduled digest (not part of a focus session)."""
+        result = await self.db.execute(
+            select(TriageClassification)
+            .where(TriageClassification.user_id == user_id)
+            .where(TriageClassification.priority_level == priority)
+            .where(TriageClassification.queued_for_digest == True)
+            .where(TriageClassification.focus_session_id.is_(None))
+            .order_by(TriageClassification.created_at.asc())
+        )
+        return list(result.scalars().all())
+
+    async def get_summaries_by_filter(
+        self,
+        user_id: str,
+        digest_type: str | None = None,
+        has_review: bool = False,
+        reviewed: bool | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[TriageClassification]:
+        """Get digest_summary records filtered by digest_type and review status."""
+        query = (
+            select(TriageClassification)
+            .where(TriageClassification.user_id == user_id)
+            .where(TriageClassification.priority_level == "digest_summary")
+        )
+        if digest_type:
+            query = query.where(TriageClassification.digest_type == digest_type)
+        if reviewed is True:
+            query = query.where(TriageClassification.reviewed_at.isnot(None))
+        elif reviewed is False:
+            query = query.where(TriageClassification.reviewed_at.is_(None))
+        if has_review:
+            subquery = (
+                select(TriageClassification.digest_summary_id)
+                .where(TriageClassification.user_id == user_id)
+                .where(TriageClassification.priority_level == "review")
+                .where(TriageClassification.digest_summary_id.isnot(None))
+                .distinct()
+            )
+            query = query.where(TriageClassification.id.in_(subquery))
+        query = query.order_by(TriageClassification.created_at.desc())
+        query = query.offset(offset).limit(limit)
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def count_summaries_by_filter(
+        self,
+        user_id: str,
+        digest_type: str | None = None,
+        has_review: bool = False,
+        reviewed: bool | None = None,
+    ) -> int:
+        """Count digest_summary records matching the filter."""
+        query = (
+            select(func.count())
+            .select_from(TriageClassification)
+            .where(TriageClassification.user_id == user_id)
+            .where(TriageClassification.priority_level == "digest_summary")
+        )
+        if digest_type:
+            query = query.where(TriageClassification.digest_type == digest_type)
+        if reviewed is True:
+            query = query.where(TriageClassification.reviewed_at.isnot(None))
+        elif reviewed is False:
+            query = query.where(TriageClassification.reviewed_at.is_(None))
+        if has_review:
+            subquery = (
+                select(TriageClassification.digest_summary_id)
+                .where(TriageClassification.user_id == user_id)
+                .where(TriageClassification.priority_level == "review")
+                .where(TriageClassification.digest_summary_id.isnot(None))
+                .distinct()
+            )
+            query = query.where(TriageClassification.id.in_(subquery))
+        result = await self.db.execute(query)
+        return result.scalar() or 0
+
+    async def mark_all_reviewed_by_filter(
+        self,
+        user_id: str,
+        digest_type: str | None = None,
+        has_review: bool = False,
+    ) -> int:
+        """Mark all summaries matching filter as reviewed. Returns count updated."""
+        subquery = (
+            select(TriageClassification.id)
+            .where(TriageClassification.user_id == user_id)
+            .where(TriageClassification.priority_level == "digest_summary")
+            .where(TriageClassification.reviewed_at.is_(None))
+        )
+        if digest_type:
+            subquery = subquery.where(TriageClassification.digest_type == digest_type)
+        if has_review:
+            review_subquery = (
+                select(TriageClassification.digest_summary_id)
+                .where(TriageClassification.user_id == user_id)
+                .where(TriageClassification.priority_level == "review")
+                .where(TriageClassification.digest_summary_id.isnot(None))
+                .distinct()
+            )
+            subquery = subquery.where(TriageClassification.id.in_(review_subquery))
+        result = await self.db.execute(
+            update(TriageClassification)
+            .where(TriageClassification.id.in_(subquery))
+            .values(reviewed_at=func.now())
+        )
+        await self.db.flush()
+        return result.rowcount
+
+    async def update_priority(
+        self, classification_id: str, user_id: str, new_priority: str
+    ) -> int:
+        """Update the priority level of a classification. Returns count updated."""
+        result = await self.db.execute(
+            update(TriageClassification)
+            .where(TriageClassification.id == classification_id)
+            .where(TriageClassification.user_id == user_id)
+            .values(priority_level=new_priority)
+        )
+        await self.db.flush()
+        return result.rowcount
 
 
 class SenderBehaviorModelRepository(BaseRepository[SenderBehaviorModel]):
@@ -430,9 +551,7 @@ class SlackChannelCacheRepository(BaseRepository[SlackChannelCache]):
     async def get_all(self, search: str | None = None) -> list[SlackChannelCache]:
         query = select(SlackChannelCache).order_by(SlackChannelCache.name)
         if search:
-            query = query.where(
-                SlackChannelCache.name.ilike(f"%{search}%")
-            )
+            query = query.where(SlackChannelCache.name.ilike(f"%{search}%"))
         result = await self.db.execute(query)
         return list(result.scalars().all())
 

@@ -68,7 +68,6 @@ export function ClassifierWizardModal({
     can_wait: '',
     priority_senders: '',
   })
-  const [result, setResult] = useState<GenerateDefinitionsResponse | null>(null)
   const [editedResult, setEditedResult] = useState<GenerateDefinitionsResponse | null>(null)
 
   // Calibration state
@@ -101,8 +100,8 @@ export function ClassifierWizardModal({
     if (isCalibrationStep) {
       // Check coverage
       const ratedPriorities = new Set(ratings.map(r => r.priority))
-      const allPriorities = new Set(['p0', 'p1', 'p2', 'p3'])
-      const missing = [...allPriorities].filter(p => !ratedPriorities.has(p))
+      const allPriorities = ['p0', 'p1', 'p2', 'p3'] as const
+      const missing = allPriorities.filter(p => !ratedPriorities.has(p))
 
       if (missing.length > 0 && ratings.length > 0) {
         setShowCoverageWarning(true)
@@ -130,7 +129,6 @@ export function ClassifierWizardModal({
         },
         {
           onSuccess: (data) => {
-            setResult(data)
             setEditedResult(data)
             setStep(QUESTIONS_STEPS.length + 1)
           },
@@ -140,7 +138,6 @@ export function ClassifierWizardModal({
       // Generate without calibration (traditional)
       generateDefs.mutate(answers, {
         onSuccess: (data) => {
-          setResult(data)
           setEditedResult(data)
           setStep(QUESTIONS_STEPS.length + 1)
         },
@@ -208,7 +205,6 @@ export function ClassifierWizardModal({
   const handleClose = () => {
     setStep(0)
     setAnswers({ role: '', critical_messages: '', can_wait: '', priority_senders: '' })
-    setResult(null)
     setEditedResult(null)
     setAllCalibrationMessages([])
     setCurrentPage(0)
@@ -224,7 +220,7 @@ export function ClassifierWizardModal({
     : false
 
   const ratedPriorities = new Set(ratings.filter(r => r.priority).map(r => r.priority))
-  const missingPriorities = ['p0', 'p1', 'p2', 'p3'].filter(p => !ratedPriorities.has(p))
+  const missingPriorities = (['p0', 'p1', 'p2', 'p3'] as const).filter(p => !ratedPriorities.has(p))
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -331,7 +327,7 @@ export function ClassifierWizardModal({
                 {/* Coverage status */}
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs text-muted-foreground">Priorities rated:</span>
-                  {['p0', 'p1', 'p2', 'p3'].map(p => (
+                  {(['p0', 'p1', 'p2', 'p3'] as const).map(p => (
                     <Badge
                       key={p}
                       variant={ratedPriorities.has(p) ? 'default' : 'outline'}
