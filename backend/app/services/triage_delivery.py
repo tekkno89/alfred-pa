@@ -110,7 +110,7 @@ class TriageDeliveryService:
                 focus_mode=focus_mode,
             )
 
-        p0_count = sum(1 for i in all_items if i.priority_level == "p0")
+        # P0 messages are instantly notified during focus mode and don't appear in digests
         p1_count = sum(1 for i in all_items if i.priority_level == "p1")
         p2_count = sum(1 for i in all_items if i.priority_level == "p2")
 
@@ -119,37 +119,27 @@ class TriageDeliveryService:
         if user and user.slack_user_id:
             try:
                 slack_service = SlackService()
+                from app.core.config import get_settings
+                settings = get_settings()
+                triage_url = f"{settings.frontend_url}/triage"
 
                 header = "*Focus Session Triage Digest*\n"
                 stats = (
-                    f"P0: {p0_count} | "
                     f"P1: {p1_count} | "
                     f"P2: {p2_count}\n"
                 )
 
                 lines = [header, stats]
 
-                # Show P0 items
-                p0_items = [i for i in all_items if i.priority_level == "p0"]
-                if p0_items:
-                    lines.append("\n*P0 (Urgent):*")
-                    for item in p0_items[:5]:
-                        sender = item.sender_slack_id
-                        link = (
-                            f" <{item.slack_permalink}|View>"
-                            if item.slack_permalink
-                            else ""
-                        )
-                        abstract = item.abstract or "Message"
-                        lines.append(f"- <@{sender}>: {abstract}{link}")
-                    if len(p0_items) > 5:
-                        lines.append(f"  _...and {len(p0_items) - 5} more_")
-
-                # Show P1 items
+                # Show P1 items (top 3 by confidence)
                 p1_items = [i for i in all_items if i.priority_level == "p1"]
                 if p1_items:
+                    sorted_p1 = sorted(p1_items, key=lambda x: (-x.confidence, x.created_at))
+                    top_p1 = sorted_p1[:3]
+                    remaining_p1 = len(p1_items) - 3
+
                     lines.append("\n*P1 (Important):*")
-                    for item in p1_items[:10]:
+                    for item in top_p1:
                         sender = item.sender_slack_id
                         link = (
                             f" <{item.slack_permalink}|View>"
@@ -158,14 +148,19 @@ class TriageDeliveryService:
                         )
                         abstract = item.abstract or "Message"
                         lines.append(f"- <@{sender}>: {abstract}{link}")
-                    if len(p1_items) > 10:
-                        lines.append(f"  _...and {len(p1_items) - 10} more_")
 
-                # Show P2 items
+                    if remaining_p1 > 0:
+                        lines.append(f"\n📌 {remaining_p1} more P1 messages. <{triage_url}|Check Alfred Triage>")
+
+                # Show P2 items (top 3 by confidence)
                 p2_items = [i for i in all_items if i.priority_level == "p2"]
                 if p2_items:
+                    sorted_p2 = sorted(p2_items, key=lambda x: (-x.confidence, x.created_at))
+                    top_p2 = sorted_p2[:3]
+                    remaining_p2 = len(p2_items) - 3
+
                     lines.append("\n*P2 (Notable):*")
-                    for item in p2_items[:10]:
+                    for item in top_p2:
                         sender = item.sender_slack_id
                         link = (
                             f" <{item.slack_permalink}|View>"
@@ -174,8 +169,9 @@ class TriageDeliveryService:
                         )
                         abstract = item.abstract or "Message"
                         lines.append(f"- <@{sender}>: {abstract}{link}")
-                    if len(p2_items) > 10:
-                        lines.append(f"  _...and {len(p2_items) - 10} more_")
+
+                    if remaining_p2 > 0:
+                        lines.append(f"\n📌 {remaining_p2} more P2 messages. <{triage_url}|Check Alfred Triage>")
 
                 await slack_service.send_message(
                     channel=user.slack_user_id,
@@ -233,16 +229,29 @@ class TriageDeliveryService:
         try:
             slack_service = SlackService()
             lines = [f"*{header_text}*\n"]
-            lines.append(f"You have {len(items)} message(s) to review:\n")
-            for item in items[:10]:
-                sender = item.sender_slack_id
-                link = (
-                    f" <{item.slack_permalink}|View>" if item.slack_permalink else ""
-                )
-                abstract = item.abstract or "Message"
-                lines.append(f"- <@{sender}>: {abstract}{link}")
-            if len(items) > 10:
-                lines.append(f"\n_...and {len(items) - 10} more_")
+
+            # Sort by confidence (descending), then by created_at (ascending) as tiebreaker
+            sorted_items = sorted(items, key=lambda x: (-x.confidence, x.created_at))
+            top_items = sorted_items[:3]
+            remaining_count = len(items) - 3
+
+            # Show top 3 recommended items
+            if top_items:
+                lines.append(f"*Top 3 messages to review:*\n")
+                for item in top_items:
+                    sender = item.sender_slack_id
+                    link = (
+                        f" <{item.slack_permalink}|View>" if item.slack_permalink else ""
+                    )
+                    abstract = item.abstract or "Message"
+                    lines.append(f"- <@{sender}>: {abstract}{link}")
+
+            # Add triage page link if there are remaining items
+            if remaining_count > 0:
+                from app.core.config import get_settings
+                settings = get_settings()
+                triage_url = f"{settings.frontend_url}/triage"
+                lines.append(f"\n📌 {remaining_count} more messages to review. <{triage_url}|Check Alfred Triage>")
 
             await slack_service.send_message(
                 channel=user.slack_user_id,
@@ -446,16 +455,26 @@ If there are no common themes, just summarize: "You have {len(messages)} message
             summary_line = f"{summary}\n"
             lines = [header, summary_line]
 
-            # List individual items
-            lines.append(f"You have {len(items)} message(s):\n")
-            for item in items[:20]:
-                sender = item.sender_slack_id
-                link = f" <{item.slack_permalink}|View>" if item.slack_permalink else ""
-                abstract = item.abstract or "Message"
-                lines.append(f"- <@{sender}>: {abstract}{link}")
+            # Sort by confidence (descending), then by created_at (ascending) as tiebreaker
+            sorted_items = sorted(items, key=lambda x: (-x.confidence, x.created_at))
+            top_items = sorted_items[:3]
+            remaining_count = len(items) - 3
 
-            if len(items) > 20:
-                lines.append(f"\n_...and {len(items) - 20} more_")
+            # List top 3 recommended items
+            if top_items:
+                lines.append("*Top 3 messages to review:*\n")
+                for item in top_items:
+                    sender = item.sender_slack_id
+                    link = f" <{item.slack_permalink}|View>" if item.slack_permalink else ""
+                    abstract = item.abstract or "Message"
+                    lines.append(f"- <@{sender}>: {abstract}{link}")
+
+            # Add triage page link if there are remaining items
+            if remaining_count > 0:
+                from app.core.config import get_settings
+                settings = get_settings()
+                triage_url = f"{settings.frontend_url}/triage"
+                lines.append(f"\n📌 {remaining_count} more messages to review. <{triage_url}|Check Alfred Triage>")
 
             await slack_service.send_message(
                 channel=user.slack_user_id,

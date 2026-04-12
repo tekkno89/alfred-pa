@@ -20,6 +20,8 @@ import type {
   TriageSessionStats,
   GenerateDefinitionsRequest,
   GenerateDefinitionsResponse,
+  CalibrationMessage,
+  CalibrateGenerateRequest,
 } from '@/types'
 
 // --- Settings ---
@@ -312,6 +314,25 @@ export function useGenerateDefinitions() {
     mutationFn: (data: GenerateDefinitionsRequest) =>
       apiPost<GenerateDefinitionsResponse, GenerateDefinitionsRequest>(
         '/triage/settings/generate-definitions',
+        data
+      ),
+  })
+}
+
+// --- Calibration ---
+
+export function useSampleCalibrationMessages() {
+  return useMutation({
+    mutationFn: () =>
+      apiPost<CalibrationMessage[]>('/triage/settings/calibrate/sample-messages'),
+  })
+}
+
+export function useGenerateDefinitionsFromCalibration() {
+  return useMutation({
+    mutationFn: (data: CalibrateGenerateRequest) =>
+      apiPost<GenerateDefinitionsResponse, CalibrateGenerateRequest>(
+        '/triage/settings/calibrate/generate',
         data
       ),
   })

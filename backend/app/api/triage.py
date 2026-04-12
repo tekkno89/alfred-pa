@@ -19,6 +19,8 @@ from app.db.repositories.triage import (
     TriageUserSettingsRepository,
 )
 from app.schemas.triage import (
+    CalibrationMessage,
+    CalibrateGenerateRequest,
     ChannelMemberInfo,
     ClassificationList,
     ClassificationResponse,
@@ -850,5 +852,58 @@ async def generate_definitions(
         critical_messages=data.critical_messages,
         can_wait=data.can_wait,
         priority_senders=data.priority_senders,
+    )
+    return GenerateDefinitionsResponse(**result)
+
+
+@router.post(
+    "/settings/calibrate/sample-messages",
+    response_model=list[CalibrationMessage],
+)
+async def sample_calibration_messages(
+    current_user: CurrentUser,
+    db: DbSession,
+) -> list[CalibrationMessage]:
+    """Sample Slack messages for priority calibration."""
+    await _check_triage_access(current_user.id, db, current_user.role)
+    from app.services.triage_calibration import TriageCalibrationService
+
+    calibration_svc = TriageCalibrationService(db)
+    try:
+        messages = await calibration_svc.sample_user_messages(current_user.id, target_count=10)
+        return [CalibrationMessage(**msg) for msg in messages]
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        ) from e
+    except Exception as e:
+        logger.error(f"Failed to sample messages for calibration: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to fetch messages from Slack",
+        ) from e
+
+
+@router.post(
+    "/settings/calibrate/generate",
+    response_model=GenerateDefinitionsResponse,
+)
+async def generate_definitions_from_calibration(
+    data: CalibrateGenerateRequest,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> GenerateDefinitionsResponse:
+    """Generate priority definitions from calibration data and user answers."""
+    await _check_triage_access(current_user.id, db, current_user.role)
+    from app.services.triage_wizard import TriageWizardService
+
+    wizard = TriageWizardService()
+    result = await wizard.generate_definitions_from_calibration(
+        role=data.role,
+        critical_messages=data.critical_messages,
+        can_wait=data.can_wait,
+        priority_senders=data.priority_senders,
+        ratings=[r.model_dump() for r in data.ratings],
     )
     return GenerateDefinitionsResponse(**result)

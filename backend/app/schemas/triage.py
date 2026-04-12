@@ -310,3 +310,39 @@ class GenerateDefinitionsResponse(BaseModel):
     p1_definition: str
     p2_definition: str
     p3_definition: str
+
+
+# --- Calibration ---
+
+
+class CalibrationMessage(BaseModel):
+    """A Slack message sampled for priority calibration."""
+
+    message_text: str
+    sender_name: str
+    sender_slack_id: str
+    channel_name: str
+    channel_type: str = Field(..., pattern="^(public|private|dm)$")
+    message_ts: str
+    channel_id: str
+    permalink: str | None = None
+
+
+class CalibrationRating(BaseModel):
+    """User's priority rating for a calibration message."""
+
+    message_text: str
+    sender_name: str
+    channel_name: str
+    priority: str = Field(..., pattern="^(p0|p1|p2|p3)$")
+    explanation: str | None = Field(None, max_length=500)
+
+
+class CalibrateGenerateRequest(BaseModel):
+    """Request to generate definitions from calibration data."""
+
+    role: str = Field(..., min_length=1, max_length=500)
+    critical_messages: str = Field(..., min_length=1, max_length=1000)
+    can_wait: str = Field(..., min_length=1, max_length=1000)
+    priority_senders: str = Field("", max_length=1000)
+    ratings: list[CalibrationRating] = Field(..., min_length=1)

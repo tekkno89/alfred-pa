@@ -996,3 +996,30 @@ export interface GenerateDefinitionsResponse {
   p2_definition: string
   p3_definition: string
 }
+
+export interface CalibrationMessage {
+  message_text: string
+  sender_name: string
+  sender_slack_id: string
+  channel_name: string
+  channel_type: 'public' | 'private' | 'dm'
+  message_ts: string
+  channel_id: string
+  permalink?: string
+}
+
+export interface CalibrationRating {
+  message_text: string
+  sender_name: string
+  channel_name: string
+  priority: 'p0' | 'p1' | 'p2' | 'p3'
+  explanation?: string
+}
+
+export interface CalibrateGenerateRequest {
+  role: string
+  critical_messages: string
+  can_wait: string
+  priority_senders?: string
+  ratings: CalibrationRating[]
+}
