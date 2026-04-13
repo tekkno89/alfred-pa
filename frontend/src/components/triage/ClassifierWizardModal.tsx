@@ -125,11 +125,13 @@ export function ClassifierWizardModal({
   const handleGenerate = () => {
     setShowCoverageWarning(false)
 
-    if (allRatings.length > 0) {
+    const validRatings = allRatings.filter(r => r.priority && ['p0', 'p1', 'p2', 'p3'].includes(r.priority))
+
+    if (validRatings.length > 0) {
       generateFromCalibration.mutate(
         {
           ...answers,
-          ratings: allRatings,
+          ratings: validRatings,
         },
         {
           onSuccess: (data) => {

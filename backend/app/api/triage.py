@@ -1085,12 +1085,21 @@ async def generate_definitions_from_calibration(
     await _check_triage_access(current_user.id, db, current_user.role)
     from app.services.triage_wizard import TriageWizardService
 
+    valid_priorities = {"p0", "p1", "p2", "p3"}
+    valid_ratings = [r for r in data.ratings if r.priority in valid_priorities]
+
+    if not valid_ratings:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one rated message is required",
+        )
+
     wizard = TriageWizardService()
     result = await wizard.generate_definitions_from_calibration(
         role=data.role,
         critical_messages=data.critical_messages,
         can_wait=data.can_wait,
         priority_senders=data.priority_senders,
-        ratings=[r.model_dump() for r in data.ratings],
+        ratings=[r.model_dump() for r in valid_ratings],
     )
     return GenerateDefinitionsResponse(**result)

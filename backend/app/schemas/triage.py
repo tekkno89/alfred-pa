@@ -343,7 +343,7 @@ class CalibrationRating(BaseModel):
     message_text: str
     sender_name: str
     channel_name: str
-    priority: str = Field(..., pattern="^(p0|p1|p2|p3)$")
+    priority: str = Field(..., pattern="^(p0|p1|p2|p3)?$")
     explanation: str | None = Field(None, max_length=500)
 
 
@@ -354,7 +354,7 @@ class CalibrateGenerateRequest(BaseModel):
     critical_messages: str = Field(..., min_length=1, max_length=1000)
     can_wait: str = Field(..., min_length=1, max_length=1000)
     priority_senders: str = Field("", max_length=1000)
-    ratings: list[CalibrationRating] = Field(..., min_length=1)
+    ratings: list[CalibrationRating] = Field(default_factory=list)
 
 
 class SampleMessagesRequest(BaseModel):
