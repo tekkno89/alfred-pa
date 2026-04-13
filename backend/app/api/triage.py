@@ -19,12 +19,13 @@ from app.db.repositories.triage import (
     TriageUserSettingsRepository,
 )
 from app.schemas.triage import (
-    CalibrationMessage,
     CalibrateGenerateRequest,
+    CalibrationMessage,
     ChannelMemberInfo,
     ClassificationList,
     ClassificationResponse,
     DigestResponse,
+    FetchMessageByLinkRequest,
     GenerateDefinitionsRequest,
     GenerateDefinitionsResponse,
     MarkAllReviewedRequest,
@@ -1031,6 +1032,43 @@ async def sample_calibration_messages(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Failed to fetch messages from Slack",
+        ) from e
+
+
+@router.post(
+    "/settings/calibrate/fetch-by-link",
+    response_model=CalibrationMessage,
+)
+async def fetch_message_by_link(
+    data: FetchMessageByLinkRequest,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> CalibrationMessage:
+    """Fetch a specific Slack message by permalink for manual calibration."""
+    await _check_triage_access(current_user.id, db, current_user.role)
+    from app.services.triage_calibration import TriageCalibrationService
+
+    calibration_svc = TriageCalibrationService(db)
+    try:
+        message = await calibration_svc.fetch_message_by_permalink(
+            current_user.id, data.permalink
+        )
+        if not message:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Message not found or invalid permalink format",
+            )
+        return CalibrationMessage(**message)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        ) from e
+    except Exception as e:
+        logger.error(f"Failed to fetch message by link: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to fetch message from Slack",
         ) from e
 
 

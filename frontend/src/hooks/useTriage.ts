@@ -23,6 +23,7 @@ import type {
   GenerateDefinitionsResponse,
   CalibrationMessage,
   CalibrateGenerateRequest,
+  FetchMessageByLinkRequest,
 } from '@/types'
 
 // --- Settings ---
@@ -338,6 +339,16 @@ export function useSampleCalibrationMessages() {
   return useMutation({
     mutationFn: (data?: { exclude_message_ids?: string[] }) =>
       apiPost<CalibrationMessage[]>('/triage/settings/calibrate/sample-messages', data || {}),
+  })
+}
+
+export function useFetchMessageByLink() {
+  return useMutation({
+    mutationFn: (data: FetchMessageByLinkRequest) =>
+      apiPost<CalibrationMessage, FetchMessageByLinkRequest>(
+        '/triage/settings/calibrate/fetch-by-link',
+        data
+      ),
   })
 }
 

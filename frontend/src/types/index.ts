@@ -1034,3 +1034,7 @@ export interface CalibrateGenerateRequest {
 export interface SampleMessagesRequest {
   exclude_message_ids?: string[]
 }
+
+export interface FetchMessageByLinkRequest {
+  permalink: string
+}

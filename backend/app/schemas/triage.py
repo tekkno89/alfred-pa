@@ -1,6 +1,6 @@
 """Triage system schemas for request/response validation."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated
 
 from pydantic import BaseModel, Field, PlainSerializer
@@ -10,7 +10,7 @@ def serialize_utc_datetime(dt: datetime | None) -> str | None:
     if dt is None:
         return None
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt.isoformat().replace("+00:00", "Z")
 
 
@@ -361,3 +361,9 @@ class SampleMessagesRequest(BaseModel):
     """Request to sample messages for calibration."""
 
     exclude_message_ids: list[str] = Field(default_factory=list, max_length=100)
+
+
+class FetchMessageByLinkRequest(BaseModel):
+    """Request to fetch a specific Slack message by permalink."""
+
+    permalink: str = Field(..., min_length=10, max_length=500)
