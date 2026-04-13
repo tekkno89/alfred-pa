@@ -140,7 +140,8 @@ export function TriageSettingsPage() {
 
   const channels = channelData?.channels ?? []
   const visibleChannels = useMemo(() => {
-    return showHiddenChannels ? channels : channels.filter((c) => !c.is_hidden)
+    const filtered = showHiddenChannels ? channels : channels.filter((c) => !c.is_hidden)
+    return [...filtered].sort((a, b) => a.channel_name.localeCompare(b.channel_name))
   }, [channels, showHiddenChannels])
   const hiddenCount = channels.filter((c) => c.is_hidden).length
 
@@ -317,6 +318,41 @@ export function TriageSettingsPage() {
               }}
             >
               {updateSettings.isPending ? 'Saving...' : 'Save Definitions'}
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Classification Rules */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Additional Classification Rules</CardTitle>
+          <CardDescription>
+            Add custom rules to guide how messages are classified. These are injected into the AI classifier prompt.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea
+            rows={4}
+            placeholder={`e.g. Requests to borrow items are never P0\nMessages from #random are always P3`}
+            value={customRules ?? settings?.custom_classification_rules ?? ''}
+            onChange={(e) => setCustomRules(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            Write natural-language rules, one per line. Max 2000 characters.
+          </p>
+          {hasRulesChanges && (
+            <Button
+              size="sm"
+              disabled={updateSettings.isPending}
+              onClick={() => {
+                updateSettings.mutate(
+                  { custom_classification_rules: customRules || null },
+                  { onSuccess: () => setCustomRules(null) }
+                )
+              }}
+            >
+              {updateSettings.isPending ? 'Saving...' : 'Save Rules'}
             </Button>
           )}
         </CardContent>
@@ -777,41 +813,6 @@ export function TriageSettingsPage() {
               }}
             >
               {updateSettings.isPending ? 'Saving...' : 'Save Cadence Settings'}
-            </Button>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Classification Rules */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Additional Classification Rules</CardTitle>
-          <CardDescription>
-            Add custom rules to guide how messages are classified. These are injected into the AI classifier prompt.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Textarea
-            rows={4}
-            placeholder={`e.g. Requests to borrow items are never P0\nMessages from #random are always P3`}
-            value={customRules ?? settings?.custom_classification_rules ?? ''}
-            onChange={(e) => setCustomRules(e.target.value)}
-          />
-          <p className="text-xs text-muted-foreground">
-            Write natural-language rules, one per line. Max 2000 characters.
-          </p>
-          {hasRulesChanges && (
-            <Button
-              size="sm"
-              disabled={updateSettings.isPending}
-              onClick={() => {
-                updateSettings.mutate(
-                  { custom_classification_rules: customRules || null },
-                  { onSuccess: () => setCustomRules(null) }
-                )
-              }}
-            >
-              {updateSettings.isPending ? 'Saving...' : 'Save Rules'}
             </Button>
           )}
         </CardContent>
