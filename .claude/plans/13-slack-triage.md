@@ -15,22 +15,26 @@ Alfred users frequently break focus to check Slack because they fear missing imp
 
 ### 1.2 Proposed solution
 
-Build a Slack triage system that passively monitors incoming DMs, @mentions, and user-selected channels on behalf of each Alfred user. An LLM-powered classifier evaluates every incoming message for urgency and relevance, categorizing it into one of three buckets: urgent (notify immediately), review-at-break (surface during Pomodoro breaks), or digest (summarize after focus session ends). This gives users confidence that nothing critical will slip through, reducing the compulsion to check Slack manually.
+Build a Slack triage system that passively monitors incoming DMs, @mentions, and user-selected channels on behalf of each Alfred user. An LLM-powered classifier evaluates every incoming message for urgency and relevance, categorizing it into one of four priority levels: P0 (urgent/immediate), P1 (high), P2 (medium), or P3 (low). This gives users confidence that nothing critical will slip through, reducing the compulsion to check Slack manually.
 
 ### 1.3 Scope
 
 **In scope:**
 - Slack message triage classifier (DMs to Alfred users, @mentions of Alfred users, and monitored channel messages)
-- User-configurable monitored channels with priority levels, keyword rules, and source exclusions
-- Three-tier classification: urgent, review-at-break, digest
+- User-configurable monitored channels with priority levels and per-channel triage instructions
+- Four-tier classification: P0 (urgent), P1 (high), P2 (medium), P3 (low), plus "review" for uncertain cases
+- Customizable digest cadence per priority level (intervals, active hours, specific times)
+- Per-priority alert toggles and deduplication windows
 - Post-focus session digest delivered via Alfred Slack bot DM with Slack deep links
-- Review-at-break notifications delivered via Alfred Slack bot DM, with a lightweight UI header notification
+- Scheduled digests delivered at configurable times (P1/P2 at intervals, P3 daily summary)
 - Zero message persistence — raw Slack message text is never stored in the database
 - Multi-tenant isolation — all triage state scoped per user with no cross-tenant data leakage
 - Integration with existing focus mode, Pomodoro, VIP list, and bypass notification features
 - Redis-backed job queue for triage processing using existing ARQ infrastructure
 - Comprehensive debug and test logging throughout the pipeline
 - Slack response time analytics
+- Priority calibration system with sampled messages for user rating
+- AI-powered Triage Wizard for generating custom priority definitions
 
 **Out of scope (future PRDs):**
 - Proactive investigation agent (Datadog, logs, infrastructure checks)
@@ -68,17 +72,20 @@ Slack Event (HTTP webhook)
   Route by user_id(s) → per-user triage job enqueued (ARQ/Redis)
        │
        ▼
-  Message collector (in-memory enrichment)
-       │
+  Enrichment (in-memory)
+       │ - Gather channel priority, triage instructions
+       │ - Load user's custom P0-P3 definitions
+       │ - Summarize thread/DM context for classification
+       │ - Check VIP status, focus session state
        ▼
   Triage classifier (LLM call)
        │
-       ├─ Urgent → SSE banner + notification sound in Alfred UI
-       │           + DM via Alfred Slack bot
-       ├─ Review-at-break → DM via Alfred Slack bot at next Pomodoro break
-       │                     + lightweight header notification in Alfred UI
-       └─ Digest → store classification record for post-focus summary
-                    → DM via Alfred Slack bot when focus session ends
+       ├─ P0 (urgent) → Immediate Slack DM + SSE banner + notification sound
+       │                 (deduplicated within configurable window)
+       ├─ P1 (high) → Queue for scheduled digest (configurable interval)
+       ├─ P2 (medium) → Queue for scheduled digest (configurable interval)
+       ├─ P3 (low) → Queue for daily summary
+       └─ review → Show in "Needs Attention" filter for manual review
 ```
 
 ### 2.2 Zero message persistence
@@ -333,7 +340,7 @@ The classifier is a single LLM call that receives the enriched triage payload an
 **Output:**
 ```json
 {
-  "urgency": "urgent" | "review_at_break" | "digest",
+  "priority": "p0" | "p1" | "p2" | "p3" | "review",
   "confidence": 0.0-1.0,
   "reason": "Brief explanation of classification (1-2 sentences)",
   "abstract": "One-line summary of the message for digest display"
@@ -344,6 +351,7 @@ The classifier is a single LLM call that receives the enriched triage payload an
 - The `abstract` field is what gets stored — it's the LLM's summary of the message, not the message itself. This preserves the zero-persistence guarantee while giving users useful context in the digest.
 - The `reason` field is stored for debugging and analytics. It explains *why* the classifier made this decision.
 - A cheap/fast model should be used for classification (sub-2-second response time target).
+- Priority levels P0-P3 are user-customizable via the Triage Wizard or manual settings.
 
 ### 5.2 Two classification paths
 
@@ -750,17 +758,10 @@ monitored_channels
 ├── channel_type (ENUM: public, private)
 ├── priority (ENUM: low, medium, high, critical)
 ├── is_active (BOOLEAN, default true)
+├── is_hidden (BOOLEAN, default false)
+├── triage_instructions (TEXT, NULLABLE)  -- Per-channel custom instructions
 ├── created_at (TIMESTAMP)
 └── updated_at (TIMESTAMP)
-
-channel_keyword_rules
-├── id (UUID, PK)
-├── monitored_channel_id (UUID, FK → monitored_channels)
-├── user_id (UUID, FK → users)
-├── keyword_pattern (VARCHAR)
-├── match_type (ENUM: exact, contains, semantic)
-├── urgency_override (ENUM: urgent, review_at_break, NULL)
-└── created_at (TIMESTAMP)
 
 channel_source_exclusions
 ├── id (UUID, PK)
@@ -775,31 +776,41 @@ channel_source_exclusions
 triage_classifications
 ├── id (UUID, PK)
 ├── user_id (UUID, FK → users)
-├── focus_session_id (UUID, FK → focus_sessions, NULLABLE)
+├── focus_session_id (UUID, FK → focus_mode_state, NULLABLE)
 ├── sender_slack_id (VARCHAR)
+├── sender_name (VARCHAR, NULLABLE)
 ├── channel_id (VARCHAR)
+├── channel_name (VARCHAR, NULLABLE)
 ├── message_ts (VARCHAR)
 ├── thread_ts (VARCHAR, NULLABLE)
-├── slack_permalink (VARCHAR)
-├── urgency_level (ENUM: urgent, review_at_break, digest)
+├── slack_permalink (TEXT, NULLABLE)
+├── focus_started_at (TIMESTAMP, NULLABLE)
+├── priority_level (ENUM: p0, p1, p2, p3, review, digest_summary)
 ├── confidence (FLOAT)
-├── classification_reason (TEXT)
-├── abstract (TEXT)
+├── classification_reason (TEXT, NULLABLE)
+├── abstract (TEXT, NULLABLE)
 ├── classification_path (ENUM: dm, channel)
 ├── escalated_by_sender (BOOLEAN, default false)
 ├── surfaced_at_break (BOOLEAN, default false)
-├── keyword_matches (JSONB, NULLABLE)
+├── keyword_matches (JSON, NULLABLE)
+├── reviewed_at (TIMESTAMP, NULLABLE)
+├── digest_summary_id (UUID, FK → triage_classifications, NULLABLE)
+├── child_count (INTEGER, NULLABLE)
+├── last_alerted_at (TIMESTAMP, NULLABLE)
+├── alert_count (INTEGER, default 0)
+├── queued_for_digest (BOOLEAN, default true)
+├── digest_type (VARCHAR: focus, scheduled, NULLABLE)
 └── created_at (TIMESTAMP)
 
 sender_behavior_model
 ├── id (UUID, PK)
 ├── user_id (UUID, FK → users)
 ├── sender_slack_id (VARCHAR)
-├── avg_response_time_seconds (INTEGER)
-├── response_pattern (ENUM: fast_responder, normal, slow_responder)
-├── interaction_frequency (ENUM: high, medium, low)
+├── avg_response_time_seconds (FLOAT, NULLABLE)
+├── response_pattern (ENUM: immediate, quick, normal, slow)
+├── interaction_frequency (ENUM: high, medium, low, rare)
 ├── total_interactions (INTEGER)
-├── last_computed_at (TIMESTAMP)
+├── last_computed_at (TIMESTAMP, NULLABLE)
 └── UNIQUE(user_id, sender_slack_id)
 
 triage_user_settings
@@ -808,8 +819,43 @@ triage_user_settings
 ├── is_always_on (BOOLEAN, default false)
 ├── sensitivity (ENUM: low, medium, high, default medium)
 ├── debug_mode (BOOLEAN, default false)
-├── slack_workspace_domain (VARCHAR)
+├── slack_workspace_domain (VARCHAR, NULLABLE)
 ├── classification_retention_days (INTEGER, default 30)
+├── custom_classification_rules (TEXT, NULLABLE)
+├── p0_definition (TEXT, NULLABLE)
+├── p1_definition (TEXT, NULLABLE)
+├── p2_definition (TEXT, NULLABLE)
+├── p3_definition (TEXT, NULLABLE)
+├── digest_instructions (TEXT, NULLABLE)
+│   -- P1 digest cadence
+├── p1_digest_interval_minutes (INTEGER, NULLABLE)
+├── p1_digest_active_hours_start (VARCHAR, NULLABLE)
+├── p1_digest_active_hours_end (VARCHAR, NULLABLE)
+├── p1_digest_times (ARRAY<VARCHAR>, NULLABLE)
+├── p1_digest_outside_hours_behavior (VARCHAR, NULLABLE)
+│   -- P2 digest cadence
+├── p2_digest_interval_minutes (INTEGER, NULLABLE)
+├── p2_digest_active_hours_start (VARCHAR, NULLABLE)
+├── p2_digest_active_hours_end (VARCHAR, NULLABLE)
+├── p2_digest_times (ARRAY<VARCHAR>, NULLABLE)
+├── p2_digest_outside_hours_behavior (VARCHAR, NULLABLE)
+│   -- P3 digest cadence
+├── p3_digest_time (VARCHAR, NULLABLE)
+│   -- Alert configuration
+├── alert_dedup_window_minutes (INTEGER, default 30)
+├── p0_alerts_enabled (BOOLEAN, default true)
+├── p1_alerts_enabled (BOOLEAN, default true)
+├── p2_alerts_enabled (BOOLEAN, default true)
+├── p3_alerts_enabled (BOOLEAN, default true)
+├── created_at (TIMESTAMP)
+└── updated_at (TIMESTAMP)
+
+slack_channel_cache
+├── id (UUID, PK)
+├── slack_channel_id (VARCHAR, UNIQUE)
+├── name (VARCHAR)
+├── is_private (BOOLEAN)
+├── num_members (INTEGER)
 ├── created_at (TIMESTAMP)
 └── updated_at (TIMESTAMP)
 
@@ -818,7 +864,8 @@ triage_feedback
 ├── user_id (UUID, FK → users)
 ├── classification_id (UUID, FK → triage_classifications)
 ├── was_correct (BOOLEAN)
-├── correct_urgency (ENUM: urgent, review_at_break, digest, NULLABLE)
+├── correct_priority (ENUM: p0, p1, p2, p3, review, NULLABLE)
+├── feedback_text (TEXT, NULLABLE)
 └── created_at (TIMESTAMP)
 ```
 
@@ -829,16 +876,18 @@ CREATE INDEX idx_triage_classifications_user_session
   ON triage_classifications(user_id, focus_session_id);
 CREATE INDEX idx_triage_classifications_user_created
   ON triage_classifications(user_id, created_at DESC);
+CREATE INDEX idx_triage_classifications_digest_summary
+  ON triage_classifications(digest_summary_id);
 CREATE INDEX idx_monitored_channels_user
   ON monitored_channels(user_id);
 CREATE INDEX idx_monitored_channels_slack
   ON monitored_channels(slack_channel_id);
-CREATE INDEX idx_channel_keyword_rules_channel
-  ON channel_keyword_rules(monitored_channel_id);
 CREATE INDEX idx_channel_source_exclusions_channel
   ON channel_source_exclusions(monitored_channel_id);
 CREATE INDEX idx_sender_behavior_user
   ON sender_behavior_model(user_id, sender_slack_id);
+CREATE INDEX idx_slack_channel_cache_name
+  ON slack_channel_cache(name);
 ```
 
 ### 10.3 Data retention
@@ -873,12 +922,12 @@ The retention setting is configurable by the user in the Alfred web UI under Set
 |---|---|---|
 | `GET` | `/api/triage/channels` | List monitored channels |
 | `POST` | `/api/triage/channels` | Add monitored channel |
-| `PATCH` | `/api/triage/channels/{id}` | Update channel config |
+| `PATCH` | `/api/triage/channels/{id}` | Update channel config (priority, instructions, active) |
 | `DELETE` | `/api/triage/channels/{id}` | Remove monitored channel |
-| `GET` | `/api/triage/channels/{id}/rules` | List keyword rules |
-| `POST` | `/api/triage/channels/{id}/rules` | Add keyword rule |
-| `PATCH` | `/api/triage/channels/{id}/rules/{rule_id}` | Update keyword rule |
-| `DELETE` | `/api/triage/channels/{id}/rules/{rule_id}` | Delete keyword rule |
+| `GET` | `/api/triage/channels/{id}/exclusions` | List source exclusions |
+| `POST` | `/api/triage/channels/{id}/exclusions` | Add source exclusion/inclusion |
+| `DELETE` | `/api/triage/channels/{id}/exclusions/{exclusion_id}` | Remove source exclusion/inclusion |
+| `GET` | `/api/triage/slack-channels` | List Slack channels the user is a member of |
 | `GET` | `/api/triage/channels/{id}/exclusions` | List source exclusions |
 | `POST` | `/api/triage/channels/{id}/exclusions` | Add source exclusion/inclusion |
 | `DELETE` | `/api/triage/channels/{id}/exclusions/{exclusion_id}` | Remove source exclusion/inclusion |
@@ -888,66 +937,78 @@ The retention setting is configurable by the user in the Alfred web UI under Set
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/triage/classifications` | List recent classifications (paginated) |
+| `GET` | `/api/triage/classifications` | List recent classifications (paginated, filterable by priority) |
+| `PATCH` | `/api/triage/classifications/reviewed` | Bulk mark reviewed/unreviewed |
+| `GET` | `/api/triage/classifications/{id}/digest-children` | Get digest summary children |
 | `GET` | `/api/triage/digest/{session_id}` | Get digest for a specific focus session |
-| `GET` | `/api/triage/digest/latest` | Get the most recent focus session digest |
+| `GET` | `/api/triage/digest/latest` | Get the most recent classifications as digest |
 
-### 11.4 Analytics
+### 11.4 Analytics and calibration
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/triage/analytics/response-patterns` | Sender response time data |
-| `GET` | `/api/triage/analytics/session-stats` | Per-session triage statistics |
+| `GET` | `/api/triage/analytics/session-stats` | Per-session triage statistics by priority |
 | `POST` | `/api/triage/analytics/feedback` | Submit classification accuracy feedback |
-| `POST` | `/api/triage/analytics/recompute` | Trigger behavioral model recomputation |
+| `POST` | `/api/triage/wizard/definitions` | AI-generated custom priority definitions |
+| `POST` | `/api/triage/calibration/sample` | Sample Slack messages for calibration |
+| `POST` | `/api/triage/calibration/generate` | Generate definitions from user ratings |
 
 ### 11.5 SSE event types (via existing `/api/notifications`)
 
 | Event type | Trigger | Payload |
 |---|---|---|
-| `triage.urgent` | Message classified as urgent | sender, channel, abstract, permalink, reason |
-| `triage.break_check_slack` | Pomodoro work → break transition | item count, prompt to check Slack DMs |
-| `triage.break_notification_clear` | Pomodoro break → work transition | (empty — clears header notification) |
-| `triage.status` | Periodic heartbeat during focus (configurable interval) | Queue depth, messages triaged, urgent count |
+| `triage.urgent` | Message classified as P0 | sender, channel, abstract, permalink, reason |
+| `triage.break_check_slack` | Focus break with digest items or scheduled digest ready | item count, prompt to check Slack DMs |
+| `triage.break_notification_clear` | Digest reviewed | (empty — clears header notification) |
+| `triage.debug` | Debug mode enabled | Full enrichment payload and classification reasoning |
 
 ---
 
 ## 12. Implementation phases
 
-### Phase 1: Foundation (estimated: 1–2 weeks)
+### Phase 1: Foundation ✅ Complete
 - Database migrations for all new tables
 - `TriageUserSettings` model and API
-- `MonitoredChannel`, `ChannelKeywordRule`, and `ChannelSourceExclusion` models and APIs
+- `MonitoredChannel` and `ChannelSourceExclusion` models and APIs
 - Dedicated ARQ triage queue configuration
 - Redis monitored channel set with cache invalidation
 - `alfred.triage` structured logger setup
 - Auto-detect Slack workspace domain during account linking (`team.info` API call)
 - Basic Settings UI for channel monitoring configuration and source exclusions
+- Slack channel cache for efficient channel list retrieval
 
-### Phase 2: Triage pipeline (estimated: 2–3 weeks)
+### Phase 2: Triage pipeline ✅ Complete
 - Message collector with in-memory enrichment
+- Thread context summarization for channel messages
+- DM conversation context summarization for DMs
 - Slack event handler modifications (parallel triage job enqueue, pre-filtering)
 - Bot/source exclusion filtering (global default + per-channel overrides)
 - DM triage classifier (LLM integration)
-- Channel triage classifier (keyword matching + LLM semantic classification)
-- Urgent notification delivery: Slack DM via Alfred bot + SSE banner/sound in Alfred UI
+- Channel triage classifier with per-channel instructions
+- P0 (urgent) notification delivery: Slack DM via Alfred bot + SSE banner/sound in Alfred UI
+- Alert deduplication within configurable window
 - Integration with existing focus mode bypass flow (escalated_by_sender flag)
 - Zero-persistence verification tests
 
-### Phase 3: Digest and delivery (estimated: 1–2 weeks)
-- Review-at-break queue and Pomodoro break delivery via Slack DM
-- Review-at-break header notification in Alfred UI (SSE) with auto-clear on break end
+### Phase 3: Digest and delivery ✅ Complete
+- Scheduled digest delivery with configurable cadence per priority level
+- P1/P2 digests at configurable intervals/times
+- P3 daily summary
 - Post-focus digest generation (LLM summarization) — triggered on both natural and early focus session end
 - Digest delivery via Alfred Slack bot DM (always, not optional)
 - Slack permalink generation and validation
 - Data retention job (daily cleanup based on user-configurable retention days)
+- Digest consolidation with parent-child relationships
 
-### Phase 4: Analytics and polish (estimated: 1–2 weeks)
+### Phase 4: Analytics and polish ✅ Complete
 - Sender behavioral model computation (bootstrap + daily recompute)
 - Analytics dashboard UI
 - Classification feedback mechanism
 - Debug mode implementation
-- Load testing and performance optimization
+- Priority calibration system with sampled messages
+- Triage Wizard for AI-generated priority definitions
+- Per-priority alert toggles (p0_alerts_enabled, etc.)
+- Custom priority definitions (p0_definition through p3_definition)
 - End-to-end integration test suite
 
 ---
@@ -961,3 +1022,8 @@ The retention setting is configurable by the user in the Alfred web UI under Set
 | 3 | Channel message volume limits | No backpressure threshold for initial launch. Monitor performance and add if needed in a future iteration. |
 | 4 | Digest retention | Default 30 days, configurable by the user in the UI. Stored in `triage_user_settings.classification_retention_days`. Daily cleanup job. |
 | 5 | Bot channel membership for monitoring | Not required. Alfred uses Slack user event subscriptions — the bot receives events from channels the linked Slack user is a member of. If monitoring requires the bot to be in a channel (edge case), notify the user via Alfred UI and Slack bot DM with instructions. Do not auto-join. |
+| 6 | Priority levels | Four levels: P0 (urgent), P1 (high), P2 (medium), P3 (low), plus "review" for uncertain cases. User-customizable definitions via Triage Wizard or manual settings. |
+| 7 | Keyword rules | Replaced by per-channel `triage_instructions` text field. More flexible than rigid keyword matching. |
+| 8 | Alert deduplication | Implemented via `alert_dedup_window_minutes` (default 30 min). Prevents notification spam from rapid messages in same channel/thread. |
+| 9 | Digest cadence | Configurable per priority level. P1/P2 support intervals, active hours, and specific times. P3 is daily summary only. |
+| 10 | Priority calibration | Users can sample real Slack messages and rate them P0-P3. The Triage Wizard uses these ratings to generate custom priority definitions. |

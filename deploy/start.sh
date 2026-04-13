@@ -69,6 +69,9 @@ echo "Building images..."
 cd "$PROJECT_DIR"
 docker compose -f docker-compose.prod.yml build
 
+echo "Building Claude Code sandbox image..."
+docker build -t alfred-claude-code:latest -f containers/claude-code/Dockerfile containers/claude-code/
+
 echo "Starting services..."
 docker compose -f docker-compose.prod.yml up -d
 
