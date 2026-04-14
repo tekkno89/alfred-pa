@@ -119,7 +119,7 @@ export function SettingsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="UTC">UTC</SelectItem>
-                  {TIMEZONES.filter(t => 'group' in t).map((group) => (
+                  {TIMEZONES.filter((t): t is { group: string; items: { value: string; label: string }[] } => 'items' in t).map((group) => (
                     <optgroup key={group.group} label={group.group}>
                       {group.items.map((tz) => (
                         <SelectItem key={tz.value} value={tz.value}>
