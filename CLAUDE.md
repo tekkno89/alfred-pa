@@ -88,8 +88,11 @@ cd frontend
 npm install
 npm run dev                     # Start dev server
 npm test                        # Run tests
-npm run build                   # Production build
+npm run lint                    # Run linter
+npm run build                   # Production build (includes tsc --noEmit)
 ```
+
+**After making frontend changes, run `npm run build` to catch TypeScript errors.**
 
 ## Task Tracking
 
@@ -206,6 +209,7 @@ Detailed implementation guides live in `.claude/guides/`. **You MUST read the re
 - Functional components with hooks
 - React Query for server state
 - Write tests alongside components
+- Use type predicates when filtering union types: `filter((x): x is Type => ...)`
 
 ### Testing Requirements
 - All new code requires tests
