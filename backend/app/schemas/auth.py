@@ -35,7 +35,14 @@ class UserResponse(BaseModel):
     email: str
     role: str = "user"
     slack_user_id: str | None = None
+    timezone: str | None = None
     created_at: datetime
+
+
+class UserUpdate(BaseModel):
+    """Schema for updating user profile."""
+
+    timezone: str | None = None
 
 
 class SlackLinkRequest(BaseModel):

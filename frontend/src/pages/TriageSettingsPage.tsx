@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
-import { ArrowLeft, Plus, Trash2, Hash, Lock, RefreshCw, Sparkles, Settings } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { ArrowLeft, Plus, Trash2, Hash, Lock, RefreshCw, Sparkles, Settings, Clock } from 'lucide-react'
+import { useNavigate, Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -28,6 +28,7 @@ import {
 import { useNotificationContext } from '@/components/notifications/NotificationProvider'
 import { ClassifierWizardModal } from '@/components/triage/ClassifierWizardModal'
 import { ChannelConfigModal } from '@/components/triage/ChannelConfigModal'
+import { useAuthStore } from '@/lib/auth'
 import type { MonitoredChannel, ChannelPriority } from '@/types'
 
 const DEFAULT_P0 = 'Needs immediate attention RIGHT NOW. Production incidents, emergencies, someone explicitly saying something is urgent/critical.'
@@ -37,6 +38,7 @@ const DEFAULT_P3 = 'Low priority. General chatter, memes, social messages, autom
 
 export function TriageSettingsPage() {
   const navigate = useNavigate()
+  const user = useAuthStore((state) => state.user)
   const { data: settings, isLoading: settingsLoading } = useTriageSettings()
   const updateSettings = useUpdateTriageSettings()
   const { data: channelData, isLoading: channelsLoading } = useMonitoredChannels()
@@ -406,6 +408,17 @@ export function TriageSettingsPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Clock className="h-4 w-4" />
+            <span>
+              Times are in your timezone: <strong>{user?.timezone || 'UTC'}</strong>
+              {!user?.timezone && (
+                <Link to="/settings" className="ml-2 text-primary hover:underline">
+                  Set timezone
+                </Link>
+              )}
+            </span>
+          </div>
           {!settings?.is_always_on && (
             <div className="rounded-lg bg-muted p-3 text-sm">
               <p className="font-medium">Scheduled digests require Always-On Mode to be enabled.</p>

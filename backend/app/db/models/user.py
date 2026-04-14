@@ -27,8 +27,11 @@ class User(Base, UUIDMixin, TimestampMixin):
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     oauth_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
     oauth_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    slack_user_id: Mapped[str | None] = mapped_column(String(50), unique=True, nullable=True)
+    slack_user_id: Mapped[str | None] = mapped_column(
+        String(50), unique=True, nullable=True
+    )
     role: Mapped[str] = mapped_column(String(20), nullable=False, server_default="user")
+    timezone: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Relationships
     sessions: Mapped[list["Session"]] = relationship(
@@ -41,14 +44,22 @@ class User(Base, UUIDMixin, TimestampMixin):
         "Note", back_populates="user", cascade="all, delete-orphan"
     )
     todos: Mapped[list["Todo"]] = relationship(
-        "Todo", back_populates="user", cascade="all, delete-orphan",
+        "Todo",
+        back_populates="user",
+        cascade="all, delete-orphan",
         foreign_keys="Todo.user_id",
     )
     focus_state: Mapped["FocusModeState | None"] = relationship(
-        "FocusModeState", back_populates="user", uselist=False, cascade="all, delete-orphan"
+        "FocusModeState",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
     focus_settings: Mapped["FocusSettings | None"] = relationship(
-        "FocusSettings", back_populates="user", uselist=False, cascade="all, delete-orphan"
+        "FocusSettings",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
     focus_vip_list: Mapped[list["FocusVIPList"]] = relationship(
         "FocusVIPList", back_populates="user", cascade="all, delete-orphan"

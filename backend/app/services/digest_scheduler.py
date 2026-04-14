@@ -12,6 +12,7 @@ from app.db.repositories.triage import (
     TriageClassificationRepository,
     TriageUserSettingsRepository,
 )
+from app.services.timezone import get_user_timezone, get_current_time_in_tz
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +38,9 @@ class DigestScheduler:
 
         pool = await get_redis_pool()
 
-        # Get all users with always-on triage
         settings_list = await self.settings_repo.get_all_always_on()
 
         now = datetime.utcnow()
-        current_time = now.strftime("%H:%M")
 
         logger.info(
             f"DigestScheduler running at {now.isoformat()}, "
@@ -50,51 +49,78 @@ class DigestScheduler:
 
         for settings in settings_list:
             try:
-                await self._schedule_user_digests(settings, now, current_time, pool)
+                await self._schedule_user_digests(settings, now, pool)
             except Exception:
-                logger.exception(f"Failed to schedule digests for user {settings.user_id}")
+                logger.exception(
+                    f"Failed to schedule digests for user {settings.user_id}"
+                )
 
     async def _schedule_user_digests(
-        self, settings: TriageUserSettings, now: datetime, current_time: str, pool
+        self, settings: TriageUserSettings, now: datetime, pool
     ) -> None:
         """Schedule digests for a single user."""
         user_id = settings.user_id
 
-        # Skip scheduled digests if user is in focus mode
-        # All messages will be delivered in the post-focus digest
+        user_tz = await get_user_timezone(self.db, user_id)
+        now_local = get_current_time_in_tz(user_tz)
+        current_time = now_local.strftime("%H:%M")
+
+        logger.debug(f"User {user_id} timezone: {user_tz}, local time: {current_time}")
+
         from app.services.focus import FocusModeService
 
         focus_service = FocusModeService(self.db)
         in_focus = await focus_service.is_in_focus_mode(user_id)
         if in_focus:
-            logger.debug(f"Skipping scheduled digests for user {user_id} (in focus mode)")
+            logger.debug(
+                f"Skipping scheduled digests for user {user_id} (in focus mode)"
+            )
             return
 
-        # P1 time-based digest
-        if settings.p1_alerts_enabled and settings.p1_digest_times and current_time in settings.p1_digest_times:
-            logger.info(f"Scheduling P1 time-based digest for user {user_id} at {current_time}")
+        if (
+            settings.p1_alerts_enabled
+            and settings.p1_digest_times
+            and current_time in settings.p1_digest_times
+        ):
+            logger.info(
+                f"Scheduling P1 time-based digest for user {user_id} at {current_time} ({user_tz})"
+            )
             await self._enqueue_digest(pool, user_id, "p1", "scheduled")
 
-        # P2 time-based digest
-        if settings.p2_alerts_enabled and settings.p2_digest_times and current_time in settings.p2_digest_times:
-            logger.info(f"Scheduling P2 time-based digest for user {user_id} at {current_time}")
+        if (
+            settings.p2_alerts_enabled
+            and settings.p2_digest_times
+            and current_time in settings.p2_digest_times
+        ):
+            logger.info(
+                f"Scheduling P2 time-based digest for user {user_id} at {current_time} ({user_tz})"
+            )
             await self._enqueue_digest(pool, user_id, "p2", "scheduled")
 
-        # P3 daily digest
-        if settings.p3_alerts_enabled and settings.p3_digest_time and current_time == settings.p3_digest_time:
-            logger.info(f"Scheduling P3 daily digest for user {user_id} at {current_time}")
+        if (
+            settings.p3_alerts_enabled
+            and settings.p3_digest_time
+            and current_time == settings.p3_digest_time
+        ):
+            logger.info(
+                f"Scheduling P3 daily digest for user {user_id} at {current_time} ({user_tz})"
+            )
             await self._enqueue_digest(pool, user_id, "p3", "daily")
 
         # Interval-based digests (check if next interval elapsed)
-        await self._check_interval_digests(settings, user_id, now, pool)
+        await self._check_interval_digests(settings, user_id, now, user_tz, pool)
 
     async def _check_interval_digests(
-        self, settings: TriageUserSettings, user_id: str, now: datetime, pool
+        self,
+        settings: TriageUserSettings,
+        user_id: str,
+        now: datetime,
+        user_tz: str,
+        pool,
     ) -> None:
         """Check if interval-based digest should be sent."""
         redis = await get_redis()
 
-        # P1 interval
         if settings.p1_alerts_enabled and settings.p1_digest_interval_minutes:
             await self._check_interval_for_priority(
                 redis=redis,
@@ -106,9 +132,9 @@ class DigestScheduler:
                 active_hours_end=settings.p1_digest_active_hours_end,
                 outside_hours_behavior=settings.p1_digest_outside_hours_behavior,
                 now=now,
+                user_tz=user_tz,
             )
 
-        # P2 interval
         if settings.p2_alerts_enabled and settings.p2_digest_interval_minutes:
             await self._check_interval_for_priority(
                 redis=redis,
@@ -120,6 +146,7 @@ class DigestScheduler:
                 active_hours_end=settings.p2_digest_active_hours_end,
                 outside_hours_behavior=settings.p2_digest_outside_hours_behavior,
                 now=now,
+                user_tz=user_tz,
             )
 
     async def _check_interval_for_priority(
@@ -133,10 +160,11 @@ class DigestScheduler:
         active_hours_end: str | None,
         outside_hours_behavior: str | None,
         now: datetime,
+        user_tz: str,
     ) -> None:
         """Check if interval-based digest should be sent for a specific priority."""
-        # Check if we're in active hours
-        current_time = now.strftime("%H:%M")
+        now_local = get_current_time_in_tz(user_tz)
+        current_time = now_local.strftime("%H:%M")
         is_active = True
 
         if active_hours_start and active_hours_end:
@@ -199,7 +227,9 @@ class DigestScheduler:
         self, pool, user_id: str, priority: str, digest_type: str
     ) -> None:
         """Enqueue a digest delivery job."""
-        job_id = f"digest_{priority}_{user_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M')}"
+        job_id = (
+            f"digest_{priority}_{user_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M')}"
+        )
         try:
             await pool.enqueue_job(
                 "send_digest",

@@ -21,7 +21,12 @@ export interface User {
   email: string
   role: 'admin' | 'user'
   slack_user_id?: string | null
+  timezone?: string | null
   created_at: string
+}
+
+export interface UserUpdate {
+  timezone?: string | null
 }
 
 // Slack Linking

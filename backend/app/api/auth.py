@@ -31,6 +31,7 @@ def _check_slack_reauth_required(stored_scope: str | None) -> bool:
     stored = frozenset(s.strip() for s in stored_scope.split(",") if s.strip())
     return not REQUIRED_SLACK_USER_SCOPES.issubset(stored)
 
+
 import httpx
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
@@ -49,6 +50,7 @@ from app.schemas.auth import (
     UserLogin,
     UserRegister,
     UserResponse,
+    UserUpdate,
 )
 from app.services.linking import get_linking_service
 from app.services.slack_user import SlackUserService
@@ -56,7 +58,9 @@ from app.services.slack_user import SlackUserService
 router = APIRouter()
 
 
-@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED
+)
 async def register(data: UserRegister, db: DbSession) -> TokenResponse:
     """
     Register a new user with email and password.
@@ -123,6 +127,42 @@ async def get_current_user_profile(current_user: CurrentUser) -> UserResponse:
         email=current_user.email,
         role=current_user.role,
         slack_user_id=current_user.slack_user_id,
+        timezone=current_user.timezone,
+        created_at=current_user.created_at,
+    )
+
+
+@router.patch("/me", response_model=UserResponse)
+async def update_current_user_profile(
+    data: UserUpdate,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> UserResponse:
+    """
+    Update the current authenticated user's profile.
+
+    Currently supports updating timezone.
+    """
+    user_repo = UserRepository(db)
+    update_data = data.model_dump(exclude_unset=True)
+
+    if update_data:
+        updated_user = await user_repo.update(current_user, **update_data)
+        return UserResponse(
+            id=updated_user.id,
+            email=updated_user.email,
+            role=updated_user.role,
+            slack_user_id=updated_user.slack_user_id,
+            timezone=updated_user.timezone,
+            created_at=updated_user.created_at,
+        )
+
+    return UserResponse(
+        id=current_user.id,
+        email=current_user.email,
+        role=current_user.role,
+        slack_user_id=current_user.slack_user_id,
+        timezone=current_user.timezone,
         created_at=current_user.created_at,
     )
 
@@ -206,6 +246,7 @@ async def unlink_slack_account(
 
 class SlackOAuthUrlResponse(BaseModel):
     """Response containing the Slack OAuth URL."""
+
     url: str
 
 
@@ -332,7 +373,15 @@ async def slack_oauth_callback(
             try:
                 await user_repo.link_slack(user_id, slack_user_id)
             except ValueError:
-                # Slack ID already linked to another account - ignore
+                pass
+
+        if user and not user.timezone:
+            try:
+                user_info = await slack_user_service.get_user_info(slack_user_id)
+                if user_info and user_info.get("tz"):
+                    user.timezone = user_info["tz"]
+                    await db.flush()
+            except Exception:
                 pass
 
     # Auto-detect workspace domain for triage permalink generation
@@ -356,6 +405,7 @@ async def slack_oauth_callback(
                 await db.flush()
     except Exception:
         import logging
+
         logging.getLogger(__name__).exception(
             f"Failed to auto-detect workspace domain for user={user_id}"
         )
@@ -371,6 +421,7 @@ async def slack_oauth_callback(
         await cache_repo.upsert_batch(raw_channels)
     except Exception:
         import logging
+
         logging.getLogger(__name__).exception(
             f"Failed to refresh Slack channel cache after OAuth for user={user_id}"
         )
