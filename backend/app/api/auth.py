@@ -20,6 +20,7 @@ REQUIRED_SLACK_USER_SCOPES: frozenset[str] = frozenset(
         "groups:history",
         "mpim:read",
         "mpim:history",
+        "reactions:read",
     }
 )
 

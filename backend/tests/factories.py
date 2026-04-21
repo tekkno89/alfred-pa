@@ -1,7 +1,9 @@
 import factory
 from uuid import uuid4
+from datetime import datetime, timezone
 
 from app.db.models import User, Session, Message, Memory
+from app.db.models.triage import TriageClassification
 
 
 class UserFactory(factory.Factory):
@@ -13,7 +15,9 @@ class UserFactory(factory.Factory):
     id = factory.LazyFunction(lambda: str(uuid4()))
     email = factory.Sequence(lambda n: f"user{n}@example.com")
     password_hash = factory.LazyFunction(
-        lambda: "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4.VTtYMNpGNQGK6"  # "password"
+        lambda: (
+            "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4.VTtYMNpGNQGK6"
+        )  # "password"
     )
     oauth_provider = None
     oauth_id = None
@@ -87,3 +91,41 @@ class SummaryMemoryFactory(MemoryFactory):
 
     type = "summary"
     content = factory.Sequence(lambda n: f"Conversation summary {n}")
+
+
+class TriageClassificationFactory(factory.Factory):
+    """Factory for TriageClassification model."""
+
+    class Meta:
+        model = TriageClassification
+
+    id = factory.LazyFunction(lambda: str(uuid4()))
+    user_id = factory.LazyFunction(lambda: str(uuid4()))
+    sender_slack_id = factory.Sequence(lambda n: f"U{n:08d}")
+    sender_name = factory.Sequence(lambda n: f"User {n}")
+    channel_id = factory.Sequence(lambda n: f"C{n:08d}")
+    channel_name = factory.Sequence(lambda n: f"channel-{n}")
+    message_ts = factory.LazyFunction(
+        lambda: f"{int(datetime.now(timezone.utc).timestamp())}.000001"
+    )
+    thread_ts = None
+    slack_permalink = None
+    priority_level = "p1"
+    confidence = 0.9
+    classification_path = "channel"
+    created_at = factory.LazyFunction(lambda: datetime.now(timezone.utc))
+    queued_for_digest = True
+
+
+class ThreadTriageClassificationFactory(TriageClassificationFactory):
+    """Factory for thread-based triage classifications."""
+
+    thread_ts = factory.LazyAttribute(lambda obj: obj.message_ts)
+    classification_path = "channel"
+
+
+class DMTriageClassificationFactory(TriageClassificationFactory):
+    """Factory for DM-based triage classifications."""
+
+    channel_id = factory.Sequence(lambda n: f"D{n:08d}")
+    classification_path = "dm"

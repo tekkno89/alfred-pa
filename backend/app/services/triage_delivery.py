@@ -2,6 +2,7 @@
 
 import logging
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +14,9 @@ from app.db.repositories.triage import (
 )
 from app.services.notifications import NotificationService
 from app.services.slack import SlackService
+
+if TYPE_CHECKING:
+    from app.services.digest_grouper import ConversationGroup
 
 logger = logging.getLogger(__name__)
 
@@ -548,3 +552,189 @@ If there are no common themes, just summarize: "You have {len(messages)} message
             digest_type="scheduled",
             abstract=intelligent_summary,
         )
+
+    async def prepare_conversation_digest(
+        self,
+        user_id: str,
+        user_slack_id: str,
+        items: list[TriageClassification],
+    ) -> list["ConversationGroup"]:
+        """
+        Prepare items for digest by grouping into conversations and filtering responded.
+
+        This is the main entry point for conversation-aware digest generation.
+
+        Args:
+            user_id: Alfred user ID
+            user_slack_id: User's Slack ID
+            items: List of TriageClassification items to process
+
+        Returns:
+            List of unresponded ConversationGroup objects
+        """
+        from app.services.digest_grouper import DigestGrouper
+        from app.services.digest_response_checker import DigestResponseChecker
+
+        # Step 1: Group messages into conversations
+        grouper = DigestGrouper()
+        conversations = grouper.group_messages(items)
+
+        # Step 2: Filter out conversations the user has already responded to
+        checker = DigestResponseChecker()
+        unresponded = await checker.filter_unresponded_conversations(
+            user_id, user_slack_id, conversations
+        )
+
+        return unresponded
+
+    async def create_conversation_summary(
+        self, conversation: "ConversationGroup"
+    ) -> str:
+        """
+        Create a summary for a single conversation.
+
+        Args:
+            conversation: ConversationGroup to summarize
+
+        Returns:
+            Summary string
+        """
+        from app.core.llm import LLMMessage, get_llm_provider
+        from app.core.config import get_settings
+
+        messages = conversation.messages
+        if not messages:
+            return "Empty conversation"
+
+        if len(messages) == 1:
+            return messages[0].abstract or "Message"
+
+        settings = get_settings()
+        provider = get_llm_provider(
+            settings.web_search_synthesis_model or "gemini-2.5-flash"
+        )
+
+        # Build conversation context
+        message_list = []
+        for msg in messages:
+            sender = msg.sender_name or f"<@{msg.sender_slack_id}>"
+            time_str = msg.created_at.strftime("%H:%M") if msg.created_at else ""
+            abstract = msg.abstract or "Message"
+            message_list.append(f"[{time_str}] {sender}: {abstract[:150]}")
+
+        conversation_type_label = {
+            "thread": "Thread",
+            "channel": "Channel",
+            "dm": "DM",
+        }.get(conversation.conversation_type, "Conversation")
+
+        channel_label = conversation.channel_name or conversation.channel_id
+
+        system_prompt = f"""Summarize this Slack {conversation_type_label} in #{channel_label}.
+
+Messages (chronological):
+{chr(10).join(message_list)}
+
+Create a brief summary (1-2 sentences) that:
+1. Identifies the topic
+2. Notes any action items or questions needing response
+3. Lists key participants
+
+Format: "Topic: [topic]. [Additional context if needed]."
+
+If this is a back-and-forth discussion, capture the essence without quoting.
+If there are action items, mention who needs to do what."""
+
+        try:
+            response = await provider.generate(
+                messages=[LLMMessage(role="user", content=system_prompt)],
+                temperature=0.3,
+                max_tokens=150,
+            )
+            return response.strip()
+        except Exception as e:
+            logger.warning(f"Failed to create conversation summary: {e}")
+            # Fallback
+            senders = list(conversation.senders)[:3]
+            return f"{len(messages)} messages from {', '.join(senders)}"
+
+    async def send_conversation_digest_dm(
+        self,
+        user_id: str,
+        conversations: list["ConversationGroup"],
+        priority: str,
+        digest_type: str,
+    ) -> None:
+        """
+        Send a digest DM with conversation-grouped summaries.
+
+        Args:
+            user_id: User ID
+            conversations: List of ConversationGroup objects to include
+            priority: Priority level (p1, p2, or p3)
+            digest_type: Type of digest (scheduled, interval, daily)
+        """
+        user = await self.user_repo.get(user_id)
+        if not user or not user.slack_user_id:
+            return
+
+        try:
+            slack_service = SlackService()
+
+            priority_labels = {
+                "p1": "P1 — Important",
+                "p2": "P2 — Notable",
+                "p3": "P3 — Daily Digest",
+            }
+
+            digest_type_labels = {
+                "scheduled": "Scheduled",
+                "interval": "Interval",
+                "daily": "Daily",
+            }
+
+            lines = [
+                f"*{priority_labels.get(priority, priority)} {digest_type_labels.get(digest_type, digest_type)} Digest*\n",
+                f"You have {len(conversations)} conversation{'s' if len(conversations) != 1 else ''} to review:\n",
+            ]
+
+            # Show top 5 conversations
+            for i, conv in enumerate(conversations[:5], 1):
+                channel = conv.channel_name or f"#{conv.channel_id}"
+                conv_type = "Thread" if conv.conversation_type == "thread" else "Chat"
+                msg_count = len(conv.messages)
+                participants = ", ".join(list(conv.senders)[:3])
+
+                # Get or create summary
+                summary = conv.topic or await self.create_conversation_summary(conv)
+
+                # Get link to first message
+                first_msg = min(conv.messages, key=lambda m: m.message_ts)
+                link = (
+                    f" <{first_msg.slack_permalink}|View>"
+                    if first_msg.slack_permalink
+                    else ""
+                )
+
+                lines.append(
+                    f"{i}. *{conv_type} in {channel}* ({msg_count} msgs, {participants})"
+                )
+                lines.append(f"   {summary}{link}\n")
+
+            if len(conversations) > 5:
+                from app.core.config import get_settings
+
+                settings = get_settings()
+                triage_url = f"{settings.frontend_url}/triage"
+                lines.append(
+                    f"📌 {len(conversations) - 5} more conversations. <{triage_url}|Check Alfred Triage>"
+                )
+
+            await slack_service.send_message(
+                channel=user.slack_user_id,
+                text="\n".join(lines),
+            )
+        except Exception:
+            logger.exception(
+                f"Failed to send conversation digest DM for user={user_id}"
+            )

@@ -943,6 +943,8 @@ export interface TriageClassification {
   child_count: number | null
   digest_type: string | null
   created_at: string | null
+  user_reacted_at: string | null
+  user_responded_at: string | null
 }
 
 export interface MarkReviewedRequest {

@@ -484,6 +484,36 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         await self.db.flush()
         return result.rowcount
 
+    async def mark_user_reacted(
+        self, user_id: str, channel_id: str, message_ts: str
+    ) -> int:
+        """Mark a classification as reacted by user. Returns count updated."""
+        result = await self.db.execute(
+            update(TriageClassification)
+            .where(TriageClassification.user_id == user_id)
+            .where(TriageClassification.channel_id == channel_id)
+            .where(TriageClassification.message_ts == message_ts)
+            .where(TriageClassification.user_reacted_at.is_(None))
+            .values(user_reacted_at=func.now())
+        )
+        await self.db.flush()
+        return result.rowcount
+
+    async def mark_user_responded(
+        self, user_id: str, channel_id: str, after_ts: str
+    ) -> int:
+        """Mark classifications as responded by user (message posted after ts). Returns count updated."""
+        result = await self.db.execute(
+            update(TriageClassification)
+            .where(TriageClassification.user_id == user_id)
+            .where(TriageClassification.channel_id == channel_id)
+            .where(TriageClassification.message_ts < after_ts)
+            .where(TriageClassification.user_responded_at.is_(None))
+            .values(user_responded_at=func.now())
+        )
+        await self.db.flush()
+        return result.rowcount
+
 
 class SenderBehaviorModelRepository(BaseRepository[SenderBehaviorModel]):
     """Repository for SenderBehaviorModel CRUD operations."""

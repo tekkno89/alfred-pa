@@ -56,6 +56,8 @@ function ChildMessageItem({
   const badge = PRIORITY_BADGE[item.priority_level] ?? PRIORITY_BADGE.p2
   const Icon = badge.icon
   const isReviewed = !!item.reviewed_at
+  const hasReacted = !!item.user_reacted_at
+  const hasResponded = !!item.user_responded_at
 
   return (
     <div
@@ -83,6 +85,12 @@ function ChildMessageItem({
             </span>
           )}
         </div>
+        {(hasReacted || hasResponded) && (
+          <div className="flex items-center gap-2 text-xs text-green-600 dark:text-green-400">
+            {hasReacted && <span>✓ Reacted</span>}
+            {hasResponded && <span>✓ Responded</span>}
+          </div>
+        )}
       </div>
       <div className="shrink-0 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
         {item.slack_permalink && (
@@ -95,7 +103,7 @@ function ChildMessageItem({
             <ExternalLink className="h-3.5 w-3.5" />
           </a>
         )}
-        {!isReviewed && (
+        {!isReviewed && !hasReacted && !hasResponded && (
           <Button
             variant="ghost"
             size="icon"

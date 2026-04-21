@@ -41,9 +41,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-async def _cached_slack_user_name(
-    slack_service, slack_user_id: str
-) -> str:
+async def _cached_slack_user_name(slack_service, slack_user_id: str) -> str:
     """Look up a Slack user's display name, caching in Redis for 1 day."""
     cache_key = f"slack:user_name:{slack_user_id}"
     redis_client = await get_redis()
@@ -64,9 +62,7 @@ async def _cached_slack_user_name(
     return name
 
 
-async def _cached_slack_user_timezone(
-    slack_service, slack_user_id: str
-) -> str | None:
+async def _cached_slack_user_timezone(slack_service, slack_user_id: str) -> str | None:
     """Look up a Slack user's timezone, caching in Redis for 1 hour."""
     cache_key = f"slack:user_tz:{slack_user_id}"
     redis_client = await get_redis()
@@ -83,9 +79,7 @@ async def _cached_slack_user_timezone(
     return tz
 
 
-async def _cached_slack_channel_name(
-    slack_service, channel_id: str
-) -> str:
+async def _cached_slack_channel_name(slack_service, channel_id: str) -> str:
     """Look up a Slack channel/DM name, caching in Redis for 1 day."""
     cache_key = f"slack:channel_name:{channel_id}"
     redis_client = await get_redis()
@@ -107,14 +101,18 @@ async def _cached_slack_channel_name(
     return name
 
 
-async def _has_already_replied(user_id: str, started_at: datetime, sender_slack_id: str) -> bool:
+async def _has_already_replied(
+    user_id: str, started_at: datetime, sender_slack_id: str
+) -> bool:
     """Check if we've already sent a focus auto-reply to this sender during this session."""
     redis_client = await get_redis()
     key = f"focus:replied:{user_id}:{int(started_at.timestamp())}"
     return await redis_client.sismember(key, sender_slack_id)
 
 
-async def _mark_replied(user_id: str, started_at: datetime, sender_slack_id: str) -> None:
+async def _mark_replied(
+    user_id: str, started_at: datetime, sender_slack_id: str
+) -> None:
     """Record that we sent a focus auto-reply to this sender during this session."""
     redis_client = await get_redis()
     key = f"focus:replied:{user_id}:{int(started_at.timestamp())}"
@@ -254,23 +252,78 @@ async def handle_slack_events(
         authorizations = payload.get("authorizations", [])
 
         # Process in background to respond quickly to Slack
-        background_tasks.add_task(process_message_event_background, event, authorizations)
+        background_tasks.add_task(process_event_background, event, authorizations)
 
     return {"ok": True}
 
 
-async def process_message_event_background(
+async def process_event_background(
     event: dict[str, Any],
     authorizations: list[dict[str, Any]] | None = None,
 ) -> None:
-    """Process Slack message event in background with its own DB session."""
-    logger.info(f"Background task started for event in channel {event.get('channel')}")
-    # Get a fresh database session for background processing
+    """Process Slack event in background with its own DB session."""
+    event_type = event.get("type")
+    logger.info(f"Background task started for event type={event_type}")
+
     async for db in get_db():
         try:
-            await handle_message_event(event, db, authorizations)
+            if event_type in ("message", "app_mention"):
+                await handle_message_event(event, db, authorizations)
+            elif event_type == "reaction_added":
+                await handle_reaction_added_event(event, db, authorizations)
+            else:
+                logger.debug(f"Unhandled event type: {event_type}")
         except Exception as e:
-            logger.error(f"Error in background Slack event processing: {e}", exc_info=True)
+            logger.error(
+                f"Error in background Slack event processing: {e}", exc_info=True
+            )
+
+
+async def handle_reaction_added_event(
+    event: dict[str, Any],
+    db,
+    authorizations: list[dict[str, Any]] | None = None,
+) -> None:
+    """
+    Handle reaction_added events from Slack.
+
+    When the Alfred user reacts to a message, mark the classification as read.
+    """
+    reacting_user = event.get("user")
+    item = event.get("item", {})
+    item_type = item.get("type")
+
+    if item_type != "message":
+        return
+
+    channel_id = item.get("channel")
+    message_ts = item.get("ts")
+
+    if not channel_id or not message_ts:
+        return
+
+    from app.db.repositories import UserRepository
+    from app.db.repositories.triage import TriageClassificationRepository
+
+    user_repo = UserRepository(db)
+    user = await user_repo.get_by_slack_id(reacting_user)
+
+    if not user:
+        logger.debug(f"Reaction from non-Alfred user: {reacting_user}")
+        return
+
+    classification_repo = TriageClassificationRepository(db)
+    updated = await classification_repo.mark_user_reacted(
+        user_id=user.id,
+        channel_id=channel_id,
+        message_ts=message_ts,
+    )
+
+    if updated > 0:
+        logger.info(
+            f"Marked {updated} classification(s) as reacted by user {user.id} "
+            f"in channel {channel_id}"
+        )
 
 
 async def handle_message_event(
@@ -288,7 +341,9 @@ async def handle_message_event(
 
     # Only handle message events (not bot messages, message changes, etc.)
     if event_type not in ("message", "app_mention"):
-        logger.debug(f"[DROP] Unsupported event type={event_type}, channel={event.get('channel')}")
+        logger.debug(
+            f"[DROP] Unsupported event type={event_type}, channel={event.get('channel')}"
+        )
         return
 
     # Ignore bot messages to prevent loops
@@ -376,7 +431,9 @@ async def handle_message_event(
             f"[ALFRED DM] Message to Alfred from sender={sender_slack_id} ({sender_name}) "
             f"in channel={channel_id}. Routing to agent."
         )
-    elif not channel_id.startswith("D") and not _extract_mentioned_user_ids(original_text):
+    elif not channel_id.startswith("D") and not _extract_mentioned_user_ids(
+        original_text
+    ):
         # Channel message with no @mentions — nothing for focus mode to act on.
         # But still route to triage for monitored channels.
         try:
@@ -415,12 +472,22 @@ async def handle_message_event(
                     continue
 
                 if await focus_service.is_in_focus_mode(recipient_user.id):
-                    if not await focus_service.is_vip(recipient_user.id, sender_slack_id):
+                    if not await focus_service.is_vip(
+                        recipient_user.id, sender_slack_id
+                    ):
                         # Dedup: skip if we already replied to this sender this session
-                        started_at = await focus_service.get_started_at(recipient_user.id)
-                        if started_at and await _has_already_replied(recipient_user.id, started_at, sender_slack_id):
-                            sender_name = await _cached_slack_user_name(slack_service, sender_slack_id)
-                            receiver_name = await _cached_slack_user_name(slack_service, auth_user_id)
+                        started_at = await focus_service.get_started_at(
+                            recipient_user.id
+                        )
+                        if started_at and await _has_already_replied(
+                            recipient_user.id, started_at, sender_slack_id
+                        ):
+                            sender_name = await _cached_slack_user_name(
+                                slack_service, sender_slack_id
+                            )
+                            receiver_name = await _cached_slack_user_name(
+                                slack_service, auth_user_id
+                            )
                             logger.debug(
                                 f"[FOCUS DEDUP Step2] Already replied to sender={sender_slack_id} ({sender_name}) "
                                 f"about recipient={auth_user_id} ({receiver_name}) this session, skipping"
@@ -428,10 +495,18 @@ async def handle_message_event(
                             continue
 
                         # --- DEBUG: verbose logging for focus auto-reply ---
-                        sender_name = await _cached_slack_user_name(slack_service, sender_slack_id)
-                        receiver_name = await _cached_slack_user_name(slack_service, auth_user_id)
-                        channel_name = await _cached_slack_channel_name(slack_service, channel_id)
-                        custom_message = await focus_service.get_custom_message(recipient_user.id)
+                        sender_name = await _cached_slack_user_name(
+                            slack_service, sender_slack_id
+                        )
+                        receiver_name = await _cached_slack_user_name(
+                            slack_service, auth_user_id
+                        )
+                        channel_name = await _cached_slack_channel_name(
+                            slack_service, channel_id
+                        )
+                        custom_message = await focus_service.get_custom_message(
+                            recipient_user.id
+                        )
                         logger.debug(
                             f"[FOCUS REPLY Step2] "
                             f"Would DM sender={sender_slack_id} ({sender_name}) "
@@ -442,7 +517,9 @@ async def handle_message_event(
 
                         # Mark this sender as replied for dedup
                         if started_at:
-                            await _mark_replied(recipient_user.id, started_at, sender_slack_id)
+                            await _mark_replied(
+                                recipient_user.id, started_at, sender_slack_id
+                            )
 
                         await send_focus_mode_reply(
                             slack_service,
@@ -474,12 +551,22 @@ async def handle_message_event(
                 # Check if the mentioned user is in focus mode
                 if await focus_service.is_in_focus_mode(mentioned_user.id):
                     # Check if sender is VIP for this user
-                    if not await focus_service.is_vip(mentioned_user.id, sender_slack_id):
+                    if not await focus_service.is_vip(
+                        mentioned_user.id, sender_slack_id
+                    ):
                         # Dedup: skip if we already replied to this sender this session
-                        started_at = await focus_service.get_started_at(mentioned_user.id)
-                        if started_at and await _has_already_replied(mentioned_user.id, started_at, sender_slack_id):
-                            sender_name = await _cached_slack_user_name(slack_service, sender_slack_id)
-                            receiver_name = await _cached_slack_user_name(slack_service, mentioned_slack_id)
+                        started_at = await focus_service.get_started_at(
+                            mentioned_user.id
+                        )
+                        if started_at and await _has_already_replied(
+                            mentioned_user.id, started_at, sender_slack_id
+                        ):
+                            sender_name = await _cached_slack_user_name(
+                                slack_service, sender_slack_id
+                            )
+                            receiver_name = await _cached_slack_user_name(
+                                slack_service, mentioned_slack_id
+                            )
                             logger.debug(
                                 f"[FOCUS DEDUP Step3] Already replied to sender={sender_slack_id} ({sender_name}) "
                                 f"about mentioned={mentioned_slack_id} ({receiver_name}) this session, skipping"
@@ -487,10 +574,18 @@ async def handle_message_event(
                             continue
 
                         # --- DEBUG: verbose logging for focus auto-reply ---
-                        sender_name = await _cached_slack_user_name(slack_service, sender_slack_id)
-                        receiver_name = await _cached_slack_user_name(slack_service, mentioned_slack_id)
-                        channel_name = await _cached_slack_channel_name(slack_service, channel_id)
-                        custom_message = await focus_service.get_custom_message(mentioned_user.id)
+                        sender_name = await _cached_slack_user_name(
+                            slack_service, sender_slack_id
+                        )
+                        receiver_name = await _cached_slack_user_name(
+                            slack_service, mentioned_slack_id
+                        )
+                        channel_name = await _cached_slack_channel_name(
+                            slack_service, channel_id
+                        )
+                        custom_message = await focus_service.get_custom_message(
+                            mentioned_user.id
+                        )
                         logger.debug(
                             f"[FOCUS REPLY Step3] "
                             f"Would DM sender={sender_slack_id} ({sender_name}) "
@@ -501,7 +596,9 @@ async def handle_message_event(
 
                         # Mark this sender as replied for dedup
                         if started_at:
-                            await _mark_replied(mentioned_user.id, started_at, sender_slack_id)
+                            await _mark_replied(
+                                mentioned_user.id, started_at, sender_slack_id
+                            )
 
                         await send_focus_mode_reply(
                             slack_service,
@@ -535,7 +632,8 @@ async def handle_message_event(
             # In DMs this is the recipient; in channels it's just the
             # user whose app installation granted event visibility.
             auth_user_ids = [
-                a.get("user_id") for a in (authorizations or [])
+                a.get("user_id")
+                for a in (authorizations or [])
                 if not a.get("is_bot", False) and a.get("user_id") != sender_slack_id
             ]
             receiver_info = ""
@@ -620,6 +718,7 @@ async def handle_message_event(
             raw = await redis.get(thread_todo_key)
             if raw:
                 import json as _json
+
                 todo_context = _json.loads(raw)
                 logger.debug(f"Resolved thread todo context: {todo_context}")
         except Exception as e:
@@ -645,10 +744,16 @@ async def handle_message_event(
                     try:
                         redis = await get_redis()
                         import json as _json
+
                         thread_todo_key = f"thread_todo:{channel_id}:{thread_ts}"
                         await redis.set(
                             thread_todo_key,
-                            _json.dumps({"todo_id": result["todo_id"], "title": result.get("title", "")}),
+                            _json.dumps(
+                                {
+                                    "todo_id": result["todo_id"],
+                                    "title": result.get("title", ""),
+                                }
+                            ),
                             ex=7 * 86400,
                         )
                     except Exception as e:
@@ -657,10 +762,13 @@ async def handle_message_event(
 
         # Strip any raw XML tags leaked by the LLM (thinking, tool calls, etc.)
         import re
+
         xml_tags = r"(?:antml:thinking|antml:function_calls|antml:invoke|function_calls|function|invoke|thinking)"
         response = re.sub(
             rf"<{xml_tags}(?:\s[^>]*)?>.*?</{xml_tags}>\s*",
-            "", response, flags=re.DOTALL,
+            "",
+            response,
+            flags=re.DOTALL,
         ).strip()
         # Strip any remaining orphaned opening/closing tags
         response = re.sub(rf"</?{xml_tags}(?:\s[^>]*)?>", "", response).strip()
@@ -810,9 +918,7 @@ async def handle_slack_commands(
 
     if command == "/alfred-focus":
         # Process focus command in background for faster response
-        background_tasks.add_task(
-            process_focus_command_background, slack_user_id, text
-        )
+        background_tasks.add_task(process_focus_command_background, slack_user_id, text)
         return {
             "response_type": "ephemeral",
             "text": "Processing focus mode command...",
@@ -833,9 +939,7 @@ async def process_focus_command_background(slack_user_id: str, text: str) -> Non
             logger.error(f"Error processing focus command: {e}")
 
 
-async def handle_focus_command(
-    slack_user_id: str, text: str, db
-) -> dict[str, Any]:
+async def handle_focus_command(slack_user_id: str, text: str, db) -> dict[str, Any]:
     """
     Handle /alfred-focus command.
 
@@ -854,7 +958,10 @@ async def handle_focus_command(
     if not user:
         # Can't respond directly, but log it
         logger.warning(f"Focus command from unlinked Slack user: {slack_user_id}")
-        return {"response_type": "ephemeral", "text": "Please link your Slack account first."}
+        return {
+            "response_type": "ephemeral",
+            "text": "Please link your Slack account first.",
+        }
 
     focus_service = FocusModeService(db)
     notification_service = NotificationService(db)
@@ -924,7 +1031,9 @@ async def handle_focus_command(
                 "focus_started",
                 {"duration_minutes": duration_minutes},
             )
-            duration_text = f" for {duration_minutes} minutes" if duration_minutes else ""
+            duration_text = (
+                f" for {duration_minutes} minutes" if duration_minutes else ""
+            )
             await slack_service.send_message(
                 channel=slack_user_id,
                 text=f":no_bell: Focus mode enabled{duration_text}. Messages will be auto-replied.",
@@ -1134,8 +1243,13 @@ async def process_todo_action_background(
     async for db in get_db():
         try:
             await handle_todo_action(
-                action_type, signed_payload, sender_slack_id,
-                channel_id, message_ts, db, thread_ts,
+                action_type,
+                signed_payload,
+                sender_slack_id,
+                channel_id,
+                message_ts,
+                db,
+                thread_ts,
             )
         except Exception as e:
             logger.error(f"Error processing todo action: {e}", exc_info=True)
@@ -1152,8 +1266,12 @@ async def process_todo_snooze_background(
     async for db in get_db():
         try:
             await handle_todo_snooze(
-                signed_payload, sender_slack_id,
-                channel_id, message_ts, db, thread_ts,
+                signed_payload,
+                sender_slack_id,
+                channel_id,
+                message_ts,
+                db,
+                thread_ts,
             )
         except Exception as e:
             logger.error(f"Error processing todo snooze: {e}", exc_info=True)
@@ -1217,6 +1335,7 @@ async def handle_todo_action(
         # Cancel pending reminder
         try:
             from app.worker.scheduler import cancel_todo_reminder
+
             await cancel_todo_reminder(todo.id)
         except Exception:
             pass
@@ -1225,6 +1344,7 @@ async def handle_todo_action(
         next_info = ""
         if todo.recurrence_rule:
             from app.services.recurrence import RecurrenceService
+
             new_todo = await RecurrenceService.create_next_occurrence(db, todo)
             if new_todo and new_todo.due_at:
                 next_info = f"\nNext occurrence: {new_todo.due_at.strftime('%b %d at %I:%M %p')}"
@@ -1234,7 +1354,9 @@ async def handle_todo_action(
         # Notify connected frontends
         try:
             notification_service = NotificationService(db)
-            await notification_service.publish(todo.user_id, "todos_changed", {"action": "complete"})
+            await notification_service.publish(
+                todo.user_id, "todos_changed", {"action": "complete"}
+            )
         except Exception:
             pass
 
@@ -1359,11 +1481,13 @@ async def handle_todo_snooze(
         thread_todo_key = f"thread_todo:{channel_id}:{parent_ts}"
         await redis.set(
             thread_todo_key,
-            json.dumps({
-                "todo_id": str(todo.id),
-                "title": todo.title,
-                "snooze_pending": True,
-            }),
+            json.dumps(
+                {
+                    "todo_id": str(todo.id),
+                    "title": todo.title,
+                    "snooze_pending": True,
+                }
+            ),
             ex=7 * 86400,
         )
     except Exception as e:
@@ -1422,7 +1546,9 @@ async def handle_focus_bypass(
     settings_repo = FocusSettingsRepository(db)
     focus_settings = await settings_repo.get_or_create(user_id)
     if focus_settings.bypass_notification_config:
-        notify_config = BypassNotificationConfig(**focus_settings.bypass_notification_config)
+        notify_config = BypassNotificationConfig(
+            **focus_settings.bypass_notification_config
+        )
     else:
         notify_config = BypassNotificationConfig()
 
@@ -1497,9 +1623,7 @@ async def process_coding_action_background(
             elif action_type == "request_revision":
                 # For revision from Slack, create with a default description
                 # (a proper flow would use a modal, but this is a simple fallback)
-                await service.request_revision(
-                    job_id, "Changes requested from Slack"
-                )
+                await service.request_revision(job_id, "Changes requested from Slack")
             else:
                 logger.warning(f"Unknown coding action: {action_type}")
 
