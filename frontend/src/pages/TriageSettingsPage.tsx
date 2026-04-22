@@ -772,9 +772,10 @@ export function TriageSettingsPage() {
                     const val = parseInt(p1Interval, 10)
                     if (val >= 5 && val <= 180) payload.p1_digest_interval_minutes = val
                   }
-                  if (p1ActiveHoursStart !== null) payload.p1_digest_active_hours_start = p1ActiveHoursStart
-                  if (p1ActiveHoursEnd !== null) payload.p1_digest_active_hours_end = p1ActiveHoursEnd
-                  if (p1OutsideHoursBehavior !== null) payload.p1_digest_outside_hours_behavior = p1OutsideHoursBehavior
+                  // Always save active hours values (use displayed defaults if not set)
+                  payload.p1_digest_active_hours_start = p1ActiveHoursStart ?? settings?.p1_digest_active_hours_start ?? '09:00'
+                  payload.p1_digest_active_hours_end = p1ActiveHoursEnd ?? settings?.p1_digest_active_hours_end ?? '18:00'
+                  payload.p1_digest_outside_hours_behavior = p1OutsideHoursBehavior ?? settings?.p1_digest_outside_hours_behavior ?? 'skip'
                   payload.p1_digest_times = null
                 } else if (p1Mode === 'scheduled' && p1Times !== null) {
                   payload.p1_digest_times = p1Times.length > 0 ? p1Times : null
@@ -789,9 +790,10 @@ export function TriageSettingsPage() {
                     const val = parseInt(p2Interval, 10)
                     if (val >= 5 && val <= 360) payload.p2_digest_interval_minutes = val
                   }
-                  if (p2ActiveHoursStart !== null) payload.p2_digest_active_hours_start = p2ActiveHoursStart
-                  if (p2ActiveHoursEnd !== null) payload.p2_digest_active_hours_end = p2ActiveHoursEnd
-                  if (p2OutsideHoursBehavior !== null) payload.p2_digest_outside_hours_behavior = p2OutsideHoursBehavior
+                  // Always save active hours values (use displayed defaults if not set)
+                  payload.p2_digest_active_hours_start = p2ActiveHoursStart ?? settings?.p2_digest_active_hours_start ?? '09:00'
+                  payload.p2_digest_active_hours_end = p2ActiveHoursEnd ?? settings?.p2_digest_active_hours_end ?? '18:00'
+                  payload.p2_digest_outside_hours_behavior = p2OutsideHoursBehavior ?? settings?.p2_digest_outside_hours_behavior ?? 'skip'
                   payload.p2_digest_times = null
                 } else if (p2Mode === 'scheduled' && p2Times !== null) {
                   payload.p2_digest_times = p2Times.length > 0 ? p2Times : null
