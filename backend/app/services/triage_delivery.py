@@ -274,21 +274,15 @@ class TriageDeliveryService:
 
             # Sort by confidence (descending), then by created_at (ascending) as tiebreaker
             sorted_items = sorted(items, key=lambda x: (-x.confidence, x.created_at))
-            top_items = sorted_items[:3]
-            remaining_count = len(items) - 3
+            top_items = sorted_items[:5]
+            remaining_count = len(items) - 5
 
-            # Show top 3 recommended items
-            if top_items:
-                lines.append(f"*Top 3 messages to review:*\n")
-                for item in top_items:
-                    sender = item.sender_slack_id
-                    link = (
-                        f" <{item.slack_permalink}|View>"
-                        if item.slack_permalink
-                        else ""
-                    )
-                    abstract = item.abstract or "Message"
-                    lines.append(f"- <@{sender}>: {abstract}{link}")
+            # Show top 5 items with sender names
+            for i, item in enumerate(top_items, 1):
+                sender = item.sender_name or item.sender_slack_id
+                link = f" <{item.slack_permalink}|View>" if item.slack_permalink else ""
+                abstract = item.abstract or "Message"
+                lines.append(f"{i}. {sender}: {abstract}{link}")
 
             # Add triage page link if there are remaining items
             if remaining_count > 0:
@@ -297,7 +291,7 @@ class TriageDeliveryService:
                 settings = get_settings()
                 triage_url = f"{settings.frontend_url}/triage"
                 lines.append(
-                    f"\n📌 {remaining_count} more messages to review. <{triage_url}|Check Alfred Triage>"
+                    f"\n📌 {remaining_count} more messages. <{triage_url}|Check Alfred Triage>"
                 )
 
             await slack_service.send_message(
@@ -416,8 +410,8 @@ class TriageDeliveryService:
             return messages[0].get("text", "Message")
 
         # Multiple messages - use LLM to create contextual summary
-        from app.core.llm import LLMMessage, get_llm_provider
         from app.core.config import get_settings
+        from app.core.llm import LLMMessage, get_llm_provider
 
         settings = get_settings()
         location = settings.triage_vertex_location or None
@@ -503,33 +497,21 @@ If there are no common themes, just summarize: "You have {len(messages)} message
                 "p3": "P3 — Daily Digest",
             }
 
-            digest_type_labels = {
-                "scheduled": "Scheduled",
-                "interval": "Interval",
-                "daily": "Daily",
-            }
-
-            header = f"*{priority_labels.get(priority, priority)} {digest_type_labels.get(digest_type, digest_type)} Digest*\n"
-            summary_line = f"{summary}\n"
-            lines = [header, summary_line]
+            lines = [
+                f"*{priority_labels.get(priority, priority)} Digest*\n",
+            ]
 
             # Sort by confidence (descending), then by created_at (ascending) as tiebreaker
             sorted_items = sorted(items, key=lambda x: (-x.confidence, x.created_at))
-            top_items = sorted_items[:3]
-            remaining_count = len(items) - 3
+            top_items = sorted_items[:5]
+            remaining_count = len(items) - 5
 
-            # List top 3 recommended items
-            if top_items:
-                lines.append("*Top 3 messages to review:*\n")
-                for item in top_items:
-                    sender = item.sender_slack_id
-                    link = (
-                        f" <{item.slack_permalink}|View>"
-                        if item.slack_permalink
-                        else ""
-                    )
-                    abstract = item.abstract or "Message"
-                    lines.append(f"- <@{sender}>: {abstract}{link}")
+            # Show top 5 items with sender names
+            for i, item in enumerate(top_items, 1):
+                sender = item.sender_name or item.sender_slack_id
+                link = f" <{item.slack_permalink}|View>" if item.slack_permalink else ""
+                abstract = item.abstract or "Message"
+                lines.append(f"{i}. {sender}: {abstract}{link}")
 
             # Add triage page link if there are remaining items
             if remaining_count > 0:
@@ -538,7 +520,7 @@ If there are no common themes, just summarize: "You have {len(messages)} message
                 settings = get_settings()
                 triage_url = f"{settings.frontend_url}/triage"
                 lines.append(
-                    f"\n📌 {remaining_count} more messages to review. <{triage_url}|Check Alfred Triage>"
+                    f"\n📌 {remaining_count} more messages. <{triage_url}|Check Alfred Triage>"
                 )
 
             await slack_service.send_message(
@@ -620,8 +602,8 @@ If there are no common themes, just summarize: "You have {len(messages)} message
         Returns:
             Summary string
         """
-        from app.core.llm import LLMMessage, get_llm_provider
         from app.core.config import get_settings
+        from app.core.llm import LLMMessage, get_llm_provider
 
         messages = conversation.messages
         if not messages:
@@ -657,14 +639,18 @@ Messages (chronological):
 {chr(10).join(message_list)}
 
 Create a brief summary (1-2 sentences) that:
-1. Identifies the topic
-2. Notes any action items or questions needing response
-3. Lists key participants
+1. Starts with who is involved (e.g., "Alice is asking..." or "Bob and Carol are discussing...")
+2. Identifies the topic or question
+3. Notes any action items if present
 
-Format: "Topic: [topic]. [Additional context if needed]."
+Format: "[Name(s)] [action] [topic]. [Additional context if needed]."
 
-If this is a back-and-forth discussion, capture the essence without quoting.
-If there are action items, mention who needs to do what."""
+Examples:
+- "Anam is proposing a methodical approach to database upgrades."
+- "Uma and Jonah are discussing the deployment timeline."
+- "Bob is asking for review on the Terraform changes."
+
+Do NOT use phrases like "A user" or "The sender". Use actual names."""
 
         try:
             response = await provider.generate(
@@ -708,23 +694,18 @@ If there are action items, mention who needs to do what."""
                 "p3": "P3 — Daily Digest",
             }
 
-            digest_type_labels = {
-                "scheduled": "Scheduled",
-                "interval": "Interval",
-                "daily": "Daily",
-            }
-
             lines = [
-                f"*{priority_labels.get(priority, priority)} {digest_type_labels.get(digest_type, digest_type)} Digest*\n",
-                f"You have {len(conversations)} conversation{'s' if len(conversations) != 1 else ''} to review:\n",
+                f"*{priority_labels.get(priority, priority)} Digest*\n",
             ]
 
             # Show top 5 conversations
             for i, conv in enumerate(conversations[:5], 1):
                 channel = conv.channel_name or f"#{conv.channel_id}"
-                conv_type = "Thread" if conv.conversation_type == "thread" else "Chat"
-                msg_count = len(conv.messages)
-                participants = ", ".join(list(conv.senders)[:3])
+                conv_type_label = (
+                    "Thread"
+                    if conv.conversation_type == "thread"
+                    else ("DM" if conv.conversation_type == "dm" else "Chat")
+                )
 
                 # Get or create summary
                 summary = conv.topic or await self.create_conversation_summary(conv)
@@ -737,9 +718,7 @@ If there are action items, mention who needs to do what."""
                     else ""
                 )
 
-                lines.append(
-                    f"{i}. *{conv_type} in {channel}* ({msg_count} msgs, {participants})"
-                )
+                lines.append(f"{i}. *{conv_type_label} in #{channel}*")
                 lines.append(f"   {summary}{link}\n")
 
             if len(conversations) > 5:
@@ -748,7 +727,7 @@ If there are action items, mention who needs to do what."""
                 settings = get_settings()
                 triage_url = f"{settings.frontend_url}/triage"
                 lines.append(
-                    f"📌 {len(conversations) - 5} more conversations. <{triage_url}|Check Alfred Triage>"
+                    f"📌 {len(conversations) - 5} more messages. <{triage_url}|Check Alfred Triage>"
                 )
 
             await slack_service.send_message(

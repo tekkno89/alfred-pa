@@ -41,6 +41,19 @@ class ConversationGroup:
         """Get unique sender IDs in this conversation."""
         return {m.sender_slack_id for m in self.messages}
 
+    @property
+    def sender_names(self) -> list[str]:
+        """Get unique sender names in this conversation, ordered by first appearance."""
+        seen = set()
+        names = []
+        for m in self.messages:
+            if m.sender_slack_id not in seen:
+                seen.add(m.sender_slack_id)
+                name = m.sender_name or m.sender_slack_id
+                if name not in names:
+                    names.append(name)
+        return names
+
     def has_user_reacted(self) -> bool:
         """Check if the user has reacted to any message in this conversation."""
         return any(m.user_reacted_at is not None for m in self.messages)
@@ -189,8 +202,8 @@ class DigestGrouper:
             ]
 
         # Use LLM to identify conversation boundaries
-        from app.core.llm import LLMMessage, get_llm_provider
         from app.core.config import get_settings
+        from app.core.llm import LLMMessage, get_llm_provider
 
         settings = get_settings()
         provider = get_llm_provider(

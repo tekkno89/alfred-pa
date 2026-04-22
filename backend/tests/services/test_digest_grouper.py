@@ -213,6 +213,38 @@ class TestConversationGroup:
         )
         assert conv.senders == {"U1", "U2"}
 
+    def test_sender_names_property(self):
+        """Returns unique sender names in order of first appearance."""
+        messages = [
+            create_classification("C123", "T1", "U1", "100.1", sender_name="Alice"),
+            create_classification("C123", "T1", "U2", "100.2", sender_name="Bob"),
+            create_classification(
+                "C123", "T1", "U1", "100.3", sender_name="Alice"
+            ),  # Duplicate
+        ]
+        conv = ConversationGroup(
+            id="test",
+            messages=messages,
+            conversation_type="thread",
+            channel_id="C123",
+            participants=["U1", "U2"],
+        )
+        assert conv.sender_names == ["Alice", "Bob"]
+
+    def test_sender_names_falls_back_to_id(self):
+        """Falls back to sender_slack_id when sender_name is None."""
+        msg = create_classification("C123", "T1", "U1", "100.1", sender_name=None)
+        # Clear the default name to test fallback
+        msg.sender_name = None
+        conv = ConversationGroup(
+            id="test",
+            messages=[msg],
+            conversation_type="thread",
+            channel_id="C123",
+            participants=["U1"],
+        )
+        assert conv.sender_names == ["U1"]
+
     def test_has_user_reacted_true(self):
         """Returns True if any message has user_reacted_at."""
         msg1 = create_classification("C123", "T1", "U1", "100.1")
