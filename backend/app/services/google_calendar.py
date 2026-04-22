@@ -14,7 +14,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.oauth_state import consume_oauth_state, store_oauth_state
+from app.core.oauth_state import store_oauth_state
 from app.db.models import UserOAuthToken
 from app.db.repositories import OAuthTokenRepository
 from app.services.token_encryption import TokenEncryptionService

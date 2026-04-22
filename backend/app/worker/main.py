@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.worker.tasks import (
     check_due_todo_reminders,
     cleanup_expired_classifications,
+    cleanup_orphaned_focus_items,
     expire_focus_session,
     process_triage_job,
     refresh_slack_channel_cache,
@@ -138,6 +139,11 @@ class WorkerSettings:
             weekday={0},
             hour={7},
             minute={0},  # Monday 7 AM UTC
+        ),
+        cron(
+            cleanup_orphaned_focus_items,
+            hour={4},
+            minute={0},  # Daily at 4 AM UTC
         ),
     ]
 

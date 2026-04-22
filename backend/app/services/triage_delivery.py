@@ -196,6 +196,27 @@ class TriageDeliveryService:
             except Exception:
                 logger.exception(f"Failed to send digest DM for user={user_id}")
 
+        # Mark all session items as alerted and clear focus_session_id
+        # This ensures they won't be orphaned if the session digest fails partially
+        if all_items:
+            from sqlalchemy import update
+            from sqlalchemy.sql import func
+
+            item_ids = [item.id for item in all_items]
+            await self.db.execute(
+                update(TriageClassification)
+                .where(TriageClassification.id.in_(item_ids))
+                .values(
+                    last_alerted_at=func.now(),
+                    alert_count=TriageClassification.alert_count + 1,
+                    queued_for_digest=False,
+                    focus_session_id=None,
+                )
+            )
+            logger.info(
+                f"Marked {len(all_items)} focus session items as alerted and cleared focus_session_id"
+            )
+
     async def _create_digest_summary(
         self,
         user_id: str,

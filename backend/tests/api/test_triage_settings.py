@@ -62,9 +62,7 @@ async def sample_channel(db_session: AsyncSession, test_user):
 
 
 class TestTriageSettings:
-    async def test_get_settings_creates_defaults(
-        self, client: AsyncClient, test_user
-    ):
+    async def test_get_settings_creates_defaults(self, client: AsyncClient, test_user):
         response = await client.get(
             "/api/triage/settings",
             headers=auth_headers(test_user),
@@ -93,12 +91,17 @@ class TestTriageSettings:
         # Save custom rules
         response = await client.patch(
             "/api/triage/settings",
-            json={"custom_classification_rules": "Requests to borrow items are never urgent"},
+            json={
+                "custom_classification_rules": "Requests to borrow items are never urgent"
+            },
             headers=auth_headers(test_user),
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["custom_classification_rules"] == "Requests to borrow items are never urgent"
+        assert (
+            data["custom_classification_rules"]
+            == "Requests to borrow items are never urgent"
+        )
 
         # Retrieve and verify
         response = await client.get(
@@ -106,7 +109,10 @@ class TestTriageSettings:
             headers=auth_headers(test_user),
         )
         assert response.status_code == 200
-        assert response.json()["custom_classification_rules"] == "Requests to borrow items are never urgent"
+        assert (
+            response.json()["custom_classification_rules"]
+            == "Requests to borrow items are never urgent"
+        )
 
     async def test_custom_classification_rules_max_length(
         self, client: AsyncClient, test_user
@@ -137,9 +143,7 @@ class TestTriageSettings:
         assert response.status_code == 200
         assert response.json()["custom_classification_rules"] is None
 
-    async def test_always_on_min_priority_default(
-        self, client: AsyncClient, test_user
-    ):
+    async def test_always_on_min_priority_default(self, client: AsyncClient, test_user):
         response = await client.get(
             "/api/triage/settings",
             headers=auth_headers(test_user),
@@ -147,9 +151,7 @@ class TestTriageSettings:
         assert response.status_code == 200
         assert response.json()["always_on_min_priority"] == "p3"
 
-    async def test_update_always_on_min_priority(
-        self, client: AsyncClient, test_user
-    ):
+    async def test_update_always_on_min_priority(self, client: AsyncClient, test_user):
         response = await client.patch(
             "/api/triage/settings",
             json={"always_on_min_priority": "p1"},
@@ -183,9 +185,7 @@ class TestTriageSettings:
 
 class TestMonitoredChannels:
     @patch("app.api.triage.TriageCacheService")
-    async def test_add_channel(
-        self, mock_cache_cls, client: AsyncClient, test_user
-    ):
+    async def test_add_channel(self, mock_cache_cls, client: AsyncClient, test_user):
         mock_cache = AsyncMock()
         mock_cache_cls.return_value = mock_cache
 
@@ -222,9 +222,7 @@ class TestMonitoredChannels:
         )
         assert response.status_code == 400
 
-    async def test_list_channels(
-        self, client: AsyncClient, test_user, sample_channel
-    ):
+    async def test_list_channels(self, client: AsyncClient, test_user, sample_channel):
         response = await client.get(
             "/api/triage/channels",
             headers=auth_headers(test_user),
@@ -234,9 +232,7 @@ class TestMonitoredChannels:
         assert len(data["channels"]) == 1
         assert data["channels"][0]["channel_name"] == "general"
 
-    async def test_update_channel(
-        self, client: AsyncClient, test_user, sample_channel
-    ):
+    async def test_update_channel(self, client: AsyncClient, test_user, sample_channel):
         response = await client.patch(
             f"/api/triage/channels/{sample_channel.id}",
             json={"priority": "critical"},
@@ -260,6 +256,7 @@ class TestMonitoredChannels:
 
     async def test_channel_not_found(self, client: AsyncClient, test_user):
         from uuid import uuid4
+
         fake_id = str(uuid4())
         response = await client.patch(
             f"/api/triage/channels/{fake_id}",
@@ -269,75 +266,11 @@ class TestMonitoredChannels:
         assert response.status_code == 404
 
 
-# --- Keyword Rules ---
-
-
-class TestKeywordRules:
-    async def test_add_rule(
-        self, client: AsyncClient, test_user, sample_channel
-    ):
-        response = await client.post(
-            f"/api/triage/channels/{sample_channel.id}/rules",
-            json={
-                "keyword_pattern": "deploy",
-                "match_type": "contains",
-                "priority_override": "p0",
-            },
-            headers=auth_headers(test_user),
-        )
-        assert response.status_code == 201
-        data = response.json()
-        assert data["keyword_pattern"] == "deploy"
-        assert data["priority_override"] == "p0"
-
-    async def test_list_rules(
-        self, client: AsyncClient, test_user, sample_channel, db_session
-    ):
-        rule = ChannelKeywordRule(
-            monitored_channel_id=sample_channel.id,
-            user_id=test_user.id,
-            keyword_pattern="outage",
-            match_type="exact",
-            priority_override="p0",
-        )
-        db_session.add(rule)
-        await db_session.commit()
-
-        response = await client.get(
-            f"/api/triage/channels/{sample_channel.id}/rules",
-            headers=auth_headers(test_user),
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data) == 1
-        assert data[0]["keyword_pattern"] == "outage"
-
-    async def test_delete_rule(
-        self, client: AsyncClient, test_user, sample_channel, db_session
-    ):
-        rule = ChannelKeywordRule(
-            monitored_channel_id=sample_channel.id,
-            user_id=test_user.id,
-            keyword_pattern="incident",
-        )
-        db_session.add(rule)
-        await db_session.commit()
-        await db_session.refresh(rule)
-
-        response = await client.delete(
-            f"/api/triage/channels/{sample_channel.id}/rules/{rule.id}",
-            headers=auth_headers(test_user),
-        )
-        assert response.status_code == 204
-
-
 # --- Source Exclusions ---
 
 
 class TestSourceExclusions:
-    async def test_add_exclusion(
-        self, client: AsyncClient, test_user, sample_channel
-    ):
+    async def test_add_exclusion(self, client: AsyncClient, test_user, sample_channel):
         response = await client.post(
             f"/api/triage/channels/{sample_channel.id}/exclusions",
             json={
@@ -409,9 +342,7 @@ class TestFeatureAccessGate:
         )
         assert response.status_code == 403
 
-    async def test_classifications_blocked(
-        self, client: AsyncClient, user_no_access
-    ):
+    async def test_classifications_blocked(self, client: AsyncClient, user_no_access):
         response = await client.get(
             "/api/triage/classifications",
             headers=auth_headers(user_no_access),

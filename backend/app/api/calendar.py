@@ -15,7 +15,6 @@ from app.schemas.calendar import (
     CalendarEventUpdateRequest,
     CalendarListResponse,
     CalendarPreferenceBulkUpdate,
-    CalendarPreferenceItem,
     CalendarResponse,
 )
 from app.services.google_calendar import CALENDAR_COLOR_PALETTE, GoogleCalendarService

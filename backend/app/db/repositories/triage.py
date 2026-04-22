@@ -372,6 +372,58 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         )
         return list(result.scalars().all())
 
+    async def cleanup_orphaned_focus_session_items(self) -> int:
+        """
+        Clear focus_session_id from items whose sessions no longer exist or are inactive.
+
+        This handles edge cases where:
+        - Focus session ended but digest failed to send
+        - Focus session was deleted
+        - Server crashed during session end
+
+        Items are set to queued_for_digest=True so they'll be included in the next
+        scheduled digest.
+
+        Returns count of items updated.
+        """
+        from sqlalchemy import update
+        from app.db.models.focus import FocusModeState
+
+        # Find focus_session_ids that are from inactive/completed sessions
+        # A session is inactive if is_active=False or doesn't exist
+        result = await self.db.execute(
+            select(TriageClassification.focus_session_id)
+            .where(TriageClassification.focus_session_id.isnot(None))
+            .where(TriageClassification.queued_for_digest == True)
+            .distinct()
+        )
+        session_ids = [row[0] for row in result.fetchall()]
+
+        if not session_ids:
+            return 0
+
+        # Check which sessions are still active
+        active_result = await self.db.execute(
+            select(FocusModeState.id).where(FocusModeState.id.in_(session_ids))
+        )
+        active_session_ids = {row[0] for row in active_result.fetchall()}
+
+        # Find orphaned session IDs (not in active sessions)
+        orphaned_ids = [sid for sid in session_ids if sid not in active_session_ids]
+
+        if not orphaned_ids:
+            return 0
+
+        # Clear focus_session_id and keep queued_for_digest=True for these items
+        update_result = await self.db.execute(
+            update(TriageClassification)
+            .where(TriageClassification.focus_session_id.in_(orphaned_ids))
+            .values(focus_session_id=None)
+        )
+        await self.db.flush()
+
+        return update_result.rowcount or 0
+
     async def get_summaries_by_filter(
         self,
         user_id: str,

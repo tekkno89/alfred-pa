@@ -173,12 +173,8 @@ async def cleanup_expired_classifications(ctx: dict) -> dict:
     Runs daily at 3 AM.
     """
     async with get_db_session() as db:
-        from app.db.repositories.triage import (
-            TriageClassificationRepository,
-            TriageUserSettingsRepository,
-        )
+        from app.db.repositories.triage import TriageClassificationRepository
 
-        settings_repo = TriageUserSettingsRepository(db)
         class_repo = TriageClassificationRepository(db)
 
         # Get all users with triage settings
@@ -261,10 +257,8 @@ async def auto_enroll_user_channels(ctx: dict) -> dict:
     - Remove channels user has left
     - Set default priority (private=high, public=medium)
     """
-    from app.db.models.oauth_token import UserOAuthToken
     from app.db.models.triage import MonitoredChannel, TriageUserSettings
     from app.db.repositories.triage import MonitoredChannelRepository
-    from app.services.slack import fetch_all_slack_channels
     from app.services.slack_user import SlackUserService
     from app.services.triage_cache import TriageCacheService
     from sqlalchemy import select
@@ -418,6 +412,27 @@ async def update_channel_summaries(ctx: dict) -> dict:
 
     logger.info(f"Generated {count} channel summaries")
     return {"status": "complete", "summarized_count": count}
+
+
+async def cleanup_orphaned_focus_items(ctx: dict) -> dict:
+    """
+    Cron: Clean up triage items stuck with focus_session_id from completed sessions.
+
+    This handles edge cases where:
+    - Focus session ended but digest failed to send
+    - Focus session was deleted
+    - Server crashed during session end
+
+    Items are cleared of focus_session_id so they'll be included in scheduled digests.
+    """
+    from app.db.repositories.triage import TriageClassificationRepository
+
+    async with get_db_session() as db:
+        repo = TriageClassificationRepository(db)
+        count = await repo.cleanup_orphaned_focus_session_items()
+
+    logger.info(f"Cleaned up {count} orphaned focus session items")
+    return {"status": "complete", "cleaned_count": count}
 
 
 async def transition_pomodoro(ctx: dict, user_id: str) -> dict:

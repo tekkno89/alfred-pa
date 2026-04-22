@@ -141,36 +141,6 @@ class MonitoredChannelList(BaseModel):
     channels: list[MonitoredChannelResponse]
 
 
-# --- Keyword Rules ---
-
-
-class KeywordRuleCreate(BaseModel):
-    """Request to add a keyword rule."""
-
-    keyword_pattern: str = Field(..., min_length=1, max_length=255)
-    match_type: str = Field("contains", pattern="^(exact|contains)$")
-    priority_override: str | None = Field(None, pattern="^(p0|p1|p2|p3|review)$")
-
-
-class KeywordRuleUpdate(BaseModel):
-    """Request to update a keyword rule."""
-
-    keyword_pattern: str | None = Field(None, min_length=1, max_length=255)
-    match_type: str | None = Field(None, pattern="^(exact|contains)$")
-    priority_override: str | None = Field(None, pattern="^(p0|p1|p2|p3|review)$")
-
-
-class KeywordRuleResponse(BaseModel):
-    """Response with keyword rule info."""
-
-    model_config = {"from_attributes": True}
-
-    id: str
-    keyword_pattern: str
-    match_type: str
-    priority_override: str | None = None
-
-
 # --- Source Exclusions ---
 
 

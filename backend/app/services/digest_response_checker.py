@@ -142,14 +142,11 @@ class DigestResponseChecker:
         Returns:
             Total count of messages marked as responded
         """
-        from app.db.repositories.triage import TriageClassificationRepository
         from app.db.session import async_session_maker
 
         total_marked = 0
 
         async with async_session_maker() as db:
-            repo = TriageClassificationRepository(db)
-
             for conv in conversations:
                 # Mark all messages in the conversation as responded
                 for msg in conv.messages:

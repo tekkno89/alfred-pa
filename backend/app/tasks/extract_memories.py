@@ -20,7 +20,7 @@ from sqlalchemy.orm import selectinload
 from app.core.config import get_settings
 from app.core.embeddings import get_embedding_provider
 from app.core.llm import LLMMessage, get_llm_provider
-from app.db.models import Message, Session, User
+from app.db.models import Session, User
 from app.db.repositories import MemoryRepository
 from app.db.session import async_session_maker
 

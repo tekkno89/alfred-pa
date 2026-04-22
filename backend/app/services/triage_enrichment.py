@@ -1,7 +1,7 @@
 """Triage enrichment — gathers metadata for classification."""
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -213,10 +213,12 @@ class TriageEnrichmentService:
 
                 slack_service = SlackService()
                 thread_service = ThreadContextService(slack_service.client)
-                payload.thread_context_summary = await thread_service.get_thread_context(
-                    channel_id=channel_id,
-                    thread_ts=thread_ts,
-                    max_replies=10,
+                payload.thread_context_summary = (
+                    await thread_service.get_thread_context(
+                        channel_id=channel_id,
+                        thread_ts=thread_ts,
+                        max_replies=10,
+                    )
                 )
             except Exception:
                 logger.exception(f"Failed to fetch thread context for {thread_ts}")
@@ -229,11 +231,15 @@ class TriageEnrichmentService:
 
                 slack_service = SlackService()
                 thread_service = ThreadContextService(slack_service.client)
-                payload.dm_conversation_context = await thread_service.get_dm_conversation_context(
-                    channel_id=channel_id,
-                    max_messages=10,
+                payload.dm_conversation_context = (
+                    await thread_service.get_dm_conversation_context(
+                        channel_id=channel_id,
+                        max_messages=10,
+                    )
                 )
             except Exception:
-                logger.exception(f"Failed to fetch DM conversation context for {channel_id}")
+                logger.exception(
+                    f"Failed to fetch DM conversation context for {channel_id}"
+                )
 
         return payload

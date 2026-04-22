@@ -1,6 +1,5 @@
 """Slack integration endpoints."""
 
-import asyncio
 import hashlib
 import hmac
 import json
@@ -8,13 +7,12 @@ import logging
 import time
 from datetime import datetime
 from typing import Any
-from urllib.parse import parse_qs
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 from pydantic import BaseModel
 
 from app.agents import AlfredAgent
-from app.api.deps import DbSession, get_db
+from app.api.deps import get_db
 from app.core.config import get_settings
 from app.core.redis import get_redis
 from app.db.repositories import SessionRepository, UserRepository

@@ -3,7 +3,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents import AlfredAgent
 from app.api.deps import CurrentUser, DbSession

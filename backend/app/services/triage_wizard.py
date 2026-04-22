@@ -1,6 +1,5 @@
 """Triage wizard — AI-powered priority definition generator."""
 
-import json
 import logging
 
 from app.core.config import get_settings

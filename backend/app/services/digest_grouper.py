@@ -2,7 +2,6 @@
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any
 
 from app.db.models.triage import TriageClassification

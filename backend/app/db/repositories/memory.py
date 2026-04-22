@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import select, func, text
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Memory

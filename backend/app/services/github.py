@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.encryption import get_encryption_service
-from app.core.oauth_state import consume_oauth_state, store_oauth_state
+from app.core.oauth_state import store_oauth_state
 from app.db.models import UserOAuthToken
 from app.db.models.github_app_config import GitHubAppConfig
 from app.db.repositories import (

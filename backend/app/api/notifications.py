@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
-from app.api.deps import DbSession, OptionalUser
+from app.api.deps import OptionalUser
 from app.core.security import decode_access_token
 from app.db.models import User
 from app.db.session import async_session_maker

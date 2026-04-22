@@ -9,10 +9,10 @@ stateless HMAC verification so containers can report completion.
 
 import logging
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, Header, HTTPException, Query, status
 
 from app.api.deps import CurrentUser, DbSession
-from app.db.repositories.coding_job import CodingJobRepository, TERMINAL_STATUSES
+from app.db.repositories.coding_job import CodingJobRepository
 from app.db.session import async_session_maker
 from app.schemas.coding_job import (
     CodingJobCallbackRequest,

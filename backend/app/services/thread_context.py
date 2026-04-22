@@ -1,7 +1,7 @@
 """Thread and DM context fetching for triage classification."""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from slack_sdk.web.async_client import AsyncWebClient
 

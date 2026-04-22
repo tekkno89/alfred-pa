@@ -13,6 +13,8 @@ def mock_db():
 
 
 def _make_classification(**overrides):
+    from datetime import datetime
+
     defaults = {
         "id": "class-1",
         "sender_slack_id": "U_SENDER",
@@ -25,9 +27,14 @@ def _make_classification(**overrides):
         "surfaced_at_break": False,
         "classification_path": "channel",
         "message_ts": "1234567890.123456",
+        "confidence": 0.8,
+        "created_at": datetime.utcnow(),
     }
     defaults.update(overrides)
     m = MagicMock(**defaults)
+    # Make confidence and created_at comparable
+    m.confidence = defaults["confidence"]
+    m.created_at = defaults["created_at"]
     return m
 
 
@@ -131,9 +138,15 @@ class TestGenerateAndSendDigest:
         from datetime import datetime
 
         items = [
-            _make_classification(priority_level="p0", abstract="Server down", confidence=0.9),
-            _make_classification(priority_level="p1", abstract="Meeting notes", confidence=0.8),
-            _make_classification(priority_level="p3", abstract="Newsletter", confidence=0.6),
+            _make_classification(
+                priority_level="p0", abstract="Server down", confidence=0.9
+            ),
+            _make_classification(
+                priority_level="p1", abstract="Meeting notes", confidence=0.8
+            ),
+            _make_classification(
+                priority_level="p3", abstract="Newsletter", confidence=0.6
+            ),
         ]
         mock_user = MagicMock(slack_user_id="U_SELF")
         mock_slack = AsyncMock()
@@ -168,11 +181,33 @@ class TestGenerateAndSendDigest:
         from datetime import datetime
 
         items = [
-            _make_classification(id="p1-low", priority_level="p1", abstract="Low priority", confidence=0.5),
-            _make_classification(id="p1-high", priority_level="p1", abstract="High priority", confidence=0.95),
-            _make_classification(id="p1-mid", priority_level="p1", abstract="Mid priority", confidence=0.75),
-            _make_classification(id="p1-vlow", priority_level="p1", abstract="Very low", confidence=0.3),
-            _make_classification(id="p1-vhigh", priority_level="p1", abstract="Very high", confidence=0.85),
+            _make_classification(
+                id="p1-low",
+                priority_level="p1",
+                abstract="Low priority",
+                confidence=0.5,
+            ),
+            _make_classification(
+                id="p1-high",
+                priority_level="p1",
+                abstract="High priority",
+                confidence=0.95,
+            ),
+            _make_classification(
+                id="p1-mid",
+                priority_level="p1",
+                abstract="Mid priority",
+                confidence=0.75,
+            ),
+            _make_classification(
+                id="p1-vlow", priority_level="p1", abstract="Very low", confidence=0.3
+            ),
+            _make_classification(
+                id="p1-vhigh",
+                priority_level="p1",
+                abstract="Very high",
+                confidence=0.85,
+            ),
         ]
         mock_user = MagicMock(slack_user_id="U_SELF")
         mock_slack = AsyncMock()

@@ -84,7 +84,9 @@ def _extract_fields_from_truncated(text: str) -> dict | None:
     return {
         "priority": priority_m.group(1),
         "confidence": float(confidence_m.group(1)) if confidence_m else 0.5,
-        "reason": reason_m.group(1) if reason_m else "LLM classification (truncated response)",
+        "reason": reason_m.group(1)
+        if reason_m
+        else "LLM classification (truncated response)",
         "abstract": abstract_m.group(1) if abstract_m else "Message classified by AI",
     }
 
@@ -141,13 +143,6 @@ class TriageClassifier:
         self, payload: EnrichedTriagePayload
     ) -> ClassificationResult:
         """Classify a channel message."""
-        # Check keyword rules before LLM
-        keyword_result = self._check_keyword_rules(
-            payload.message_text, payload.keyword_rules
-        )
-        if keyword_result:
-            return keyword_result
-
         # Critical channel priority auto-escalates
         if payload.channel_priority == "critical":
             return ClassificationResult(
@@ -159,52 +154,15 @@ class TriageClassifier:
 
         return await self._llm_classify(payload, path="channel")
 
-    def _check_keyword_rules(
-        self, text: str, rules: list
-    ) -> ClassificationResult | None:
-        """Pre-LLM keyword matching. Returns result if any rule matches."""
-        if not rules or not text:
-            return None
-
-        text_lower = text.lower()
-        matched_keywords = []
-
-        for rule in rules:
-            pattern = rule.keyword_pattern.lower()
-            if rule.match_type == "exact":
-                # Word-boundary match
-                words = text_lower.split()
-                if pattern in words:
-                    matched_keywords.append(rule.keyword_pattern)
-                    if rule.priority_override:
-                        return ClassificationResult(
-                            priority=rule.priority_override,
-                            confidence=1.0,
-                            reason=f"Keyword match: '{rule.keyword_pattern}' (exact)",
-                            abstract=f"Message contains keyword '{rule.keyword_pattern}'",
-                            keyword_matches=[rule.keyword_pattern],
-                        )
-            elif rule.match_type == "contains":
-                if pattern in text_lower:
-                    matched_keywords.append(rule.keyword_pattern)
-                    if rule.priority_override:
-                        return ClassificationResult(
-                            priority=rule.priority_override,
-                            confidence=1.0,
-                            reason=f"Keyword match: '{rule.keyword_pattern}' (contains)",
-                            abstract=f"Message contains keyword '{rule.keyword_pattern}'",
-                            keyword_matches=[rule.keyword_pattern],
-                        )
-
-        return None
-
     async def _llm_classify(
         self, payload: EnrichedTriagePayload, path: str, vip_boost: bool = False
     ) -> ClassificationResult:
         """Use LLM to classify the message."""
         settings = get_settings()
         location = settings.triage_vertex_location or None
-        provider = get_llm_provider(settings.triage_classification_model, location=location)
+        provider = get_llm_provider(
+            settings.triage_classification_model, location=location
+        )
 
         sensitivity_guidance = {
             "low": "Only classify as P0 if there is a genuine emergency or the sender explicitly says it's urgent.",
@@ -252,13 +210,13 @@ DO NOT summarize all previous messages. ONLY use context that is directly releva
 - Conversation with ongoing issue → Context shows escalation, may increase priority
 
 Sensitivity: {self.sensitivity}
-{sensitivity_guidance.get(self.sensitivity, sensitivity_guidance['medium'])}
+{sensitivity_guidance.get(self.sensitivity, sensitivity_guidance["medium"])}
 {vip_context}{thread_context}{dm_context}
 
 Context:
 - Message type: {path}
 - Sender: {payload.sender_name or payload.sender_slack_id}
-- Channel: {payload.channel_name or 'DM'}
+- Channel: {payload.channel_name or "DM"}
 - Channel priority: {payload.channel_priority}
 - Sender is VIP: {payload.is_vip}
 - Thread reply: {bool(payload.thread_ts)}
@@ -306,7 +264,10 @@ Channel-specific triage instructions (follow these):
             )
 
         except Exception:
-            logger.exception("LLM classification failed (raw response: %r), defaulting to review", response if 'response' in dir() else 'N/A')
+            logger.exception(
+                "LLM classification failed (raw response: %r), defaulting to review",
+                response if "response" in dir() else "N/A",
+            )
             return ClassificationResult(
                 priority="review",
                 confidence=0.3,
