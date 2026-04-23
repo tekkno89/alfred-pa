@@ -50,7 +50,9 @@ class ChannelIntelligenceService:
         """
         client = await self._get_user_client(user_id)
         if not client:
-            logger.warning(f"No Slack token for user {user_id}, skipping participation update")
+            logger.warning(
+                f"No Slack token for user {user_id}, skipping participation update"
+            )
             return 0
 
         channels: list[dict[str, Any]] = []
@@ -113,16 +115,15 @@ class ChannelIntelligenceService:
                             }
                         )
 
-                    cursor = (
-                        response.get("response_metadata", {}).get("next_cursor")
-                    )
+                    cursor = response.get("response_metadata", {}).get("next_cursor")
                     break  # Success, exit retry loop
 
                 except SlackApiError as e:
-                    if e.response.get("error") == "ratelimited" and attempt < max_retries:
-                        retry_after = int(
-                            e.response.headers.get("Retry-After", 5)
-                        )
+                    if (
+                        e.response.get("error") == "ratelimited"
+                        and attempt < max_retries
+                    ):
+                        retry_after = int(e.response.headers.get("Retry-After", 5))
                         logger.warning(
                             f"Rate limited on users.conversations, retrying in {retry_after}s"
                         )
@@ -145,9 +146,7 @@ class ChannelIntelligenceService:
         channels = channels[:MAX_CHANNELS_PER_USER]
 
         count = await self.participation_repo.upsert_batch(user_id, channels)
-        logger.info(
-            f"Updated participation for user {user_id}: {count} channels"
-        )
+        logger.info(f"Updated participation for user {user_id}: {count} channels")
         return count
 
     async def update_summaries(self) -> int:
@@ -173,7 +172,9 @@ class ChannelIntelligenceService:
 
         # Collect unique channels from all users' participation data
         # Track which user has access to each channel
-        channel_users: dict[str, tuple[str, str]] = {}  # channel_id -> (user_id, channel_type)
+        channel_users: dict[
+            str, tuple[str, str]
+        ] = {}  # channel_id -> (user_id, channel_type)
         channel_info: dict[str, dict[str, Any]] = {}
 
         for token in tokens:
@@ -191,13 +192,15 @@ class ChannelIntelligenceService:
                     }
                 # For public channels, any user's token works
                 # For private channels, keep the first user who has access
-                elif ch.channel_type == "public" and channel_users[ch.channel_id][1] != "public":
+                elif (
+                    ch.channel_type == "public"
+                    and channel_users[ch.channel_id][1] != "public"
+                ):
                     channel_users[ch.channel_id] = (token.user_id, ch.channel_type)
 
         # Skip DMs (im type) — too personal to summarize
         channel_ids_to_summarize = [
-            cid for cid, (_, ctype) in channel_users.items()
-            if ctype != "im"
+            cid for cid, (_, ctype) in channel_users.items() if ctype != "im"
         ][:MAX_CHANNELS_PER_USER]
 
         summarized = 0
@@ -221,9 +224,7 @@ class ChannelIntelligenceService:
                     )
                     summarized += 1
             except Exception as e:
-                logger.error(
-                    f"Error summarizing channel {channel_id}: {e}"
-                )
+                logger.error(f"Error summarizing channel {channel_id}: {e}")
 
             # Rate limit spacing
             await asyncio.sleep(1)
@@ -240,9 +241,7 @@ class ChannelIntelligenceService:
             return None
 
         try:
-            response = await client.conversations_history(
-                channel=channel_id, limit=50
-            )
+            response = await client.conversations_history(channel=channel_id, limit=50)
             messages = response.get("messages", [])
         except SlackApiError as e:
             logger.warning(
@@ -255,7 +254,8 @@ class ChannelIntelligenceService:
             msg
             for msg in messages
             if msg.get("text", "").strip()
-            and msg.get("subtype") not in (
+            and msg.get("subtype")
+            not in (
                 "channel_join",
                 "channel_leave",
                 "channel_topic",
@@ -280,7 +280,7 @@ class ChannelIntelligenceService:
         # Generate summary with LLM
         from app.core.llm import LLMMessage, get_llm_provider
 
-        provider = get_llm_provider("gemini-2.5-flash")
+        provider = get_llm_provider("gemini-2.5-flash-lite")
         prompt = (
             f"Below are recent messages from a Slack channel called #{channel_name}. "
             "Write a 1-2 sentence summary of what this channel is primarily about. "
@@ -289,9 +289,7 @@ class ChannelIntelligenceService:
         )
 
         try:
-            summary = await provider.generate(
-                [LLMMessage(role="user", content=prompt)]
-            )
+            summary = await provider.generate([LLMMessage(role="user", content=prompt)])
             return summary.strip() if summary else None
         except Exception as e:
             logger.error(f"LLM summary generation failed for #{channel_name}: {e}")

@@ -267,61 +267,12 @@ async def process_event_background(
         try:
             if event_type in ("message", "app_mention"):
                 await handle_message_event(event, db, authorizations)
-            elif event_type == "reaction_added":
-                await handle_reaction_added_event(event, db, authorizations)
             else:
                 logger.debug(f"Unhandled event type: {event_type}")
         except Exception as e:
             logger.error(
                 f"Error in background Slack event processing: {e}", exc_info=True
             )
-
-
-async def handle_reaction_added_event(
-    event: dict[str, Any],
-    db,
-    authorizations: list[dict[str, Any]] | None = None,
-) -> None:
-    """
-    Handle reaction_added events from Slack.
-
-    When the Alfred user reacts to a message, mark the classification as read.
-    """
-    reacting_user = event.get("user")
-    item = event.get("item", {})
-    item_type = item.get("type")
-
-    if item_type != "message":
-        return
-
-    channel_id = item.get("channel")
-    message_ts = item.get("ts")
-
-    if not channel_id or not message_ts:
-        return
-
-    from app.db.repositories import UserRepository
-    from app.db.repositories.triage import TriageClassificationRepository
-
-    user_repo = UserRepository(db)
-    user = await user_repo.get_by_slack_id(reacting_user)
-
-    if not user:
-        logger.debug(f"Reaction from non-Alfred user: {reacting_user}")
-        return
-
-    classification_repo = TriageClassificationRepository(db)
-    updated = await classification_repo.mark_user_reacted(
-        user_id=user.id,
-        channel_id=channel_id,
-        message_ts=message_ts,
-    )
-
-    if updated > 0:
-        logger.info(
-            f"Marked {updated} classification(s) as reacted by user {user.id} "
-            f"in channel {channel_id}"
-        )
 
 
 async def handle_message_event(

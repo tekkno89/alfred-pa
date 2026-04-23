@@ -54,14 +54,6 @@ class ConversationGroup:
                     names.append(name)
         return names
 
-    def has_user_reacted(self) -> bool:
-        """Check if the user has reacted to any message in this conversation."""
-        return any(m.user_reacted_at is not None for m in self.messages)
-
-    def has_user_responded(self) -> bool:
-        """Check if the user has responded to any message in this conversation."""
-        return any(m.user_responded_at is not None for m in self.messages)
-
 
 class DigestGrouper:
     """Groups triage classifications into conversations for digest summaries."""
@@ -207,7 +199,7 @@ class DigestGrouper:
 
         settings = get_settings()
         provider = get_llm_provider(
-            settings.web_search_synthesis_model or "gemini-2.5-flash"
+            settings.web_search_synthesis_model or "gemini-2.5-flash-lite"
         )
 
         # Build message context for LLM

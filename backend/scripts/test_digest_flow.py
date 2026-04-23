@@ -19,7 +19,6 @@ from app.db.session import async_session_maker
 from app.db.models import User
 from app.db.models.triage import TriageClassification
 from app.services.digest_grouper import DigestGrouper
-from app.services.digest_response_checker import DigestResponseChecker
 
 
 async def main():

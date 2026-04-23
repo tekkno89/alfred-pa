@@ -27,6 +27,7 @@ class Settings(BaseSettings):
         if not v or not v.strip():
             raise ValueError("JWT_SECRET must be set in environment or .env file")
         return v
+
     jwt_algorithm: str = "HS256"
     jwt_expiration_minutes: int = 30
 
@@ -46,7 +47,7 @@ class Settings(BaseSettings):
     tavily_api_key: str = ""
     web_search_max_results: int = 8
     web_search_depth: str = "advanced"
-    web_search_synthesis_model: str = "gemini-1.5-flash"
+    web_search_synthesis_model: str = "gemini-2.5-flash-lite"
 
     # Slack
     slack_bot_token: str = ""
@@ -80,11 +81,14 @@ class Settings(BaseSettings):
     def validate_encryption_config(self) -> "Settings":
         provider = self.encryption_kek_provider
         if provider == "local":
-            if not self.encryption_kek_local_key and not self.encryption_kek_local_key_file:
+            if (
+                not self.encryption_kek_local_key
+                and not self.encryption_kek_local_key_file
+            ):
                 raise ValueError(
                     "ENCRYPTION_KEK_LOCAL_KEY or ENCRYPTION_KEK_LOCAL_KEY_FILE must be set "
                     "when using the 'local' encryption provider. "
-                    "Generate a key with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+                    'Generate a key with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
                 )
         elif provider == "gcp_kms":
             if not self.encryption_gcp_kms_key_name:
@@ -113,16 +117,22 @@ class Settings(BaseSettings):
 
     # Triage
     triage_classification_model: str = "gemini-2.5-flash"
-    triage_vertex_location: str = ""  # override VERTEX_LOCATION for triage (e.g. "us-central1")
+    triage_vertex_location: str = (
+        ""  # override VERTEX_LOCATION for triage (e.g. "us-central1")
+    )
 
     # Sandbox orchestrator (for docker_sandbox runtime)
     sandbox_url: str = "http://alfred-sandbox:8080"
     sandbox_api_key: str = ""
     claude_code_image: str = "alfred-claude-code:latest"
-    sandbox_docker_network: str = ""  # Docker network for containers (e.g. "alfred-pa_default")
+    sandbox_docker_network: str = (
+        ""  # Docker network for containers (e.g. "alfred-pa_default")
+    )
 
     # Coding assistant — runtime
-    coding_runtime_provider: str = "docker_sandbox"  # "docker_sandbox" | "kubernetes" | "cloudrun"
+    coding_runtime_provider: str = (
+        "docker_sandbox"  # "docker_sandbox" | "kubernetes" | "cloudrun"
+    )
     coding_job_timeout_minutes: int = 30
     coding_sensitive_paths: str = ".github/workflows,Dockerfile,docker-compose,.env"
     coding_max_concurrent_jobs: int = 2  # Per user

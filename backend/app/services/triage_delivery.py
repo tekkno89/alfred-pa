@@ -583,7 +583,7 @@ If there are no common themes, just summarize: "You have {len(messages)} message
         conversations = grouper.group_messages(items)
 
         # Step 2: Filter out conversations the user has already responded to
-        checker = DigestResponseChecker()
+        checker = DigestResponseChecker(self.db)
         unresponded = await checker.filter_unresponded_conversations(
             user_id, user_slack_id, conversations
         )
@@ -614,7 +614,7 @@ If there are no common themes, just summarize: "You have {len(messages)} message
 
         settings = get_settings()
         provider = get_llm_provider(
-            settings.web_search_synthesis_model or "gemini-2.5-flash"
+            settings.web_search_synthesis_model or "gemini-2.5-flash-lite"
         )
 
         # Build conversation context
@@ -729,6 +729,7 @@ Do NOT use phrases like "A user" or "The sender". Use actual names."""
                 lines.append(
                     f"📌 {len(conversations) - 5} more messages. <{triage_url}|Check Alfred Triage>"
                 )
+                lines.append("-----")
 
             await slack_service.send_message(
                 channel=user.slack_user_id,

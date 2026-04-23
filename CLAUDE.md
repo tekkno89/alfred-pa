@@ -270,6 +270,28 @@ After making changes, **restart or rebuild the Docker containers as needed** and
 - Cross-channel sync enabled
 - Responses from webapp mirror to Slack
 
+### Slack Token Usage Guidelines
+**CRITICAL: Use the correct Slack token type to avoid `not_in_channel` errors.**
+
+| Token Type | Source | When to Use |
+|------------|--------|-------------|
+| **Bot Token** | `SlackService()` | Sending messages, reactions, posting to channels the bot is in |
+| **User OAuth Token** | `SlackUserService(db).get_raw_token(user_id)` | Checking if user responded in monitored channels (bot may not be a member) |
+
+**Why this matters:**
+- Users are members of their monitored channels (including private channels)
+- The bot may NOT be a member of all monitored channels
+- Using bot token to check `conversations_history` in a channel the bot isn't in returns `not_in_channel` error
+
+**Example:**
+```python
+# WRONG: Bot token may not have access
+checker = DigestResponseChecker()  # Uses SlackService with bot token
+
+# RIGHT: User token always has access
+checker = DigestResponseChecker(db)  # Uses user's OAuth token via _get_user_client()
+```
+
 ### Token Encryption
 - Envelope encryption: DEK encrypts data, KEK encrypts the DEK
 - KEK providers: local Fernet key (default), GCP KMS, AWS KMS

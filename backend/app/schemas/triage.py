@@ -196,8 +196,6 @@ class ClassificationResponse(BaseModel):
     child_count: int | None = None
     digest_type: str | None = None
     created_at: UTCDatetime = None
-    user_reacted_at: UTCDatetime = None
-    user_responded_at: UTCDatetime = None
 
 
 class MarkReviewedRequest(BaseModel):

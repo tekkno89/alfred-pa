@@ -245,51 +245,6 @@ class TestConversationGroup:
         )
         assert conv.sender_names == ["U1"]
 
-    def test_has_user_reacted_true(self):
-        """Returns True if any message has user_reacted_at."""
-        msg1 = create_classification("C123", "T1", "U1", "100.1")
-        msg2 = create_classification("C123", "T1", "U2", "100.2")
-        msg2.user_reacted_at = datetime.utcnow()
-
-        conv = ConversationGroup(
-            id="test",
-            messages=[msg1, msg2],
-            conversation_type="thread",
-            channel_id="C123",
-            participants=["U1", "U2"],
-        )
-        assert conv.has_user_reacted() is True
-
-    def test_has_user_reacted_false(self):
-        """Returns False if no message has user_reacted_at."""
-        messages = [
-            create_classification("C123", "T1", "U1", "100.1"),
-            create_classification("C123", "T1", "U2", "100.2"),
-        ]
-        conv = ConversationGroup(
-            id="test",
-            messages=messages,
-            conversation_type="thread",
-            channel_id="C123",
-            participants=["U1", "U2"],
-        )
-        assert conv.has_user_reacted() is False
-
-    def test_has_user_responded_true(self):
-        """Returns True if any message has user_responded_at."""
-        msg1 = create_classification("C123", "T1", "U1", "100.1")
-        msg2 = create_classification("C123", "T1", "U2", "100.2")
-        msg2.user_responded_at = datetime.utcnow()
-
-        conv = ConversationGroup(
-            id="test",
-            messages=[msg1, msg2],
-            conversation_type="thread",
-            channel_id="C123",
-            participants=["U1", "U2"],
-        )
-        assert conv.has_user_responded() is True
-
     def test_empty_messages_edge_case(self):
         """Handles empty messages list gracefully."""
         conv = ConversationGroup(

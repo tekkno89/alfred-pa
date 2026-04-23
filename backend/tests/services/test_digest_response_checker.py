@@ -13,8 +13,6 @@ def create_classification(
     channel_id: str,
     message_ts: str,
     thread_ts: str | None = None,
-    user_reacted_at: datetime | None = None,
-    user_responded_at: datetime | None = None,
 ) -> TriageClassification:
     """Helper to create a TriageClassification for testing."""
     return TriageClassification(
@@ -30,8 +28,6 @@ def create_classification(
         confidence=0.9,
         classification_path="channel",
         created_at=datetime.utcnow(),
-        user_reacted_at=user_reacted_at,
-        user_responded_at=user_responded_at,
     )
 
 
@@ -40,8 +36,6 @@ def create_conversation(
     message_tses: list[str] = None,
     thread_ts: str | None = None,
     conversation_type: str = "channel",
-    has_reacted: bool = False,
-    has_responded: bool = False,
 ) -> ConversationGroup:
     """Helper to create a ConversationGroup for testing."""
     if message_tses is None:
@@ -53,8 +47,6 @@ def create_conversation(
             channel_id=channel_id,
             message_ts=ts,
             thread_ts=thread_ts,
-            user_reacted_at=datetime.utcnow() if has_reacted else None,
-            user_responded_at=datetime.utcnow() if has_responded else None,
         )
         messages.append(msg)
 
@@ -68,29 +60,35 @@ def create_conversation(
     )
 
 
+@pytest.fixture
+def mock_db():
+    """Create a mock database session."""
+    return MagicMock()
+
+
 class TestDigestResponseChecker:
     """Tests for DigestResponseChecker."""
 
-    def test_init(self):
+    def test_init(self, mock_db):
         """Checker initializes properly."""
-        checker = DigestResponseChecker()
-        assert checker.slack_service is not None
+        checker = DigestResponseChecker(mock_db)
+        assert checker.db == mock_db
+        assert checker._user_clients == {}
 
     @pytest.mark.asyncio
-    async def test_filter_empty_conversations(self):
+    async def test_filter_empty_conversations(self, mock_db):
         """Empty input returns empty list."""
-        checker = DigestResponseChecker()
+        checker = DigestResponseChecker(mock_db)
         result = await checker.filter_unresponded_conversations("user-id", "U-user", [])
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_filter_reacted_conversation(self):
-        """Conversations where user reacted are filtered out."""
-        checker = DigestResponseChecker()
-        conv = create_conversation(has_reacted=True)
+    async def test_filter_conversation_user_posted_after(self, mock_db):
+        """Conversations where user posted after are filtered out."""
+        checker = DigestResponseChecker(mock_db)
+        conv = create_conversation()
 
-        # Mock the Slack API to prevent real calls
-        with patch.object(checker, "_check_user_message_response", return_value=False):
+        with patch.object(checker, "_check_user_message_response", return_value=True):
             result = await checker.filter_unresponded_conversations(
                 "user-id", "U-user", [conv]
             )
@@ -98,26 +96,11 @@ class TestDigestResponseChecker:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_filter_responded_conversation(self):
-        """Conversations where user responded are filtered out."""
-        checker = DigestResponseChecker()
-        conv = create_conversation(has_responded=True)
-
-        # Mock the Slack API to prevent real calls
-        with patch.object(checker, "_check_user_message_response", return_value=False):
-            result = await checker.filter_unresponded_conversations(
-                "user-id", "U-user", [conv]
-            )
-
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_keep_unresponded_conversation(self):
+    async def test_keep_unresponded_conversation(self, mock_db):
         """Unresponded conversations are kept."""
-        checker = DigestResponseChecker()
-        conv = create_conversation(has_reacted=False, has_responded=False)
+        checker = DigestResponseChecker(mock_db)
+        conv = create_conversation()
 
-        # Mock the Slack API to return no user messages
         with patch.object(checker, "_check_user_message_response", return_value=False):
             result = await checker.filter_unresponded_conversations(
                 "user-id", "U-user", [conv]
@@ -127,78 +110,79 @@ class TestDigestResponseChecker:
         assert result[0] == conv
 
     @pytest.mark.asyncio
-    async def test_filter_mixed_conversations(self):
+    async def test_filter_mixed_conversations(self, mock_db):
         """Mix of responded and unresponded conversations."""
-        checker = DigestResponseChecker()
+        checker = DigestResponseChecker(mock_db)
 
         convs = [
-            create_conversation(
-                channel_id="C1", has_reacted=True
-            ),  # Filtered by reaction
-            create_conversation(
-                channel_id="C2", has_responded=True
-            ),  # Filtered by response
-            create_conversation(
-                channel_id="C3", has_reacted=False, has_responded=False
-            ),  # Kept
+            create_conversation(channel_id="C1"),
+            create_conversation(channel_id="C2"),
+            create_conversation(channel_id="C3"),
         ]
 
-        # Mock the Slack API to prevent real calls and return no user messages
-        with patch.object(checker, "_check_user_message_response", return_value=False):
+        async def mock_check(user_id, user_slack_id, conv):
+            return conv.channel_id == "C1"
+
+        with patch.object(
+            checker, "_check_user_message_response", side_effect=mock_check
+        ):
             result = await checker.filter_unresponded_conversations(
                 "user-id", "U-user", convs
             )
 
-        # C1 filtered by reaction, C2 filtered by response, C3 kept
-        assert len(result) == 1
-        assert result[0].channel_id == "C3"
+        assert len(result) == 2
+        assert {c.channel_id for c in result} == {"C2", "C3"}
 
     @pytest.mark.asyncio
-    async def test_check_user_message_response_user_posted_after(self):
+    async def test_check_user_message_response_user_posted_after(self, mock_db):
         """Detects user message posted after conversation."""
-        checker = DigestResponseChecker()
+        checker = DigestResponseChecker(mock_db)
         conv = create_conversation(message_tses=["100.1", "100.2"])
 
         mock_client = AsyncMock()
         mock_client.conversations_history = AsyncMock(
             return_value={
                 "messages": [
-                    {"ts": "100.3", "user": "U-user"},  # User message after
+                    {"ts": "100.3", "user": "U-user"},
                     {"ts": "100.2", "user": "U-sender"},
                 ]
             }
         )
-        checker.slack_service.client = mock_client
 
-        result = await checker._check_user_message_response("U-user", conv)
+        with patch.object(checker, "_get_user_client", return_value=mock_client):
+            result = await checker._check_user_message_response(
+                "user-id", "U-user", conv
+            )
 
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_check_user_message_response_no_user_post(self):
+    async def test_check_user_message_response_no_user_post(self, mock_db):
         """No user message after conversation."""
-        checker = DigestResponseChecker()
+        checker = DigestResponseChecker(mock_db)
         conv = create_conversation(message_tses=["100.1", "100.2"])
 
         mock_client = AsyncMock()
         mock_client.conversations_history = AsyncMock(
             return_value={
                 "messages": [
-                    {"ts": "100.3", "user": "U-other"},  # Not the user
+                    {"ts": "100.3", "user": "U-other"},
                     {"ts": "100.2", "user": "U-sender"},
                 ]
             }
         )
-        checker.slack_service.client = mock_client
 
-        result = await checker._check_user_message_response("U-user", conv)
+        with patch.object(checker, "_get_user_client", return_value=mock_client):
+            result = await checker._check_user_message_response(
+                "user-id", "U-user", conv
+            )
 
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_check_user_message_response_thread(self):
+    async def test_check_user_message_response_thread(self, mock_db):
         """Checks thread replies for user response."""
-        checker = DigestResponseChecker()
+        checker = DigestResponseChecker(mock_db)
         conv = create_conversation(
             thread_ts="T1",
             message_tses=["100.1", "100.2"],
@@ -209,55 +193,70 @@ class TestDigestResponseChecker:
         mock_client.conversations_replies = AsyncMock(
             return_value={
                 "messages": [
-                    {"ts": "100.3", "user": "U-user"},  # User replied in thread
+                    {"ts": "100.3", "user": "U-user"},
                 ]
             }
         )
-        checker.slack_service.client = mock_client
 
-        result = await checker._check_user_message_response("U-user", conv)
+        with patch.object(checker, "_get_user_client", return_value=mock_client):
+            result = await checker._check_user_message_response(
+                "user-id", "U-user", conv
+            )
 
         assert result is True
         mock_client.conversations_replies.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_check_user_message_response_skips_bots(self):
+    async def test_check_user_message_response_skips_bots(self, mock_db):
         """Bot messages are not counted as user responses."""
-        checker = DigestResponseChecker()
+        checker = DigestResponseChecker(mock_db)
         conv = create_conversation(message_tses=["100.1"])
 
         mock_client = AsyncMock()
         mock_client.conversations_history = AsyncMock(
             return_value={
                 "messages": [
-                    {"ts": "100.2", "user": "U-user", "bot_id": "B123"},  # Bot message
-                    {
-                        "ts": "100.3",
-                        "user": "U-user",
-                        "subtype": "bot_message",
-                    },  # Bot message
+                    {"ts": "100.2", "user": "U-user", "bot_id": "B123"},
+                    {"ts": "100.3", "user": "U-user", "subtype": "bot_message"},
                 ]
             }
         )
-        checker.slack_service.client = mock_client
 
-        result = await checker._check_user_message_response("U-user", conv)
+        with patch.object(checker, "_get_user_client", return_value=mock_client):
+            result = await checker._check_user_message_response(
+                "user-id", "U-user", conv
+            )
 
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_check_user_message_response_error(self):
+    async def test_check_user_message_response_error(self, mock_db):
         """Returns False on error (conservative)."""
-        checker = DigestResponseChecker()
+        checker = DigestResponseChecker(mock_db)
         conv = create_conversation()
 
         mock_client = AsyncMock()
         mock_client.conversations_history = AsyncMock(
             side_effect=Exception("API error")
         )
-        checker.slack_service.client = mock_client
 
-        result = await checker._check_user_message_response("U-user", conv)
+        with patch.object(checker, "_get_user_client", return_value=mock_client):
+            result = await checker._check_user_message_response(
+                "user-id", "U-user", conv
+            )
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_check_user_message_response_no_client(self, mock_db):
+        """Returns False when user client is unavailable."""
+        checker = DigestResponseChecker(mock_db)
+        conv = create_conversation()
+
+        with patch.object(checker, "_get_user_client", return_value=None):
+            result = await checker._check_user_message_response(
+                "user-id", "U-user", conv
+            )
 
         assert result is False
 
@@ -266,56 +265,36 @@ class TestDigestResponseCheckerFilterMessages:
     """Tests for filter_unresponded_messages (non-conversation mode)."""
 
     @pytest.mark.asyncio
-    async def test_filter_empty_messages(self):
+    async def test_filter_empty_messages(self, mock_db):
         """Empty input returns empty list."""
-        checker = DigestResponseChecker()
+        checker = DigestResponseChecker(mock_db)
         result = await checker.filter_unresponded_messages("user-id", "U-user", [])
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_filter_reacted_messages(self):
-        """Messages with user_reacted_at are filtered."""
-        checker = DigestResponseChecker()
-        messages = [
-            create_classification("C1", "100.1", user_reacted_at=datetime.utcnow()),
-            create_classification("C1", "100.2"),
-        ]
-
-        with patch.object(checker, "_get_user_messages_after", return_value=[]):
-            result = await checker.filter_unresponded_messages(
-                "user-id", "U-user", messages
-            )
-
-        assert len(result) == 1
-        assert result[0].message_ts == "100.2"
-
-    @pytest.mark.asyncio
-    async def test_filter_messages_user_posted_after(self):
+    async def test_filter_messages_user_posted_after(self, mock_db):
         """Messages user posted after are filtered."""
-        checker = DigestResponseChecker()
+        checker = DigestResponseChecker(mock_db)
         messages = [
             create_classification("C1", "100.1"),
             create_classification("C1", "100.2"),
             create_classification("C1", "100.3"),
         ]
 
-        # User posted at 100.5, so 100.1, 100.2, 100.3 are before
-        # But we're checking if user posted after EACH message
         with patch.object(checker, "_get_user_messages_after", return_value=["100.5"]):
             result = await checker.filter_unresponded_messages(
                 "user-id", "U-user", messages
             )
 
-        # All messages have a user post after them, so all filtered
         assert len(result) == 0
 
     @pytest.mark.asyncio
-    async def test_filter_messages_partial(self):
+    async def test_filter_messages_partial(self, mock_db):
         """Only some messages have user post after."""
-        checker = DigestResponseChecker()
+        checker = DigestResponseChecker(mock_db)
         messages = [
-            create_classification("C1", "100.1"),  # User posted after (100.5 > 100.1)
-            create_classification("C1", "100.6"),  # No user post after
+            create_classification("C1", "100.1"),
+            create_classification("C1", "100.6"),
         ]
 
         with patch.object(checker, "_get_user_messages_after", return_value=["100.5"]):
@@ -331,9 +310,9 @@ class TestDigestResponseCheckerGetUserMessages:
     """Tests for _get_user_messages_after."""
 
     @pytest.mark.asyncio
-    async def test_get_user_messages_success(self):
+    async def test_get_user_messages_success(self, mock_db):
         """Returns user message timestamps."""
-        checker = DigestResponseChecker()
+        checker = DigestResponseChecker(mock_db)
 
         mock_client = AsyncMock()
         mock_client.conversations_history = AsyncMock(
@@ -345,16 +324,18 @@ class TestDigestResponseCheckerGetUserMessages:
                 ]
             }
         )
-        checker.slack_service.client = mock_client
 
-        result = await checker._get_user_messages_after("U-user", "C123", "100.0")
+        with patch.object(checker, "_get_user_client", return_value=mock_client):
+            result = await checker._get_user_messages_after(
+                "user-id", "U-user", "C123", "100.0"
+            )
 
         assert result == ["100.5", "100.3"]
 
     @pytest.mark.asyncio
-    async def test_get_user_messages_skips_bots(self):
+    async def test_get_user_messages_skips_bots(self, mock_db):
         """Bot messages are excluded."""
-        checker = DigestResponseChecker()
+        checker = DigestResponseChecker(mock_db)
 
         mock_client = AsyncMock()
         mock_client.conversations_history = AsyncMock(
@@ -365,23 +346,76 @@ class TestDigestResponseCheckerGetUserMessages:
                 ]
             }
         )
-        checker.slack_service.client = mock_client
 
-        result = await checker._get_user_messages_after("U-user", "C123", "100.0")
+        with patch.object(checker, "_get_user_client", return_value=mock_client):
+            result = await checker._get_user_messages_after(
+                "user-id", "U-user", "C123", "100.0"
+            )
 
         assert result == ["100.4"]
 
     @pytest.mark.asyncio
-    async def test_get_user_messages_error(self):
+    async def test_get_user_messages_error(self, mock_db):
         """Returns empty list on error."""
-        checker = DigestResponseChecker()
+        checker = DigestResponseChecker(mock_db)
 
         mock_client = AsyncMock()
         mock_client.conversations_history = AsyncMock(
             side_effect=Exception("API error")
         )
-        checker.slack_service.client = mock_client
 
-        result = await checker._get_user_messages_after("U-user", "C123", "100.0")
+        with patch.object(checker, "_get_user_client", return_value=mock_client):
+            result = await checker._get_user_messages_after(
+                "user-id", "U-user", "C123", "100.0"
+            )
 
         assert result == []
+
+    @pytest.mark.asyncio
+    async def test_get_user_messages_no_client(self, mock_db):
+        """Returns empty list when no user client."""
+        checker = DigestResponseChecker(mock_db)
+
+        with patch.object(checker, "_get_user_client", return_value=None):
+            result = await checker._get_user_messages_after(
+                "user-id", "U-user", "C123", "100.0"
+            )
+
+        assert result == []
+
+
+class TestGetUserClient:
+    """Tests for _get_user_client caching and token lookup."""
+
+    @pytest.mark.asyncio
+    async def test_get_user_client_caches_result(self, mock_db):
+        """Client is cached after first lookup."""
+        checker = DigestResponseChecker(mock_db)
+
+        mock_token = MagicMock()
+        mock_repo = MagicMock()
+        mock_repo.get_by_user_and_provider = AsyncMock(return_value=mock_token)
+        checker.token_repo = mock_repo
+
+        mock_encryption = MagicMock()
+        mock_encryption.get_decrypted_access_token = AsyncMock(return_value="xoxp-test")
+        checker.token_encryption = mock_encryption
+
+        client1 = await checker._get_user_client("user-1")
+        client2 = await checker._get_user_client("user-1")
+
+        assert client1 is client2
+        mock_repo.get_by_user_and_provider.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_user_client_no_token(self, mock_db):
+        """Returns None when user has no Slack token."""
+        checker = DigestResponseChecker(mock_db)
+
+        mock_repo = MagicMock()
+        mock_repo.get_by_user_and_provider = AsyncMock(return_value=None)
+        checker.token_repo = mock_repo
+
+        result = await checker._get_user_client("user-1")
+
+        assert result is None
