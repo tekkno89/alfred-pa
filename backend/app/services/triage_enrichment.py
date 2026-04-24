@@ -3,6 +3,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +13,85 @@ from app.db.repositories.triage import (
 )
 from app.services.focus import FocusModeService
 
+if TYPE_CHECKING:
+    from app.services.slack import SlackService
+
 logger = logging.getLogger(__name__)
+
+USER_NAME_CACHE_TTL = 86400
+
+
+async def resolve_user_names_batch(
+    slack_service: "SlackService",
+    redis_client,
+    user_ids: set[str],
+) -> dict[str, str]:
+    """Resolve display names for multiple Slack user IDs.
+
+    Uses same cache key format, fallback chain, and TTL as single-user resolver:
+    - Cache key: slack:user_name:{user_id}
+    - TTL: 24 hours
+    - Fallback: real_name → profile.display_name → name → user_id
+
+    Args:
+        slack_service: SlackService instance for API calls
+        redis_client: Redis client for caching
+        user_ids: Set of Slack user IDs to resolve
+
+    Returns:
+        Dict mapping user_id to display name
+    """
+    result: dict[str, str] = {}
+    uncached_ids: list[str] = []
+
+    for user_id in user_ids:
+        cache_key = f"slack:user_name:{user_id}"
+        cached_name = await redis_client.get(cache_key)
+        if cached_name:
+            result[user_id] = cached_name
+        else:
+            uncached_ids.append(user_id)
+
+    if uncached_ids:
+        for user_id in uncached_ids:
+            try:
+                user_info = await slack_service.get_user_info(user_id)
+                name = (
+                    user_info.get("real_name")
+                    or user_info.get("profile", {}).get("display_name")
+                    or user_info.get("name")
+                    or user_id
+                )
+                result[user_id] = name
+                cache_key = f"slack:user_name:{user_id}"
+                await redis_client.set(cache_key, name, ex=USER_NAME_CACHE_TTL)
+            except Exception:
+                result[user_id] = user_id
+
+    return result
+
+
+async def resolve_user_name(
+    slack_service: "SlackService",
+    redis_client,
+    sender_slack_id: str,
+) -> str:
+    """Resolve display name for a single Slack user ID.
+
+    Convenience wrapper that calls through batch resolver internally.
+
+    Args:
+        slack_service: SlackService instance for API calls
+        redis_client: Redis client for caching
+        sender_slack_id: Slack user ID to resolve
+
+    Returns:
+        Display name for the user
+    """
+    names = await resolve_user_names_batch(
+        slack_service, redis_client, {sender_slack_id}
+    )
+    return names.get(sender_slack_id, sender_slack_id)
 
 
 @dataclass
@@ -166,24 +245,10 @@ class TriageEnrichmentService:
             redis_client = await get_redis()
             slack_service = SlackService()
 
-            # Sender name
-            user_cache_key = f"slack:user_name:{sender_slack_id}"
-            cached_name = await redis_client.get(user_cache_key)
-            if cached_name:
-                payload.sender_name = cached_name
-            else:
-                try:
-                    user_info = await slack_service.get_user_info(sender_slack_id)
-                    name = (
-                        user_info.get("real_name")
-                        or user_info.get("profile", {}).get("display_name")
-                        or user_info.get("name")
-                        or sender_slack_id
-                    )
-                    payload.sender_name = name
-                    await redis_client.set(user_cache_key, name, ex=86400)
-                except Exception:
-                    payload.sender_name = sender_slack_id
+            # Sender name (use batch resolver for consistency)
+            payload.sender_name = await resolve_user_name(
+                slack_service, redis_client, sender_slack_id
+            )
 
             # Channel name (for non-DM channels)
             if event_type == "channel" and not payload.channel_name:

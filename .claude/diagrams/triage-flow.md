@@ -191,6 +191,72 @@ sequenceDiagram
     DS->>SSE: Publish triage.break_check_slack
 ```
 
+## Improved Digest Pipeline (Phase 1 & 2)
+
+```mermaid
+flowchart TD
+    ITEMS[Queued Digest Items] --> SPLIT{Threaded?}
+    SPLIT -->|Yes| THREADED[Threaded Items]
+    SPLIT -->|No| STANDALONE[Standalone Items]
+    
+    STANDALONE --> SUBST[Substance Filter]
+    SUBST -->|Non-substantive| FILTERED[Mark filtered_nonsubstantive]
+    SUBST -->|Substantive| SUBSTANTIVE[Substantive Standalone]
+    
+    THREADED --> GROUP[DigestGrouper.group_messages_with_context]
+    SUBSTANTIVE --> GROUP
+    
+    GROUP --> THREAD_GRP[Thread Groups<br/>fetch context via conversations.replies]
+    GROUP --> CHANNEL_GRP[Channel Groups<br/>unthreaded messages]
+    
+    THREAD_GRP --> CONTEXT[ThreadContext<br/>CONTEXT vs NEW messages]
+    CONTEXT --> FIRST_RUN{First run?}
+    FIRST_RUN -->|Yes| FULL_MODE[Summarization: full]
+    FIRST_RUN -->|No| INCR_MODE[Summarization: thread_incremental]
+    
+    CHANNEL_GRP --> PARTITION[Partition by batch size<br/>max 40 per batch]
+    PARTITION --> GAP[Gap Detection<br/>10+ min gaps as boundaries]
+    GAP --> CLUSTER[LLM Clustering<br/>identify conversation boundaries]
+    CLUSTER --> CLUSTER_GRPS[Clustered Groups<br/>summarization: full]
+    
+    FULL_MODE --> THIN_CHECK{NEW messages<br/>all non-substantive?}
+    INCR_MODE --> THIN_CHECK
+    THIN_CHECK -->|Yes| SKIPPED[Mark skipped_thin_update]
+    THIN_CHECK -->|No| SUMMARIZE[Create Summary<br/>named participants, subject + outcome]
+    
+    CLUSTER_GRPS --> SUMMARIZE
+    SUMMARIZE --> DELIVER[Send Conversation Digest DM]
+    DELIVER --> MARK[Mark summarized/absorbed_in_thread]
+```
+
+### Digest Grouping Components
+
+| Component | Purpose |
+|-----------|---------|
+| `DigestGrouper` | Groups messages by thread_ts, DM channel, or prepares for LLM clustering |
+| `ThreadContext` | Holds CONTEXT (earlier messages) vs NEW (pending messages) distinction |
+| `SubstanceFilter` | Filters emoji-only, acknowledgment patterns, short non-substantive messages |
+| `MessageClustering` | LLM-based clustering for unthreaded channel messages |
+| `Two-Mode Summarizer` | `thread_incremental` (CONTEXT/NEW) vs `full` (all messages) |
+
+### Processed Reasons
+
+| Value | When Applied |
+|-------|--------------|
+| `summarized` | Message was included in a digest summary |
+| `filtered_nonsubstantive` | Standalone message filtered by substance filter |
+| `absorbed_in_thread` | Part of thread but not the focus message |
+| `absorbed_in_cluster` | Part of LLM cluster summary |
+| `skipped_thin_update` | Thread with all non-substantive NEW messages |
+
+### Conversation Group Types
+
+| Type | Description | Summarization Mode |
+|------|-------------|-------------------|
+| `thread` | Messages with same `thread_ts` | `thread_incremental` (after first run) or `full` |
+| `dm` | Direct messages in same DM channel | `full` |
+| `channel` | Unthreaded channel messages (LLM clustered) | `full` |
+
 ### Consolidated Item Visibility
 
 - **Default queries**: Items with `digest_summary_id IS NOT NULL` are hidden (replaced by their summary)
@@ -258,15 +324,19 @@ flowchart TD
 | `backend/app/api/triage.py` | REST API endpoints |
 | `backend/app/api/slack.py` | Slack event handler (triggers triage) |
 | `backend/app/services/triage_router.py` | Routes events to pipeline |
-| `backend/app/services/triage_enrichment.py` | Gathers classification context |
+| `backend/app/services/triage_enrichment.py` | Gathers classification context, batch user name resolution |
 | `backend/app/services/triage_classifier.py` | LLM classification logic |
 | `backend/app/services/triage_pipeline.py` | Orchestration + urgent delivery |
-| `backend/app/services/triage_delivery.py` | Digest consolidation + scheduled delivery |
+| `backend/app/services/triage_delivery.py` | Digest consolidation + two-mode summarizer |
+| `backend/app/services/digest_grouper.py` | Thread grouping + LLM clustering integration |
+| `backend/app/services/digest_response_checker.py` | Filter conversations user already responded to |
+| `backend/app/services/substance_filter.py` | Filter non-substantive messages (emoji, acknowledgments) |
+| `backend/app/services/message_clustering.py` | LLM clustering for unthreaded channel messages |
 | `backend/app/services/triage_cache.py` | Redis channel set for O(1) lookup |
 | `backend/app/services/triage_wizard.py` | AI-generated priority definitions |
 | `backend/app/services/triage_calibration.py` | Sample messages for calibration |
 | `backend/app/db/models/triage.py` | Database models |
-| `backend/app/db/repositories/triage.py` | Data access layer |
+| `backend/app/db/repositories/triage.py` | Data access layer, mark_processed() |
 | `backend/app/schemas/triage.py` | Request/response schemas |
 | `frontend/src/hooks/useTriage.ts` | React Query hooks |
 | `frontend/src/pages/TriagePage.tsx` | Classification list + filters |

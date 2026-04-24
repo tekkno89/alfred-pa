@@ -198,6 +198,10 @@ class TriageClassification(Base, UUIDMixin, TimestampMixin):
     # Digest type: "focus" for focus session summaries, "scheduled" for scheduled digests
     digest_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
+    # Processing outcome for digest grouping
+    # Values: summarized, filtered_nonsubstantive, absorbed_in_thread, absorbed_in_cluster, skipped_thin_update
+    processed_reason: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
     # Relationships
     user: Mapped["User"] = relationship("User")
     feedback: Mapped["TriageFeedback | None"] = relationship(

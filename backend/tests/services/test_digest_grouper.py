@@ -396,3 +396,266 @@ class TestDigestGrouperLLM:
             # Falls back to single conversation
             assert len(result) == 1
             assert len(result[0].messages) == 2
+
+
+class TestThreadContext:
+    """Tests for thread context fetching and CONTEXT/NEW distinction."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_thread_context_distinguishes_context_and_new(self):
+        """Thread context separates earlier messages from NEW messages."""
+        grouper = DigestGrouper()
+
+        mock_client = AsyncMock()
+        mock_client.conversations_replies = AsyncMock(
+            return_value={
+                "messages": [
+                    {"ts": "100.1", "user": "U1", "text": "First message"},
+                    {"ts": "100.2", "user": "U2", "text": "Second message"},
+                    {"ts": "100.3", "user": "U1", "text": "Third message"},
+                ]
+            }
+        )
+
+        new_message_ids = {"100.3"}
+        result = await grouper.fetch_thread_context(
+            mock_client, "C123", "100.1", new_message_ids
+        )
+
+        assert result is not None
+        assert len(result.context_messages) == 2
+        assert result.is_first_run == False
+        assert result.thread_ts == "100.1"
+        assert result.channel_id == "C123"
+
+    @pytest.mark.asyncio
+    async def test_fetch_thread_context_detects_first_run(self):
+        """First-run detection when all messages are NEW."""
+        grouper = DigestGrouper()
+
+        mock_client = AsyncMock()
+        mock_client.conversations_replies = AsyncMock(
+            return_value={
+                "messages": [
+                    {"ts": "100.1", "user": "U1", "text": "First message"},
+                    {"ts": "100.2", "user": "U2", "text": "Second message"},
+                ]
+            }
+        )
+
+        new_message_ids = {"100.1", "100.2"}
+        result = await grouper.fetch_thread_context(
+            mock_client, "C123", "100.1", new_message_ids
+        )
+
+        assert result is not None
+        assert result.is_first_run == True
+        assert len(result.context_messages) == 0
+
+    @pytest.mark.asyncio
+    async def test_fetch_thread_context_truncates_long_threads(self):
+        """Thread truncation keeps most recent 200 messages."""
+        grouper = DigestGrouper()
+
+        messages = [
+            {"ts": f"{i}.0", "user": "U1", "text": f"Message {i}"}
+            for i in range(250)
+        ]
+
+        mock_client = AsyncMock()
+        mock_client.conversations_replies = AsyncMock(
+            return_value={"messages": messages}
+        )
+
+        new_message_ids = {m["ts"] for m in messages[-5:]}
+        result = await grouper.fetch_thread_context(
+            mock_client, "C123", "1.0", new_message_ids
+        )
+
+        assert result is not None
+        assert len(result.context_messages) <= 200
+
+    @pytest.mark.asyncio
+    async def test_fetch_thread_context_handles_error(self):
+        """Returns None on error."""
+        grouper = DigestGrouper()
+
+        mock_client = AsyncMock()
+        mock_client.conversations_replies = AsyncMock(
+            side_effect=Exception("API error")
+        )
+
+        result = await grouper.fetch_thread_context(
+            mock_client, "C123", "100.1", {"100.2"}
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_thread_context_all_user_ids(self):
+        """all_user_ids property returns unique user IDs from context and new."""
+        from app.services.digest_grouper import ThreadContext
+
+        msg1 = create_classification("C123", "100.1", "U1", "100.3")
+        msg2 = create_classification("C123", "100.1", "U2", "100.4")
+
+        thread_ctx = ThreadContext(
+            thread_ts="100.1",
+            channel_id="C123",
+            context_messages=[
+                {"user": "U3", "text": "Context 1", "ts": "100.1"},
+                {"user": "U4", "text": "Context 2", "ts": "100.2"},
+            ],
+            new_messages=[msg1, msg2],
+            is_first_run=False,
+        )
+
+        user_ids = thread_ctx.all_user_ids
+        assert user_ids == {"U1", "U2", "U3", "U4"}
+
+
+class TestConversationGroupSummarizationMode:
+    """Tests for summarization_mode property."""
+
+    def test_summarization_mode_defaults_to_full(self):
+        """Default summarization mode is 'full'."""
+        msg = create_classification("C123", None, "U1", "100.1")
+        conv = ConversationGroup(
+            id="test",
+            messages=[msg],
+            conversation_type="channel",
+            channel_id="C123",
+            participants=["U1"],
+        )
+        assert conv.summarization_mode == "full"
+
+    def test_summarization_mode_can_be_set(self):
+        """Summarization mode can be set."""
+        msg = create_classification("C123", "T1", "U1", "100.1")
+        conv = ConversationGroup(
+            id="test",
+            messages=[msg],
+            conversation_type="thread",
+            channel_id="C123",
+            thread_ts="T1",
+            participants=["U1"],
+            summarization_mode="thread_incremental",
+        )
+        assert conv.summarization_mode == "thread_incremental"
+
+
+class TestDigestGrouperWithContext:
+    """Tests for group_messages_with_context with thread context."""
+
+    @pytest.mark.asyncio
+    async def test_group_with_context_enriches_threads(self):
+        """Thread messages get context enrichment."""
+        grouper = DigestGrouper()
+        messages = [
+            create_classification("C123", "T1", "U1", "100.1"),
+            create_classification("C123", "T1", "U2", "100.2"),
+        ]
+
+        mock_client = AsyncMock()
+        mock_client.conversations_replies = AsyncMock(
+            return_value={
+                "messages": [
+                    {"ts": "100.0", "user": "U3", "text": "Parent"},
+                    {"ts": "100.1", "user": "U1", "text": "Reply 1"},
+                    {"ts": "100.2", "user": "U2", "text": "Reply 2"},
+                ]
+            }
+        )
+
+        mock_db = AsyncMock()
+
+        with patch.object(
+            grouper, "_get_user_client", return_value=mock_client
+        ):
+            result = await grouper.group_messages_with_context(
+                messages, "test-user", mock_db
+            )
+
+        assert len(result) == 1
+        assert result[0].conversation_type == "thread"
+        assert result[0].thread_context is not None
+
+    @pytest.mark.asyncio
+    async def test_group_with_context_sets_first_run_mode(self):
+        """First-run thread uses 'full' summarization mode."""
+        grouper = DigestGrouper()
+        messages = [
+            create_classification("C123", "T1", "U1", "100.1"),
+        ]
+
+        mock_client = AsyncMock()
+        mock_client.conversations_replies = AsyncMock(
+            return_value={
+                "messages": [
+                    {"ts": "100.1", "user": "U1", "text": "Message"},
+                ]
+            }
+        )
+
+        mock_db = AsyncMock()
+
+        with patch.object(
+            grouper, "_get_user_client", return_value=mock_client
+        ):
+            result = await grouper.group_messages_with_context(
+                messages, "test-user", mock_db
+            )
+
+        assert len(result) == 1
+        assert result[0].summarization_mode == "full"
+
+    @pytest.mark.asyncio
+    async def test_group_with_context_sets_incremental_mode(self):
+        """Non-first-run thread uses 'thread_incremental' mode."""
+        grouper = DigestGrouper()
+        messages = [
+            create_classification("C123", "T1", "U1", "100.2"),
+        ]
+
+        mock_client = AsyncMock()
+        mock_client.conversations_replies = AsyncMock(
+            return_value={
+                "messages": [
+                    {"ts": "100.0", "user": "U2", "text": "Parent"},
+                    {"ts": "100.1", "user": "U3", "text": "Earlier reply"},
+                    {"ts": "100.2", "user": "U1", "text": "New reply"},
+                ]
+            }
+        )
+
+        mock_db = AsyncMock()
+
+        with patch.object(
+            grouper, "_get_user_client", return_value=mock_client
+        ):
+            result = await grouper.group_messages_with_context(
+                messages, "test-user", mock_db
+            )
+
+        assert len(result) == 1
+        assert result[0].summarization_mode == "thread_incremental"
+
+    @pytest.mark.asyncio
+    async def test_group_with_context_no_client_returns_basic_groups(self):
+        """Returns basic groups when no user client available."""
+        grouper = DigestGrouper()
+        messages = [
+            create_classification("C123", "T1", "U1", "100.1"),
+        ]
+
+        mock_db = AsyncMock()
+
+        with patch.object(
+            grouper, "_get_user_client", return_value=None
+        ):
+            result = await grouper.group_messages_with_context(
+                messages, "test-user", mock_db
+            )
+
+        assert len(result) == 1
+        assert result[0].thread_context is None

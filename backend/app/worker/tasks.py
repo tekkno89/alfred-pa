@@ -474,15 +474,13 @@ async def send_digest(
     async with get_db_session() as db:
         from app.db.repositories import UserRepository
         from app.db.repositories.triage import TriageClassificationRepository
-        from app.services.alert_deduplication import AlertDeduplicationService
+        from app.services.substance_filter import is_substantive
         from app.services.triage_delivery import TriageDeliveryService
 
         delivery = TriageDeliveryService(db)
-        dedup = AlertDeduplicationService(db)
         class_repo = TriageClassificationRepository(db)
         user_repo = UserRepository(db)
 
-        # Get items queued for scheduled digest (not part of focus session)
         items = await class_repo.get_unalerted_scheduled_items(user_id, priority)
 
         if not items:
@@ -493,42 +491,76 @@ async def send_digest(
             f"Sending {priority} {digest_type} digest to user {user_id}: {len(items)} items"
         )
 
-        # Get user's Slack ID for response checking
         user = await user_repo.get(user_id)
         user_slack_id = user.slack_user_id if user else None
 
+        standalone_items = []
+        threaded_items = []
+
+        for item in items:
+            if item.thread_ts:
+                threaded_items.append(item)
+            else:
+                standalone_items.append(item)
+
+        non_substantive_ids = []
+        substantive_standalone = []
+
+        for item in standalone_items:
+            if not is_substantive(item):
+                non_substantive_ids.append(item.id)
+            else:
+                substantive_standalone.append(item)
+
+        if non_substantive_ids:
+            await class_repo.mark_processed(
+                non_substantive_ids, "filtered_nonsubstantive"
+            )
+            logger.info(
+                f"Filtered {len(non_substantive_ids)} non-substantive standalone messages"
+            )
+
+        items_for_digest = threaded_items + substantive_standalone
+
+        if not items_for_digest:
+            await db.commit()
+            logger.info(f"All items filtered as non-substantive for user {user_id}")
+            return {
+                "status": "all_filtered",
+                "user_id": user_id,
+                "priority": priority,
+                "original_count": len(items),
+                "filtered_count": len(non_substantive_ids),
+            }
+
         if use_conversation_grouping and user_slack_id:
-            # New: Conversation-aware digest
             conversations = await delivery.prepare_conversation_digest(
-                user_id, user_slack_id, items
+                user_id, user_slack_id, items_for_digest
             )
 
             if not conversations:
                 logger.info(
-                    f"All {len(items)} items filtered as responded for user {user_id}"
+                    f"All {len(items_for_digest)} items filtered as responded for user {user_id}"
                 )
-                # Still mark items as alerted since they were reviewed
-                for item in items:
-                    await dedup.mark_alerted(item.id)
+                responded_ids = [item.id for item in items_for_digest]
+                await class_repo.mark_processed(responded_ids, "summarized")
                 await db.commit()
                 return {
                     "status": "all_filtered",
                     "user_id": user_id,
                     "priority": priority,
                     "original_count": len(items),
+                    "filtered_count": len(non_substantive_ids),
                 }
 
-            # Flatten conversations to get unresponded items
             unresponded_items = []
             for conv in conversations:
                 unresponded_items.extend(conv.messages)
 
-            # Send conversation-grouped digest DM
             await delivery.send_conversation_digest_dm(
                 user_id, conversations, priority, digest_type
             )
 
-            # Create digest_summary record for UI
             summary_text = f"{len(conversations)} conversation{'s' if len(conversations) != 1 else ''} to review"
             summary_record = await delivery.create_scheduled_digest_summary(
                 user_id=user_id,
@@ -536,9 +568,15 @@ async def send_digest(
                 intelligent_summary=summary_text,
             )
 
-            # Mark unresponded items as alerted
-            for item in unresponded_items:
-                await dedup.mark_alerted(item.id)
+            summarized_ids = [item.id for item in unresponded_items]
+            await class_repo.mark_processed(summarized_ids, "summarized")
+
+            absorbed_ids = []
+            for item in items_for_digest:
+                if item.id not in summarized_ids:
+                    absorbed_ids.append(item.id)
+            if absorbed_ids:
+                await class_repo.mark_processed(absorbed_ids, "absorbed_in_thread")
 
             await db.commit()
 
@@ -558,24 +596,25 @@ async def send_digest(
                 "summary_id": summary_record.id,
             }
         else:
-            # Legacy: Original digest flow (no conversation grouping)
-            messages = await delivery.refetch_messages_for_digest(items)
+            messages = await delivery.refetch_messages_for_digest(items_for_digest)
             intelligent_summary = await delivery.create_intelligent_summary(
                 messages, priority
             )
             summary_record = await delivery.create_scheduled_digest_summary(
                 user_id=user_id,
-                items=items,
+                items=items_for_digest,
                 intelligent_summary=intelligent_summary,
             )
             await delivery.send_priority_digest_dm(
-                user_id, intelligent_summary, items, priority, digest_type
+                user_id, intelligent_summary, items_for_digest, priority, digest_type
             )
-            for item in items:
-                await dedup.mark_alerted(item.id)
+
+            summarized_ids = [item.id for item in items_for_digest]
+            await class_repo.mark_processed(summarized_ids, "summarized")
+
             await db.commit()
             logger.info(
-                f"Sent {priority} {digest_type} digest to user {user_id}: {len(items)} items, "
+                f"Sent {priority} {digest_type} digest to user {user_id}: {len(items_for_digest)} items, "
                 f"summary_id={summary_record.id}"
             )
             return {
@@ -583,6 +622,6 @@ async def send_digest(
                 "user_id": user_id,
                 "priority": priority,
                 "digest_type": digest_type,
-                "item_count": len(items),
+                "item_count": len(items_for_digest),
                 "summary_id": summary_record.id,
             }

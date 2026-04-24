@@ -255,3 +255,413 @@ class TestGenerateAndSendDigest:
             await service.generate_and_send_digest("user-1", "session-1")
 
         service.user_repo.get.assert_not_called()
+
+
+class TestTwoModeSummarizer:
+    """Tests for thread_incremental vs full summarization modes."""
+
+    @pytest.mark.asyncio
+    async def test_thread_incremental_mode_includes_context_new(self, mock_db):
+        """thread_incremental mode should include CONTEXT/NEW distinction in prompt."""
+        from app.services.digest_grouper import ConversationGroup, ThreadContext
+
+        msg = _make_classification(
+            id="msg-1",
+            sender_slack_id="U1",
+            sender_name="Alice",
+            abstract="I agree with the proposal",
+            message_ts="100.2",
+        )
+
+        thread_ctx = ThreadContext(
+            thread_ts="100.0",
+            channel_id="C123",
+            context_messages=[
+                {"user": "U2", "text": "Bob: Here is the proposal", "ts": "100.0"},
+                {"user": "U3", "text": "Carol: Looks good to me", "ts": "100.1"},
+            ],
+            new_messages=[msg],
+            is_first_run=False,
+        )
+
+        conv = ConversationGroup(
+            id="thread:100.0",
+            messages=[msg],
+            conversation_type="thread",
+            channel_id="C123",
+            thread_ts="100.0",
+            summarization_mode="thread_incremental",
+            thread_context=thread_ctx,
+        )
+
+        with patch.object(TriageDeliveryService, "__init__", lambda self, db: None):
+            service = TriageDeliveryService.__new__(TriageDeliveryService)
+            service.db = mock_db
+            service.class_repo = AsyncMock()
+
+            with patch("app.core.llm.get_llm_provider") as mock_llm:
+                mock_provider = AsyncMock()
+                mock_provider.generate = AsyncMock(return_value="Summary result")
+                mock_llm.return_value = mock_provider
+
+                with patch("app.core.config.get_settings") as mock_settings:
+                    mock_settings.return_value = MagicMock(
+                        web_search_synthesis_model="gemini-2.5-flash-lite"
+                    )
+
+                    await service.create_conversation_summary(conv)
+
+        call_prompt = mock_provider.generate.call_args[1]["messages"][0].content
+        assert "CONTEXT" in call_prompt
+        assert "NEW" in call_prompt
+
+    @pytest.mark.asyncio
+    async def test_full_mode_summarizes_all_messages(self, mock_db):
+        """full mode should summarize all messages without CONTEXT/NEW distinction."""
+        from app.services.digest_grouper import ConversationGroup
+
+        messages = [
+            _make_classification(
+                id=f"msg-{i}",
+                sender_slack_id=f"U{i}",
+                sender_name=f"User{i}",
+                abstract=f"Message {i}",
+                message_ts=f"100.{i}",
+            )
+            for i in range(3)
+        ]
+
+        conv = ConversationGroup(
+            id="channel:C123",
+            messages=messages,
+            conversation_type="channel",
+            channel_id="C123",
+            summarization_mode="full",
+        )
+
+        with patch.object(TriageDeliveryService, "__init__", lambda self, db: None):
+            service = TriageDeliveryService.__new__(TriageDeliveryService)
+            service.db = mock_db
+            service.class_repo = AsyncMock()
+
+            with patch("app.core.llm.get_llm_provider") as mock_llm:
+                mock_provider = AsyncMock()
+                mock_provider.generate = AsyncMock(return_value="Summary result")
+                mock_llm.return_value = mock_provider
+
+                with patch("app.core.config.get_settings") as mock_settings:
+                    mock_settings.return_value = MagicMock(
+                        web_search_synthesis_model="gemini-2.5-flash-lite"
+                    )
+
+                    await service.create_conversation_summary(conv)
+
+        call_prompt = mock_provider.generate.call_args[1]["messages"][0].content
+        assert "CONTEXT" not in call_prompt or "NEW" not in call_prompt
+
+    @pytest.mark.asyncio
+    async def test_first_run_thread_uses_full_mode(self, mock_db):
+        """First-run thread should use 'full' summarization mode."""
+        from app.services.digest_grouper import ConversationGroup, ThreadContext
+
+        msg = _make_classification(
+            id="msg-1",
+            sender_slack_id="U1",
+            sender_name="Alice",
+            abstract="Starting the discussion",
+            message_ts="100.1",
+        )
+
+        thread_ctx = ThreadContext(
+            thread_ts="100.1",
+            channel_id="C123",
+            context_messages=[],
+            new_messages=[msg],
+            is_first_run=True,
+        )
+
+        conv = ConversationGroup(
+            id="thread:100.1",
+            messages=[msg],
+            conversation_type="thread",
+            channel_id="C123",
+            thread_ts="100.1",
+            summarization_mode="full",
+            thread_context=thread_ctx,
+        )
+
+        assert conv.summarization_mode == "full"
+
+
+class TestSummaryQuality:
+    """Tests for summary quality requirements."""
+
+    @pytest.mark.asyncio
+    async def test_summary_contains_participant_names(self, mock_db):
+        """Summary should name participants by display name."""
+        from app.services.digest_grouper import ConversationGroup
+
+        messages = [
+            _make_classification(
+                id="msg-1",
+                sender_slack_id="U1",
+                sender_name="Mike",
+                abstract="The build is broken on main branch",
+                message_ts="100.1",
+            ),
+            _make_classification(
+                id="msg-2",
+                sender_slack_id="U2",
+                sender_name="Sara",
+                abstract="Should we roll back the release?",
+                message_ts="100.2",
+            ),
+        ]
+
+        conv = ConversationGroup(
+            id="channel:C123",
+            messages=messages,
+            conversation_type="channel",
+            channel_id="C123",
+            summarization_mode="full",
+        )
+
+        with patch.object(TriageDeliveryService, "__init__", lambda self, db: None):
+            service = TriageDeliveryService.__new__(TriageDeliveryService)
+            service.db = mock_db
+            service.class_repo = AsyncMock()
+
+            with patch("app.core.llm.get_llm_provider") as mock_llm:
+                mock_provider = AsyncMock()
+                mock_provider.generate = AsyncMock(
+                    return_value="Mike reported the build is broken. Sara asked about rolling back the release."
+                )
+                mock_llm.return_value = mock_provider
+
+                with patch("app.core.config.get_settings") as mock_settings:
+                    mock_settings.return_value = MagicMock(
+                        web_search_synthesis_model="gemini-2.5-flash-lite"
+                    )
+
+                    summary = await service.create_conversation_summary(conv)
+
+        assert "Mike" in summary
+        assert "Sara" in summary
+
+    @pytest.mark.asyncio
+    async def test_summary_avoids_user_literal(self, mock_db):
+        """Summary should not use 'user' or 'a user' - should use actual names."""
+        from app.services.digest_grouper import ConversationGroup
+
+        messages = [
+            _make_classification(
+                id="msg-1",
+                sender_slack_id="U1",
+                sender_name="Raj",
+                abstract="Shared the Q3 planning doc for feedback",
+                message_ts="100.1",
+            ),
+        ]
+
+        conv = ConversationGroup(
+            id="channel:C123",
+            messages=messages,
+            conversation_type="channel",
+            channel_id="C123",
+            summarization_mode="full",
+        )
+
+        with patch.object(TriageDeliveryService, "__init__", lambda self, db: None):
+            service = TriageDeliveryService.__new__(TriageDeliveryService)
+            service.db = mock_db
+            service.class_repo = AsyncMock()
+
+            with patch("app.core.llm.get_llm_provider") as mock_llm:
+                mock_provider = AsyncMock()
+                mock_provider.generate = AsyncMock(
+                    return_value="Raj shared the Q3 planning doc and requested feedback from the platform team."
+                )
+                mock_llm.return_value = mock_provider
+
+                with patch("app.core.config.get_settings") as mock_settings:
+                    mock_settings.return_value = MagicMock(
+                        web_search_synthesis_model="gemini-2.5-flash-lite"
+                    )
+
+                    summary = await service.create_conversation_summary(conv)
+
+        assert "user" not in summary.lower() or "Raj" in summary
+
+    @pytest.mark.asyncio
+    async def test_prompt_includes_few_shot_examples(self, mock_db):
+        """Prompt should include BAD/GOOD few-shot examples for quality."""
+        from app.services.digest_grouper import ConversationGroup
+
+        messages = [
+            _make_classification(
+                id="msg-1",
+                sender_slack_id="U1",
+                sender_name="Alice",
+                abstract="Test message",
+                message_ts="100.1",
+            ),
+        ]
+
+        conv = ConversationGroup(
+            id="channel:C123",
+            messages=messages,
+            conversation_type="channel",
+            channel_id="C123",
+            summarization_mode="full",
+        )
+
+        with patch.object(TriageDeliveryService, "__init__", lambda self, db: None):
+            service = TriageDeliveryService.__new__(TriageDeliveryService)
+            service.db = mock_db
+            service.class_repo = AsyncMock()
+
+            with patch("app.core.llm.get_llm_provider") as mock_llm:
+                mock_provider = AsyncMock()
+                mock_provider.generate = AsyncMock(return_value="Summary")
+                mock_llm.return_value = mock_provider
+
+                with patch("app.core.config.get_settings") as mock_settings:
+                    mock_settings.return_value = MagicMock(
+                        web_search_synthesis_model="gemini-2.5-flash-lite"
+                    )
+
+                    await service.create_conversation_summary(conv)
+
+        call_prompt = mock_provider.generate.call_args[1]["messages"][0].content
+        assert "BAD:" in call_prompt
+        assert "GOOD:" in call_prompt
+        assert "Caitlin" in call_prompt or "Sara" in call_prompt or "Raj" in call_prompt
+
+
+class TestPrepareConversationDigest:
+    """Tests for prepare_conversation_digest with thin update detection."""
+
+    @pytest.mark.asyncio
+    async def test_skips_thin_thread_update(self, mock_db):
+        """Thread with all non-substantive NEW messages should be skipped."""
+        from app.services.digest_grouper import ConversationGroup, ThreadContext
+
+        msg = _make_classification(
+            id="msg-1",
+            sender_slack_id="U1",
+            sender_name="Alice",
+            abstract="ok",
+            message_ts="100.2",
+        )
+
+        thread_ctx = ThreadContext(
+            thread_ts="100.0",
+            channel_id="C123",
+            context_messages=[
+                {"user": "U2", "text": "Here's the proposal", "ts": "100.0"},
+                {"user": "U3", "text": "Looks good", "ts": "100.1"},
+            ],
+            new_messages=[msg],
+            is_first_run=False,
+        )
+
+        conv = ConversationGroup(
+            id="thread:100.0",
+            messages=[msg],
+            conversation_type="thread",
+            channel_id="C123",
+            thread_ts="100.0",
+            summarization_mode="thread_incremental",
+            thread_context=thread_ctx,
+        )
+
+        with patch.object(TriageDeliveryService, "__init__", lambda self, db: None):
+            service = TriageDeliveryService.__new__(TriageDeliveryService)
+            service.db = mock_db
+            service.class_repo = AsyncMock()
+            service.class_repo.mark_processed = AsyncMock()
+
+            mock_grouper = AsyncMock()
+            mock_grouper.group_messages_with_context = AsyncMock(return_value=[conv])
+
+            mock_checker = AsyncMock()
+            mock_checker.filter_unresponded_conversations = AsyncMock(
+                return_value=[conv]
+            )
+
+            with patch(
+                "app.services.digest_grouper.DigestGrouper",
+                return_value=mock_grouper,
+            ):
+                with patch(
+                    "app.services.digest_response_checker.DigestResponseChecker",
+                    return_value=mock_checker,
+                ):
+                    result = await service.prepare_conversation_digest(
+                        "user-1", "U_SELF", [msg]
+                    )
+
+        service.class_repo.mark_processed.assert_called()
+        call_args = service.class_repo.mark_processed.call_args
+        assert call_args[0][1] == "skipped_thin_update"
+
+    @pytest.mark.asyncio
+    async def test_includes_thread_with_substantive_new(self, mock_db):
+        """Thread with substantive NEW messages should be included."""
+        from app.services.digest_grouper import ConversationGroup, ThreadContext
+
+        msg = _make_classification(
+            id="msg-1",
+            sender_slack_id="U1",
+            sender_name="Alice",
+            abstract="I think we should proceed with option A for the following reasons...",
+            message_ts="100.2",
+        )
+
+        thread_ctx = ThreadContext(
+            thread_ts="100.0",
+            channel_id="C123",
+            context_messages=[
+                {"user": "U2", "text": "Which option should we pick?", "ts": "100.0"},
+            ],
+            new_messages=[msg],
+            is_first_run=False,
+        )
+
+        conv = ConversationGroup(
+            id="thread:100.0",
+            messages=[msg],
+            conversation_type="thread",
+            channel_id="C123",
+            thread_ts="100.0",
+            summarization_mode="thread_incremental",
+            thread_context=thread_ctx,
+        )
+
+        with patch.object(TriageDeliveryService, "__init__", lambda self, db: None):
+            service = TriageDeliveryService.__new__(TriageDeliveryService)
+            service.db = mock_db
+            service.class_repo = AsyncMock()
+            service.class_repo.mark_processed = AsyncMock()
+
+            mock_grouper = AsyncMock()
+            mock_grouper.group_messages_with_context = AsyncMock(return_value=[conv])
+
+            mock_checker = AsyncMock()
+            mock_checker.filter_unresponded_conversations = AsyncMock(
+                return_value=[conv]
+            )
+
+            with patch(
+                "app.services.digest_grouper.DigestGrouper",
+                return_value=mock_grouper,
+            ):
+                with patch(
+                    "app.services.digest_response_checker.DigestResponseChecker",
+                    return_value=mock_checker,
+                ):
+                    result = await service.prepare_conversation_digest(
+                        "user-1", "U_SELF", [msg]
+                    )
+
+        assert len(result) == 1

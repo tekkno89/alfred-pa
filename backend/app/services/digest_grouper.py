@@ -2,11 +2,39 @@
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.db.models.triage import TriageClassification
 
+if TYPE_CHECKING:
+    from slack_sdk.web.async_client import AsyncWebClient
+
 logger = logging.getLogger(__name__)
+
+MAX_THREAD_REPLIES = 200
+
+
+@dataclass
+class ThreadContext:
+    """Context for thread summarization with CONTEXT/NEW distinction."""
+
+    thread_ts: str
+    channel_id: str
+    context_messages: list[dict[str, Any]]
+    new_messages: list[TriageClassification]
+    is_first_run: bool
+
+    @property
+    def all_user_ids(self) -> set[str]:
+        """Get all unique user IDs from context and new messages."""
+        user_ids: set[str] = set()
+        for msg in self.context_messages:
+            if msg.get("user"):
+                user_ids.add(msg["user"])
+        for msg in self.new_messages:
+            if msg.sender_slack_id:
+                user_ids.add(msg.sender_slack_id)
+        return user_ids
 
 
 @dataclass
@@ -15,12 +43,14 @@ class ConversationGroup:
 
     id: str
     messages: list[TriageClassification]
-    conversation_type: str  # "thread" | "channel" | "dm"
+    conversation_type: str
     channel_id: str
     channel_name: str | None = None
     thread_ts: str | None = None
     topic: str | None = None
     participants: list[str] = field(default_factory=list)
+    thread_context: ThreadContext | None = None
+    summarization_mode: str = "full"
 
     @property
     def last_message_ts(self) -> str:
@@ -54,12 +84,236 @@ class ConversationGroup:
                     names.append(name)
         return names
 
+    @property
+    def priority(self) -> str:
+        """Get the highest priority level among messages in this group."""
+        priority_order = {"p0": 0, "p1": 1, "p2": 2, "p3": 3}
+        highest = 3
+        for m in self.messages:
+            msg_priority = priority_order.get(m.priority_level, 3)
+            if msg_priority < highest:
+                highest = msg_priority
+        return ["p0", "p1", "p2", "p3"][highest]
+
 
 class DigestGrouper:
     """Groups triage classifications into conversations for digest summaries."""
 
     def __init__(self) -> None:
-        pass
+        self._user_clients: dict[str, AsyncWebClient] = {}
+
+    async def _get_user_client(self, user_id: str, db) -> "AsyncWebClient | None":
+        """Get a Slack client using the user's OAuth token."""
+        if user_id in self._user_clients:
+            return self._user_clients[user_id]
+
+        from app.services.slack_user import SlackUserService
+
+        user_svc = SlackUserService(db)
+        token = await user_svc.get_raw_token(user_id)
+        if not token:
+            logger.warning(f"No Slack OAuth token for user {user_id}")
+            return None
+
+        from slack_sdk.web.async_client import AsyncWebClient
+
+        client = AsyncWebClient(token=token)
+        self._user_clients[user_id] = client
+        return client
+
+    async def fetch_thread_context(
+        self,
+        client: "AsyncWebClient",
+        channel_id: str,
+        thread_ts: str,
+        new_message_ids: set[str],
+    ) -> ThreadContext | None:
+        """Fetch full thread context for summarization.
+
+        Args:
+            client: Slack client with user OAuth token
+            channel_id: Channel ID
+            thread_ts: Thread timestamp
+            new_message_ids: Set of message_ts values for NEW messages
+
+        Returns:
+            ThreadContext with CONTEXT/NEW distinction, or None on error
+        """
+        try:
+            response = await client.conversations_replies(
+                channel=channel_id,
+                ts=thread_ts,
+                limit=MAX_THREAD_REPLIES + 50,
+            )
+            messages = response.get("messages", [])
+
+            if len(messages) > MAX_THREAD_REPLIES:
+                dropped = len(messages) - MAX_THREAD_REPLIES
+                messages = messages[-MAX_THREAD_REPLIES:]
+                logger.info(
+                    f"Truncated thread {thread_ts} to {MAX_THREAD_REPLIES} messages, "
+                    f"dropped {dropped} oldest"
+                )
+
+            new_ts_set = new_message_ids
+            context_messages = []
+
+            for msg in messages:
+                msg_ts = msg.get("ts", "")
+                if msg_ts in new_ts_set:
+                    pass
+                else:
+                    user_id = msg.get("user", "UNKNOWN")
+                    text = msg.get("text", "")
+                    ts = msg.get("ts", "")
+                    context_messages.append(
+                        {
+                            "user": user_id,
+                            "text": text,
+                            "ts": ts,
+                        }
+                    )
+
+            is_first_run = len(context_messages) == 0
+
+            return ThreadContext(
+                thread_ts=thread_ts,
+                channel_id=channel_id,
+                context_messages=context_messages,
+                new_messages=[],
+                is_first_run=is_first_run,
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to fetch thread context for {thread_ts}: {e}")
+            return None
+
+    async def group_messages_with_context(
+        self,
+        messages: list[TriageClassification],
+        user_id: str,
+        db,
+    ) -> list[ConversationGroup]:
+        """Group messages with full thread context for better summarization.
+
+        Args:
+            messages: List of TriageClassification items to group
+            user_id: User ID for OAuth token lookup
+            db: Database session
+
+        Returns:
+            List of ConversationGroup objects with thread context enriched
+        """
+        if not messages:
+            return []
+
+        conversations = self.group_messages(messages)
+
+        client = await self._get_user_client(user_id, db)
+        if not client:
+            logger.warning("No user client available, skipping thread context fetch")
+            return conversations
+
+        channel_groups_to_cluster: list[ConversationGroup] = []
+
+        for conv in conversations:
+            if conv.conversation_type == "thread" and conv.thread_ts:
+                new_message_ids = {m.message_ts for m in conv.messages}
+                thread_ctx = await self.fetch_thread_context(
+                    client, conv.channel_id, conv.thread_ts, new_message_ids
+                )
+                if thread_ctx:
+                    thread_ctx.new_messages = conv.messages
+                    conv.thread_context = thread_ctx
+                    conv.summarization_mode = (
+                        "full" if thread_ctx.is_first_run else "thread_incremental"
+                    )
+            elif conv.conversation_type == "channel" and len(conv.messages) > 1:
+                channel_groups_to_cluster.append(conv)
+
+        if channel_groups_to_cluster:
+            clustered = await self._cluster_channel_messages(
+                channel_groups_to_cluster, user_id, db
+            )
+            conversations = [
+                c
+                for c in conversations
+                if c.conversation_type != "channel"
+                or len(c.messages) == 1
+                or c not in channel_groups_to_cluster
+            ]
+            conversations.extend(clustered)
+
+        return conversations
+
+    async def _cluster_channel_messages(
+        self,
+        channel_groups: list[ConversationGroup],
+        user_id: str,
+        db,
+    ) -> list[ConversationGroup]:
+        """Cluster unthreaded channel messages using LLM.
+
+        Args:
+            channel_groups: List of channel conversation groups to cluster
+            user_id: User ID for name resolution
+            db: Database session
+
+        Returns:
+            List of ConversationGroup objects with LLM-identified boundaries
+        """
+        from app.core.redis import get_redis
+        from app.services.message_clustering import (
+            cluster_messages_with_llm,
+            partition_messages,
+        )
+        from app.services.triage_enrichment import resolve_user_names_batch
+
+        all_channel_messages: list[TriageClassification] = []
+        for group in channel_groups:
+            all_channel_messages.extend(group.messages)
+
+        if len(all_channel_messages) == 1:
+            return channel_groups
+
+        batches = partition_messages(all_channel_messages)
+
+        redis_client = await get_redis()
+        all_user_ids = {m.sender_slack_id for m in all_channel_messages}
+        from app.services.slack import SlackService
+
+        slack_service = SlackService()
+        user_names = await resolve_user_names_batch(
+            slack_service, redis_client, all_user_ids
+        )
+
+        all_clusters = []
+        for batch in batches:
+            clusters = await cluster_messages_with_llm(batch, user_names)
+            all_clusters.extend(clusters)
+
+        conversations = []
+        for i, cluster in enumerate(all_clusters):
+            if not cluster.messages:
+                continue
+            sorted_msgs = sorted(cluster.messages, key=lambda m: m.message_ts)
+            conversations.append(
+                ConversationGroup(
+                    id=f"channel:{sorted_msgs[0].channel_id}:cluster{i}",
+                    messages=sorted_msgs,
+                    conversation_type="channel",
+                    channel_id=sorted_msgs[0].channel_id,
+                    channel_name=sorted_msgs[0].channel_name,
+                    participants=list({m.sender_slack_id for m in sorted_msgs}),
+                    summarization_mode="full",
+                )
+            )
+
+        logger.info(
+            f"LLM clustering: {len(all_channel_messages)} channel messages -> "
+            f"{len(conversations)} conversations"
+        )
+        return conversations
 
     def group_messages(
         self, messages: list[TriageClassification]

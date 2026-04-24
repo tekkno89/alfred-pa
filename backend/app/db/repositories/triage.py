@@ -536,6 +536,27 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         await self.db.flush()
         return result.rowcount
 
+    async def mark_processed(self, ids: list[str], reason: str) -> int:
+        """Mark classifications with a processed_reason and clear queued_for_digest.
+
+        Args:
+            ids: List of classification IDs to mark
+            reason: One of: summarized, filtered_nonsubstantive, absorbed_in_thread,
+                   absorbed_in_cluster, skipped_thin_update
+
+        Returns:
+            Count of records updated
+        """
+        if not ids:
+            return 0
+        result = await self.db.execute(
+            update(TriageClassification)
+            .where(TriageClassification.id.in_(ids))
+            .values(processed_reason=reason, queued_for_digest=False)
+        )
+        await self.db.flush()
+        return result.rowcount
+
 
 class SenderBehaviorModelRepository(BaseRepository[SenderBehaviorModel]):
     """Repository for SenderBehaviorModel CRUD operations."""

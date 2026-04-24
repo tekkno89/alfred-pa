@@ -457,13 +457,12 @@ If there are no common themes, just summarize: "You have {len(messages)} message
             return response.strip()
         except Exception as e:
             logger.exception(f"Failed to create intelligent summary: {e}")
-            # Fallback: simple summary
-            senders = set(
+            senders = {
                 msg.get("sender_name") or msg.get("sender_slack_id") for msg in messages
-            )
-            channels = set(
+            }
+            channels = {
                 msg.get("channel_name") or msg.get("channel_id") for msg in messages
-            )
+            }
             return f"You have {len(messages)} messages from {len(senders)} senders in {len(channels)} channels."
 
     async def send_priority_digest_dm(
@@ -577,15 +576,46 @@ If there are no common themes, just summarize: "You have {len(messages)} message
         """
         from app.services.digest_grouper import DigestGrouper
         from app.services.digest_response_checker import DigestResponseChecker
+        from app.services.substance_filter import is_substantive
 
-        # Step 1: Group messages into conversations
         grouper = DigestGrouper()
-        conversations = grouper.group_messages(items)
+        conversations = await grouper.group_messages_with_context(
+            items, user_id, self.db
+        )
 
-        # Step 2: Filter out conversations the user has already responded to
+        skipped_thin_ids = []
+        filtered_conversations = []
+
+        for conv in conversations:
+            if (
+                conv.conversation_type == "thread"
+                and conv.thread_context
+                and conv.summarization_mode == "thread_incremental"
+            ):
+                new_messages = conv.messages
+                substantive_new = [m for m in new_messages if is_substantive(m)]
+
+                if new_messages and not substantive_new:
+                    skipped_thin_ids.extend(m.id for m in new_messages)
+                    logger.info(
+                        f"Skipping thread {conv.thread_ts}: all {len(new_messages)} "
+                        "NEW messages are non-substantive"
+                    )
+                    continue
+
+            filtered_conversations.append(conv)
+
+        if skipped_thin_ids:
+            await self.class_repo.mark_processed(
+                skipped_thin_ids, "skipped_thin_update"
+            )
+            logger.info(
+                f"Marked {len(skipped_thin_ids)} messages as skipped_thin_update"
+            )
+
         checker = DigestResponseChecker(self.db)
         unresponded = await checker.filter_unresponded_conversations(
-            user_id, user_slack_id, conversations
+            user_id, user_slack_id, filtered_conversations
         )
 
         return unresponded
@@ -609,48 +639,89 @@ If there are no common themes, just summarize: "You have {len(messages)} message
         if not messages:
             return "Empty conversation"
 
-        if len(messages) == 1:
-            return messages[0].abstract or "Message"
-
         settings = get_settings()
         provider = get_llm_provider(
             settings.web_search_synthesis_model or "gemini-2.5-flash-lite"
         )
 
-        # Build conversation context
-        message_list = []
-        for msg in messages:
-            sender = msg.sender_name or f"<@{msg.sender_slack_id}>"
-            time_str = msg.created_at.strftime("%H:%M") if msg.created_at else ""
-            abstract = msg.abstract or "Message"
-            message_list.append(f"[{time_str}] {sender}: {abstract[:150]}")
+        mode = conversation.summarization_mode
+        thread_ctx = conversation.thread_context
 
-        conversation_type_label = {
-            "thread": "Thread",
-            "channel": "Channel",
-            "dm": "DM",
-        }.get(conversation.conversation_type, "Conversation")
+        few_shot_examples = """
+BAD: "User stated the build is broken."
+BAD: "A discussion occurred about deployment."
+BAD: "Message contains only an emoji."
+BAD: "User announces their return to the channel."
 
-        channel_label = conversation.channel_name or conversation.channel_id
+GOOD: "Caitlin flagged that the main branch build was failing. Max identified a stale Docker cache as the cause and Caitlin triggered a rebuild, which resolved the issue."
+GOOD: "Sara asked whether to roll back the 3.2.1 release after a customer-reported regression. Mike agreed and took the rollback; root cause investigation is still open."
+GOOD: "Raj shared the Q3 planning doc and asked the platform team for feedback on the migration timeline by Friday."
+"""
 
-        system_prompt = f"""Summarize this Slack {conversation_type_label} in #{channel_label}.
+        quality_requirements = """
+Requirements:
+- Write 1-2 full sentences (never a single clause or fragment)
+- Name participants by their display name (never use "user" or "a user")
+- State the subject — what was discussed, decided, or asked
+- Include the outcome or any open questions
+"""
+
+        if mode == "thread_incremental" and thread_ctx:
+            context_list = []
+            for msg in thread_ctx.context_messages[-20:]:
+                user = msg.get("user", "UNKNOWN")
+                text = msg.get("text", "")[:150]
+                context_list.append(f"{user}: {text}")
+
+            new_list = []
+            for msg in messages:
+                sender = msg.sender_name or msg.sender_slack_id
+                abstract = msg.abstract or "Message"
+                new_list.append(f"{sender}: {abstract[:150]}")
+
+            conversation_type_label = {
+                "thread": "Thread",
+                "channel": "Channel",
+                "dm": "DM",
+            }.get(conversation.conversation_type, "Conversation")
+
+            system_prompt = f"""Summarize the NEW messages in this Slack {conversation_type_label}.
+
+CONTEXT (earlier messages in thread, already summarized):
+{chr(10).join(context_list) if context_list else "(no earlier context)"}
+
+NEW (messages added during this interval):
+{chr(10).join(new_list)}
+
+Task: Summarize only the NEW messages. Use earlier messages purely as context to understand what's being discussed. Do not restate what was said before this interval.
+
+{quality_requirements}
+
+{few_shot_examples}"""
+        else:
+            message_list = []
+            for msg in messages:
+                sender = msg.sender_name or f"<@{msg.sender_slack_id}>"
+                time_str = msg.created_at.strftime("%H:%M") if msg.created_at else ""
+                abstract = msg.abstract or "Message"
+                message_list.append(f"[{time_str}] {sender}: {abstract[:150]}")
+
+            conversation_type_label = {
+                "thread": "Thread",
+                "channel": "Channel",
+                "dm": "DM",
+            }.get(conversation.conversation_type, "Conversation")
+
+            channel_label = conversation.channel_name or conversation.channel_id
+
+            system_prompt = f"""Summarize this Slack {conversation_type_label} in #{channel_label}.
 
 Messages (chronological):
 {chr(10).join(message_list)}
 
-Create a brief summary (1-2 sentences) that:
-1. Starts with who is involved (e.g., "Alice is asking..." or "Bob and Carol are discussing...")
-2. Identifies the topic or question
-3. Notes any action items if present
+{quality_requirements}
 
-Format: "[Name(s)] [action] [topic]. [Additional context if needed]."
-
-Examples:
-- "Anam is proposing a methodical approach to database upgrades."
-- "Uma and Jonah are discussing the deployment timeline."
-- "Bob is asking for review on the Terraform changes."
-
-Do NOT use phrases like "A user" or "The sender". Use actual names."""
+{few_shot_examples}"""
 
         try:
             response = await provider.generate(
@@ -661,7 +732,6 @@ Do NOT use phrases like "A user" or "The sender". Use actual names."""
             return response.strip()
         except Exception as e:
             logger.warning(f"Failed to create conversation summary: {e}")
-            # Fallback
             senders = list(conversation.senders)[:3]
             return f"{len(messages)} messages from {', '.join(senders)}"
 
