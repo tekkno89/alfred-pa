@@ -107,6 +107,7 @@ class MonitoredChannelCreate(BaseModel):
     channel_name: str = Field(..., min_length=1)
     channel_type: str = Field("public", pattern="^(public|private)$")
     priority: str = Field("medium", pattern="^(low|medium|high|critical)$")
+    summary_behavior: str = Field("default", pattern="^(default|initial_only)$")
 
 
 class MonitoredChannelUpdate(BaseModel):
@@ -117,6 +118,7 @@ class MonitoredChannelUpdate(BaseModel):
     is_active: bool | None = None
     is_hidden: bool | None = None
     triage_instructions: str | None = Field(None, max_length=2000)
+    summary_behavior: str | None = Field(None, pattern="^(default|initial_only)$")
 
 
 class MonitoredChannelResponse(BaseModel):
@@ -132,6 +134,7 @@ class MonitoredChannelResponse(BaseModel):
     is_active: bool
     is_hidden: bool = False
     triage_instructions: str | None = None
+    summary_behavior: str = "default"
     created_at: UTCDatetime = None
 
 

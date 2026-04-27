@@ -624,11 +624,17 @@ class TestDigestGrouperWithContext:
         )
 
         mock_db = AsyncMock()
+        mock_repo = AsyncMock()
+        mock_repo.get_by_user = AsyncMock(return_value=[])
 
-        with patch.object(grouper, "_get_user_client", return_value=mock_client):
-            result = await grouper.group_messages_with_context(
-                messages, "test-user", mock_db
-            )
+        with patch(
+            "app.db.repositories.triage.MonitoredChannelRepository",
+            return_value=mock_repo,
+        ):
+            with patch.object(grouper, "_get_user_client", return_value=mock_client):
+                result = await grouper.group_messages_with_context(
+                    messages, "test-user", mock_db
+                )
 
         assert len(result) == 1
         assert result[0].conversation_type == "thread"
@@ -652,11 +658,17 @@ class TestDigestGrouperWithContext:
         )
 
         mock_db = AsyncMock()
+        mock_repo = AsyncMock()
+        mock_repo.get_by_user = AsyncMock(return_value=[])
 
-        with patch.object(grouper, "_get_user_client", return_value=mock_client):
-            result = await grouper.group_messages_with_context(
-                messages, "test-user", mock_db
-            )
+        with patch(
+            "app.db.repositories.triage.MonitoredChannelRepository",
+            return_value=mock_repo,
+        ):
+            with patch.object(grouper, "_get_user_client", return_value=mock_client):
+                result = await grouper.group_messages_with_context(
+                    messages, "test-user", mock_db
+                )
 
         assert len(result) == 1
         assert result[0].summarization_mode == "full"
@@ -681,11 +693,17 @@ class TestDigestGrouperWithContext:
         )
 
         mock_db = AsyncMock()
+        mock_repo = AsyncMock()
+        mock_repo.get_by_user = AsyncMock(return_value=[])
 
-        with patch.object(grouper, "_get_user_client", return_value=mock_client):
-            result = await grouper.group_messages_with_context(
-                messages, "test-user", mock_db
-            )
+        with patch(
+            "app.db.repositories.triage.MonitoredChannelRepository",
+            return_value=mock_repo,
+        ):
+            with patch.object(grouper, "_get_user_client", return_value=mock_client):
+                result = await grouper.group_messages_with_context(
+                    messages, "test-user", mock_db
+                )
 
         assert len(result) == 1
         assert result[0].summarization_mode == "thread_incremental"
@@ -699,11 +717,195 @@ class TestDigestGrouperWithContext:
         ]
 
         mock_db = AsyncMock()
+        mock_repo = AsyncMock()
+        mock_repo.get_by_user = AsyncMock(return_value=[])
 
-        with patch.object(grouper, "_get_user_client", return_value=None):
-            result = await grouper.group_messages_with_context(
-                messages, "test-user", mock_db
-            )
+        with patch(
+            "app.db.repositories.triage.MonitoredChannelRepository",
+            return_value=mock_repo,
+        ):
+            with patch.object(grouper, "_get_user_client", return_value=None):
+                result = await grouper.group_messages_with_context(
+                    messages, "test-user", mock_db
+                )
 
         assert len(result) == 1
         assert result[0].thread_context is None
+
+
+class TestSummaryBehaviorFiltering:
+    """Tests for summary_behavior filtering in group_messages_with_context."""
+
+    def test_is_thread_reply_detects_replies(self):
+        """is_thread_reply correctly identifies thread replies."""
+        from app.services.digest_grouper import is_thread_reply
+
+        parent = create_classification("C123", "100.0", "U1", "100.0")
+        reply = create_classification("C123", "100.0", "U2", "100.1")
+
+        assert is_thread_reply(parent) == False
+        assert is_thread_reply(reply) == True
+
+    def test_is_thread_reply_none_thread_ts(self):
+        """is_thread_reply returns False when thread_ts is None."""
+        from app.services.digest_grouper import is_thread_reply
+
+        msg = create_classification("C123", None, "U1", "100.0")
+        assert is_thread_reply(msg) == False
+
+    @pytest.mark.asyncio
+    async def test_initial_only_excludes_thread_replies(self):
+        """Channels with initial_only should exclude thread replies from summaries."""
+        grouper = DigestGrouper()
+        messages = [
+            create_classification("C123", "100.0", "U1", "100.0"),
+            create_classification("C123", "100.0", "U2", "100.1"),
+            create_classification("C123", "100.0", "U3", "100.2"),
+        ]
+
+        mock_channel = AsyncMock()
+        mock_channel.slack_channel_id = "C123"
+        mock_channel.summary_behavior = "initial_only"
+
+        mock_repo = AsyncMock()
+        mock_repo.get_by_user = AsyncMock(return_value=[mock_channel])
+
+        mock_db = AsyncMock()
+
+        with patch(
+            "app.db.repositories.triage.MonitoredChannelRepository",
+            return_value=mock_repo,
+        ):
+            with patch.object(grouper, "_get_user_client", return_value=None):
+                result = await grouper.group_messages_with_context(
+                    messages, "test-user", mock_db
+                )
+
+        assert len(result) == 1
+        assert len(result[0].messages) == 1
+        assert result[0].messages[0].message_ts == "100.0"
+
+    @pytest.mark.asyncio
+    async def test_default_includes_all_messages(self):
+        """Channels with default behavior should include all messages."""
+        grouper = DigestGrouper()
+        messages = [
+            create_classification("C123", "100.0", "U1", "100.0"),
+            create_classification("C123", "100.0", "U2", "100.1"),
+            create_classification("C123", "100.0", "U3", "100.2"),
+        ]
+
+        mock_channel = AsyncMock()
+        mock_channel.slack_channel_id = "C123"
+        mock_channel.summary_behavior = "default"
+
+        mock_repo = AsyncMock()
+        mock_repo.get_by_user = AsyncMock(return_value=[mock_channel])
+
+        mock_db = AsyncMock()
+
+        with patch(
+            "app.db.repositories.triage.MonitoredChannelRepository",
+            return_value=mock_repo,
+        ):
+            with patch.object(grouper, "_get_user_client", return_value=None):
+                result = await grouper.group_messages_with_context(
+                    messages, "test-user", mock_db
+                )
+
+        assert len(result) == 1
+        assert len(result[0].messages) == 3
+
+    @pytest.mark.asyncio
+    async def test_mixed_channel_behaviors(self):
+        """Different channels can have different summary behaviors."""
+        grouper = DigestGrouper()
+        messages = [
+            create_classification("C123", "100.0", "U1", "100.0"),
+            create_classification("C123", "100.0", "U2", "100.1"),
+            create_classification("C456", "200.0", "U3", "200.0"),
+            create_classification("C456", "200.0", "U4", "200.1"),
+        ]
+
+        mock_channel1 = AsyncMock()
+        mock_channel1.slack_channel_id = "C123"
+        mock_channel1.summary_behavior = "initial_only"
+
+        mock_channel2 = AsyncMock()
+        mock_channel2.slack_channel_id = "C456"
+        mock_channel2.summary_behavior = "default"
+
+        mock_repo = AsyncMock()
+        mock_repo.get_by_user = AsyncMock(return_value=[mock_channel1, mock_channel2])
+
+        mock_db = AsyncMock()
+
+        with patch(
+            "app.db.repositories.triage.MonitoredChannelRepository",
+            return_value=mock_repo,
+        ):
+            with patch.object(grouper, "_get_user_client", return_value=None):
+                result = await grouper.group_messages_with_context(
+                    messages, "test-user", mock_db
+                )
+
+        channel_map = {c.channel_id: c for c in result}
+        assert len(channel_map["C123"].messages) == 1
+        assert len(channel_map["C456"].messages) == 2
+
+    @pytest.mark.asyncio
+    async def test_unknown_channel_includes_all(self):
+        """Unknown channels (not in settings) default to including all."""
+        grouper = DigestGrouper()
+        messages = [
+            create_classification("C999", "100.0", "U1", "100.0"),
+            create_classification("C999", "100.0", "U2", "100.1"),
+        ]
+
+        mock_repo = AsyncMock()
+        mock_repo.get_by_user = AsyncMock(return_value=[])
+
+        mock_db = AsyncMock()
+
+        with patch(
+            "app.db.repositories.triage.MonitoredChannelRepository",
+            return_value=mock_repo,
+        ):
+            with patch.object(grouper, "_get_user_client", return_value=None):
+                result = await grouper.group_messages_with_context(
+                    messages, "test-user", mock_db
+                )
+
+        assert len(result) == 1
+        assert len(result[0].messages) == 2
+
+    @pytest.mark.asyncio
+    async def test_initial_only_preserves_thread_parent(self):
+        """initial_only preserves the thread parent message."""
+        grouper = DigestGrouper()
+        messages = [
+            create_classification("C123", "100.0", "U1", "100.0"),
+            create_classification("C123", "100.0", "U2", "100.1"),
+        ]
+
+        mock_channel = AsyncMock()
+        mock_channel.slack_channel_id = "C123"
+        mock_channel.summary_behavior = "initial_only"
+
+        mock_repo = AsyncMock()
+        mock_repo.get_by_user = AsyncMock(return_value=[mock_channel])
+
+        mock_db = AsyncMock()
+
+        with patch(
+            "app.db.repositories.triage.MonitoredChannelRepository",
+            return_value=mock_repo,
+        ):
+            with patch.object(grouper, "_get_user_client", return_value=None):
+                result = await grouper.group_messages_with_context(
+                    messages, "test-user", mock_db
+                )
+
+        assert len(result) == 1
+        assert result[0].messages[0].message_ts == "100.0"
+        assert result[0].messages[0].sender_slack_id == "U1"

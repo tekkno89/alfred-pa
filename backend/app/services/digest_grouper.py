@@ -14,6 +14,11 @@ logger = logging.getLogger(__name__)
 MAX_THREAD_REPLIES = 200
 
 
+def is_thread_reply(msg: TriageClassification) -> bool:
+    """Check if a message is a reply in a thread (not the parent)."""
+    return msg.thread_ts is not None and msg.thread_ts != msg.message_ts
+
+
 @dataclass
 class ThreadContext:
     """Context for thread summarization with CONTEXT/NEW distinction."""
@@ -196,6 +201,10 @@ class DigestGrouper:
     ) -> list[ConversationGroup]:
         """Group messages with full thread context for better summarization.
 
+        Respects channel-level summary_behavior settings:
+        - default: Include all messages and replies
+        - initial_only: Only include thread parents, exclude replies
+
         Args:
             messages: List of TriageClassification items to group
             user_id: User ID for OAuth token lookup
@@ -207,7 +216,27 @@ class DigestGrouper:
         if not messages:
             return []
 
-        conversations = self.group_messages(messages)
+        from app.db.repositories.triage import MonitoredChannelRepository
+
+        channel_repo = MonitoredChannelRepository(db)
+        channels = await channel_repo.get_by_user(user_id, active_only=False)
+        channel_settings = {c.slack_channel_id: c for c in channels}
+
+        filtered_messages = []
+        for msg in messages:
+            channel = channel_settings.get(msg.channel_id)
+            if channel and channel.summary_behavior == "initial_only":
+                if is_thread_reply(msg):
+                    continue
+            filtered_messages.append(msg)
+
+        if len(filtered_messages) != len(messages):
+            logger.info(
+                f"Filtered {len(messages) - len(filtered_messages)} thread replies "
+                f"from channels with initial_only summary_behavior"
+            )
+
+        conversations = self.group_messages(filtered_messages)
 
         client = await self._get_user_client(user_id, db)
         if not client:

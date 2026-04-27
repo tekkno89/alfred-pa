@@ -136,6 +136,7 @@ async def add_monitored_channel(
         channel_name=data.channel_name,
         channel_type=data.channel_type,
         priority=data.priority,
+        summary_behavior=data.summary_behavior,
     )
     channel = await repo.create(channel)
 
