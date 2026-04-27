@@ -810,6 +810,42 @@ Messages (chronological):
                 f"Failed to send conversation digest DM for user={user_id}"
             )
 
+    async def _format_priority_section(
+        self,
+        conversations: list["ConversationGroup"],
+        label: str,
+        priority: str,
+    ) -> list[str]:
+        """Format a single priority section for the end-of-day digest."""
+        from app.core.config import get_settings
+
+        lines = []
+        lines.append(f"*{label}:*")
+        for i, conv in enumerate(conversations[:5], 1):
+            channel = conv.channel_name or f"#{conv.channel_id}"
+            conv_type_label = (
+                "Thread"
+                if conv.conversation_type == "thread"
+                else ("DM" if conv.conversation_type == "dm" else "Chat")
+            )
+            summary = conv.topic or await self.create_conversation_summary(conv)
+            first_msg = min(conv.messages, key=lambda m: m.message_ts)
+            link = (
+                f" <{first_msg.slack_permalink}|View>"
+                if first_msg.slack_permalink
+                else ""
+            )
+            lines.append(f"{i}. *{conv_type_label} in #{channel}*")
+            lines.append(f"   {summary}{link}\n")
+        if len(conversations) > 5:
+            settings = get_settings()
+            triage_url = f"{settings.frontend_url}/triage"
+            lines.append(
+                f"   _...and {len(conversations) - 5} more {priority.upper()} items_"
+            )
+            lines.append(f"   <{triage_url}|View all in Triage>\n")
+        return lines
+
     async def send_end_of_day_digest_dm(
         self,
         user_id: str,
@@ -829,67 +865,21 @@ Messages (chronological):
             p3_convs = [c for c in conversations if c.priority == "p3"]
 
             if p1_convs:
-                lines.append("*P1 — Important:*")
-                for i, conv in enumerate(p1_convs[:5], 1):
-                    channel = conv.channel_name or f"#{conv.channel_id}"
-                    conv_type_label = (
-                        "Thread"
-                        if conv.conversation_type == "thread"
-                        else ("DM" if conv.conversation_type == "dm" else "Chat")
+                lines.extend(
+                    await self._format_priority_section(
+                        p1_convs, "P1 — Important", "p1"
                     )
-                    summary = conv.topic or await self.create_conversation_summary(conv)
-                    first_msg = min(conv.messages, key=lambda m: m.message_ts)
-                    link = (
-                        f" <{first_msg.slack_permalink}|View>"
-                        if first_msg.slack_permalink
-                        else ""
-                    )
-                    lines.append(f"{i}. *{conv_type_label} in #{channel}*")
-                    lines.append(f"   {summary}{link}\n")
-                if len(p1_convs) > 5:
-                    lines.append(f"   _...and {len(p1_convs) - 5} more P1 items_\n")
-
+                )
             if p2_convs:
-                lines.append("*P2 — Notable:*")
-                for i, conv in enumerate(p2_convs[:5], 1):
-                    channel = conv.channel_name or f"#{conv.channel_id}"
-                    conv_type_label = (
-                        "Thread"
-                        if conv.conversation_type == "thread"
-                        else ("DM" if conv.conversation_type == "dm" else "Chat")
-                    )
-                    summary = conv.topic or await self.create_conversation_summary(conv)
-                    first_msg = min(conv.messages, key=lambda m: m.message_ts)
-                    link = (
-                        f" <{first_msg.slack_permalink}|View>"
-                        if first_msg.slack_permalink
-                        else ""
-                    )
-                    lines.append(f"{i}. *{conv_type_label} in #{channel}*")
-                    lines.append(f"   {summary}{link}\n")
-                if len(p2_convs) > 5:
-                    lines.append(f"   _...and {len(p2_convs) - 5} more P2 items_\n")
-
+                lines.extend(
+                    await self._format_priority_section(p2_convs, "P2 — Notable", "p2")
+                )
             if p3_convs:
-                lines.append("*P3 — Daily Digest:*")
-                for i, conv in enumerate(p3_convs[:5], 1):
-                    channel = conv.channel_name or f"#{conv.channel_id}"
-                    conv_type_label = (
-                        "Thread"
-                        if conv.conversation_type == "thread"
-                        else ("DM" if conv.conversation_type == "dm" else "Chat")
+                lines.extend(
+                    await self._format_priority_section(
+                        p3_convs, "P3 — Daily Digest", "p3"
                     )
-                    summary = conv.topic or await self.create_conversation_summary(conv)
-                    first_msg = min(conv.messages, key=lambda m: m.message_ts)
-                    link = (
-                        f" <{first_msg.slack_permalink}|View>"
-                        if first_msg.slack_permalink
-                        else ""
-                    )
-                    lines.append(f"{i}. *{conv_type_label} in #{channel}*")
-                    lines.append(f"   {summary}{link}\n")
-                if len(p3_convs) > 5:
-                    lines.append(f"   _...and {len(p3_convs) - 5} more P3 items_\n")
+                )
 
             if not (p1_convs or p2_convs or p3_convs):
                 return
