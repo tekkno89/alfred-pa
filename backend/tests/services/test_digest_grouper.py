@@ -161,6 +161,63 @@ class TestDigestGrouper:
         msg_tses = [m.message_ts for m in result[0].messages]
         assert msg_tses == ["100.1", "100.3", "100.5"]
 
+    def test_thread_parent_grouped_with_replies(self):
+        """Thread parent message should be grouped with its replies."""
+        grouper = DigestGrouper()
+        messages = [
+            create_classification("C123", None, "U1", "100.0"),
+            create_classification("C123", "100.0", "U2", "100.1"),
+            create_classification("C123", "100.0", "U3", "100.2"),
+        ]
+        result = grouper.group_messages(messages)
+
+        assert len(result) == 1
+        assert result[0].conversation_type == "thread"
+        assert result[0].thread_ts == "100.0"
+        assert len(result[0].messages) == 3
+        msg_tses = [m.message_ts for m in result[0].messages]
+        assert msg_tses == ["100.0", "100.1", "100.2"]
+        assert result[0].senders == {"U1", "U2", "U3"}
+
+    def test_thread_parent_with_thread_ts_equals_message_ts(self):
+        """Thread parent where thread_ts == message_ts should be grouped with replies."""
+        grouper = DigestGrouper()
+        messages = [
+            create_classification("C123", "100.0", "U1", "100.0"),
+            create_classification("C123", "100.0", "U2", "100.1"),
+        ]
+        result = grouper.group_messages(messages)
+
+        assert len(result) == 1
+        assert result[0].conversation_type == "thread"
+        assert len(result[0].messages) == 2
+
+    def test_standalone_message_not_grouped_as_thread(self):
+        """Messages without thread context should not be grouped as threads."""
+        grouper = DigestGrouper()
+        messages = [
+            create_classification("C123", None, "U1", "100.0"),
+            create_classification("C456", None, "U2", "200.0"),
+        ]
+        result = grouper.group_messages(messages)
+
+        assert len(result) == 2
+        for conv in result:
+            assert conv.conversation_type == "channel"
+            assert len(conv.messages) == 1
+
+    def test_thread_parent_only_no_replies(self):
+        """Thread parent with no replies is still grouped as a thread."""
+        grouper = DigestGrouper()
+        messages = [
+            create_classification("C123", None, "U1", "100.0"),
+        ]
+        result = grouper.group_messages(messages)
+
+        assert len(result) == 1
+        assert result[0].conversation_type == "channel"
+        assert len(result[0].messages) == 1
+
 
 class TestConversationGroup:
     """Tests for ConversationGroup dataclass."""
@@ -458,8 +515,7 @@ class TestThreadContext:
         grouper = DigestGrouper()
 
         messages = [
-            {"ts": f"{i}.0", "user": "U1", "text": f"Message {i}"}
-            for i in range(250)
+            {"ts": f"{i}.0", "user": "U1", "text": f"Message {i}"} for i in range(250)
         ]
 
         mock_client = AsyncMock()
@@ -569,9 +625,7 @@ class TestDigestGrouperWithContext:
 
         mock_db = AsyncMock()
 
-        with patch.object(
-            grouper, "_get_user_client", return_value=mock_client
-        ):
+        with patch.object(grouper, "_get_user_client", return_value=mock_client):
             result = await grouper.group_messages_with_context(
                 messages, "test-user", mock_db
             )
@@ -599,9 +653,7 @@ class TestDigestGrouperWithContext:
 
         mock_db = AsyncMock()
 
-        with patch.object(
-            grouper, "_get_user_client", return_value=mock_client
-        ):
+        with patch.object(grouper, "_get_user_client", return_value=mock_client):
             result = await grouper.group_messages_with_context(
                 messages, "test-user", mock_db
             )
@@ -630,9 +682,7 @@ class TestDigestGrouperWithContext:
 
         mock_db = AsyncMock()
 
-        with patch.object(
-            grouper, "_get_user_client", return_value=mock_client
-        ):
+        with patch.object(grouper, "_get_user_client", return_value=mock_client):
             result = await grouper.group_messages_with_context(
                 messages, "test-user", mock_db
             )
@@ -650,9 +700,7 @@ class TestDigestGrouperWithContext:
 
         mock_db = AsyncMock()
 
-        with patch.object(
-            grouper, "_get_user_client", return_value=None
-        ):
+        with patch.object(grouper, "_get_user_client", return_value=None):
             result = await grouper.group_messages_with_context(
                 messages, "test-user", mock_db
             )

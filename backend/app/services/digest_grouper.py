@@ -323,6 +323,7 @@ class DigestGrouper:
 
         Strategy:
         1. Thread messages (same thread_ts) → one conversation (deterministic)
+           - Includes both the parent message AND all replies
         2. DM messages (same channel) → one conversation per DM channel
         3. Channel messages without thread → grouped by LLM later
 
@@ -340,19 +341,25 @@ class DigestGrouper:
         dm_groups: dict[str, list[TriageClassification]] = {}
         channel_messages: list[TriageClassification] = []
 
+        all_thread_ts_values: set[str] = set()
         for msg in messages:
             if msg.thread_ts:
-                # Thread message - group by thread_ts
+                all_thread_ts_values.add(msg.thread_ts)
+
+        for msg in messages:
+            if msg.thread_ts:
                 if msg.thread_ts not in thread_groups:
                     thread_groups[msg.thread_ts] = []
                 thread_groups[msg.thread_ts].append(msg)
+            elif msg.message_ts in all_thread_ts_values:
+                if msg.message_ts not in thread_groups:
+                    thread_groups[msg.message_ts] = []
+                thread_groups[msg.message_ts].append(msg)
             elif msg.channel_id.startswith("D"):
-                # DM - group by channel
                 if msg.channel_id not in dm_groups:
                     dm_groups[msg.channel_id] = []
                 dm_groups[msg.channel_id].append(msg)
             else:
-                # Channel message without thread - will be grouped by LLM
                 channel_messages.append(msg)
 
         # Create thread conversations
