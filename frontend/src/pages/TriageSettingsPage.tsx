@@ -884,6 +884,7 @@ export function TriageSettingsPage() {
                     <th className="text-left p-3 font-medium">Channel</th>
                     <th className="text-left p-3 font-medium">Enabled</th>
                     <th className="text-left p-3 font-medium">Priority</th>
+                    <th className="text-left p-3 font-medium">Summary</th>
                     <th className="text-right p-3 font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -918,27 +919,56 @@ export function TriageSettingsPage() {
                           )}
                         />
                       </td>
-                      <td className="p-3">
-                        <Select
-                          value={channel.priority}
-                          onValueChange={(val) =>
-                            updateChannel.mutate({
-                              id: channel.id,
-                              data: { priority: val as ChannelPriority },
-                            })
-                          }
-                        >
-                          <SelectTrigger className="w-28 h-8">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="low">Low</SelectItem>
-                            <SelectItem value="medium">Medium</SelectItem>
-                            <SelectItem value="high">High</SelectItem>
-                            <SelectItem value="critical">Critical</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </td>
+<td className="p-3">
+                         <Select
+                           value={channel.priority}
+                           onValueChange={(val) =>
+                             updateChannel.mutate({
+                               id: channel.id,
+                               data: { priority: val as ChannelPriority },
+                             })
+                           }
+                         >
+                           <SelectTrigger className="w-28 h-8">
+                             <SelectValue />
+                           </SelectTrigger>
+                           <SelectContent>
+                             <SelectItem value="low">Low</SelectItem>
+                             <SelectItem value="medium">Medium</SelectItem>
+                             <SelectItem value="high">High</SelectItem>
+                             <SelectItem value="critical">Critical</SelectItem>
+                           </SelectContent>
+                         </Select>
+                       </td>
+                       <td className="p-3">
+                         <Select
+                           value={channel.summary_behavior}
+                           onValueChange={(val) =>
+                             updateChannel.mutate({
+                               id: channel.id,
+                               data: { summary_behavior: val as 'default' | 'initial_only' },
+                             })
+                           }
+                         >
+                           <SelectTrigger className="w-36 h-8">
+                             <SelectValue />
+                           </SelectTrigger>
+                           <SelectContent>
+                             <SelectItem value="default">
+                               <div>
+                                 <div className="font-medium">Default</div>
+                                 <div className="text-xs text-muted-foreground">Include all messages and replies</div>
+                               </div>
+                             </SelectItem>
+                             <SelectItem value="initial_only">
+                               <div>
+                                 <div className="font-medium">Initial Only</div>
+                                 <div className="text-xs text-muted-foreground">Exclude thread replies from summaries</div>
+                               </div>
+                             </SelectItem>
+                           </SelectContent>
+                         </Select>
+                       </td>
                       <td className="p-3 text-right">
                         <div className="flex items-center justify-end gap-2">
                           <Button

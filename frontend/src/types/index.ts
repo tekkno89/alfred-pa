@@ -874,6 +874,7 @@ export interface MonitoredChannel {
   priority: ChannelPriority
   is_active: boolean
   is_hidden: boolean
+  summary_behavior: 'default' | 'initial_only'
   triage_instructions: string | null
   created_at: string | null
 }
@@ -890,6 +891,7 @@ export interface MonitoredChannelUpdate {
   priority?: ChannelPriority
   is_active?: boolean
   is_hidden?: boolean
+  summary_behavior?: 'default' | 'initial_only'
   triage_instructions?: string | null
 }
 
