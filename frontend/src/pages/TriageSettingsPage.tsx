@@ -919,27 +919,27 @@ export function TriageSettingsPage() {
                           )}
                         />
                       </td>
-<td className="p-3">
-                         <Select
-                           value={channel.priority}
-                           onValueChange={(val) =>
-                             updateChannel.mutate({
-                               id: channel.id,
-                               data: { priority: val as ChannelPriority },
-                             })
-                           }
-                         >
-                           <SelectTrigger className="w-28 h-8">
-                             <SelectValue />
-                           </SelectTrigger>
-                           <SelectContent>
-                             <SelectItem value="low">Low</SelectItem>
-                             <SelectItem value="medium">Medium</SelectItem>
-                             <SelectItem value="high">High</SelectItem>
-                             <SelectItem value="critical">Critical</SelectItem>
-                           </SelectContent>
-                         </Select>
-                       </td>
+                      <td className="p-3">
+                        <Select
+                          value={channel.priority}
+                          onValueChange={(val) =>
+                            updateChannel.mutate({
+                              id: channel.id,
+                              data: { priority: val as ChannelPriority },
+                            })
+                          }
+                        >
+                          <SelectTrigger className="w-28 h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="low">Low</SelectItem>
+                            <SelectItem value="medium">Medium</SelectItem>
+                            <SelectItem value="high">High</SelectItem>
+                            <SelectItem value="critical">Critical</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </td>
                        <td className="p-3">
                          <Select
                            value={channel.summary_behavior}
