@@ -537,6 +537,105 @@ class TestSummaryQuality:
         assert "GOOD:" in call_prompt
         assert "Caitlin" in call_prompt or "Sara" in call_prompt or "Raj" in call_prompt
 
+    @pytest.mark.asyncio
+    async def test_p3_summaries_use_enhanced_prompt(self, mock_db):
+        """P3 summaries should use the enhanced prompt with more detailed requirements."""
+        from app.services.digest_grouper import ConversationGroup
+
+        messages = [
+            _make_classification(
+                id="msg-1",
+                sender_slack_id="U1",
+                sender_name="HR",
+                abstract="Sarah Chen's last day is Friday March 15th",
+                message_ts="100.1",
+            ),
+        ]
+
+        conv = ConversationGroup(
+            id="channel:C123",
+            messages=messages,
+            conversation_type="channel",
+            channel_id="C123",
+            summarization_mode="full",
+        )
+
+        with patch.object(TriageDeliveryService, "__init__", lambda self, db: None):
+            service = TriageDeliveryService.__new__(TriageDeliveryService)
+            service.db = mock_db
+            service.class_repo = AsyncMock()
+
+            with patch("app.core.llm.get_llm_provider") as mock_llm:
+                mock_provider = AsyncMock()
+                mock_provider.generate = AsyncMock(return_value="Summary")
+                mock_llm.return_value = mock_provider
+
+                with patch("app.core.config.get_settings") as mock_settings:
+                    mock_settings.return_value = MagicMock(
+                        web_search_synthesis_model="gemini-2.5-flash-lite"
+                    )
+
+                    await service.create_conversation_summary(conv, priority="p3")
+
+        call_prompt = mock_provider.generate.call_args[1]["messages"][0].content
+
+        # P3 should have enhanced requirements
+        assert "2-3 detailed sentences" in call_prompt
+        assert "specific details" in call_prompt
+
+        # P3 should have P3-specific examples
+        assert "Sarah Chen" in call_prompt
+        assert "Alex Kumar" in call_prompt
+        assert "farewell gathering" in call_prompt or "The Local Diner" in call_prompt
+
+    @pytest.mark.asyncio
+    async def test_p2_summaries_use_standard_prompt(self, mock_db):
+        """P2 summaries (default) should use the standard prompt."""
+        from app.services.digest_grouper import ConversationGroup
+
+        messages = [
+            _make_classification(
+                id="msg-1",
+                sender_slack_id="U1",
+                sender_name="Mike",
+                abstract="Build is broken",
+                message_ts="100.1",
+            ),
+        ]
+
+        conv = ConversationGroup(
+            id="channel:C123",
+            messages=messages,
+            conversation_type="channel",
+            channel_id="C123",
+            summarization_mode="full",
+        )
+
+        with patch.object(TriageDeliveryService, "__init__", lambda self, db: None):
+            service = TriageDeliveryService.__new__(TriageDeliveryService)
+            service.db = mock_db
+            service.class_repo = AsyncMock()
+
+            with patch("app.core.llm.get_llm_provider") as mock_llm:
+                mock_provider = AsyncMock()
+                mock_provider.generate = AsyncMock(return_value="Summary")
+                mock_llm.return_value = mock_provider
+
+                with patch("app.core.config.get_settings") as mock_settings:
+                    mock_settings.return_value = MagicMock(
+                        web_search_synthesis_model="gemini-2.5-flash-lite"
+                    )
+
+                    await service.create_conversation_summary(conv, priority="p2")
+
+        call_prompt = mock_provider.generate.call_args[1]["messages"][0].content
+
+        # P2 should have standard requirements
+        assert "1-2 full sentences" in call_prompt
+
+        # P2 should have standard examples (Caitlin, Sara, Raj)
+        assert "Caitlin" in call_prompt or "Sara" in call_prompt or "Raj" in call_prompt
+
 
 class TestPrepareConversationDigest:
     """Tests for prepare_conversation_digest with thin update detection."""

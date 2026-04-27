@@ -621,13 +621,14 @@ If there are no common themes, just summarize: "You have {len(messages)} message
         return unresponded
 
     async def create_conversation_summary(
-        self, conversation: "ConversationGroup"
+        self, conversation: "ConversationGroup", priority: str = "p2"
     ) -> str:
         """
         Create a summary for a single conversation.
 
         Args:
             conversation: ConversationGroup to summarize
+            priority: Priority level for context-aware summary depth
 
         Returns:
             Summary string
@@ -647,7 +648,18 @@ If there are no common themes, just summarize: "You have {len(messages)} message
         mode = conversation.summarization_mode
         thread_ctx = conversation.thread_context
 
-        few_shot_examples = """
+        if priority == "p3":
+            few_shot_examples = """
+BAD: "Someone announced they're leaving."
+BAD: "A notification about a new hire."
+BAD: "Discussion about lunch plans."
+
+GOOD: "HR announced that Sarah Chen's last day will be Friday, March 15th. She's been with the team for 3 years on the infrastructure squad. A farewell gathering is planned for Thursday at 4pm in the main break room."
+GOOD: "The team welcomed Alex Kumar as the new Senior Frontend Engineer starting Monday. Alex joins from Stripe and will be working on the dashboard redesign project."
+GOOD: "Jamie organized a team lunch for Friday at noon at The Local Diner to celebrate the successful Q4 release. 8 people confirmed attendance, RSVP by Thursday EOD."
+"""
+        else:
+            few_shot_examples = """
 BAD: "User stated the build is broken."
 BAD: "A discussion occurred about deployment."
 BAD: "Message contains only an emoji."
@@ -658,7 +670,19 @@ GOOD: "Sara asked whether to roll back the 3.2.1 release after a customer-report
 GOOD: "Raj shared the Q3 planning doc and asked the platform team for feedback on the migration timeline by Friday."
 """
 
-        quality_requirements = """
+        if priority == "p3":
+            quality_requirements = """
+Requirements:
+- Write 2-3 detailed sentences that fully capture the context
+- Name all participants by their display name
+- Clearly state what was discussed, announced, or asked
+- Include specific details: dates, times, action items, links shared
+- Mention any decisions made or next steps agreed upon
+- If it's an announcement, summarize the key information conveyed
+- If it's a question, note whether it was answered and by whom
+"""
+        else:
+            quality_requirements = """
 Requirements:
 - Write 1-2 full sentences (never a single clause or fragment)
 - Name participants by their display name (never use "user" or "a user")
@@ -778,7 +802,9 @@ Messages (chronological):
                 )
 
                 # Get or create summary
-                summary = conv.topic or await self.create_conversation_summary(conv)
+                summary = conv.topic or await self.create_conversation_summary(
+                    conv, priority
+                )
 
                 # Get link to first message
                 first_msg = min(conv.messages, key=lambda m: m.message_ts)
@@ -828,7 +854,9 @@ Messages (chronological):
                 if conv.conversation_type == "thread"
                 else ("DM" if conv.conversation_type == "dm" else "Chat")
             )
-            summary = conv.topic or await self.create_conversation_summary(conv)
+            summary = conv.topic or await self.create_conversation_summary(
+                conv, priority
+            )
             first_msg = min(conv.messages, key=lambda m: m.message_ts)
             link = (
                 f" <{first_msg.slack_permalink}|View>"
