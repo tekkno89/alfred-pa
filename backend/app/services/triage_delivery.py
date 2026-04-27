@@ -809,3 +809,94 @@ Messages (chronological):
             logger.exception(
                 f"Failed to send conversation digest DM for user={user_id}"
             )
+
+    async def send_end_of_day_digest_dm(
+        self,
+        user_id: str,
+        conversations: list["ConversationGroup"],
+    ) -> None:
+        """Send an end-of-day digest DM with conversations grouped by priority."""
+        user = await self.user_repo.get(user_id)
+        if not user or not user.slack_user_id:
+            return
+
+        try:
+            slack_service = SlackService()
+            lines = ["*End of Day Digest*\n"]
+
+            p1_convs = [c for c in conversations if c.priority == "p1"]
+            p2_convs = [c for c in conversations if c.priority == "p2"]
+            p3_convs = [c for c in conversations if c.priority == "p3"]
+
+            if p1_convs:
+                lines.append("*P1 — Important:*")
+                for i, conv in enumerate(p1_convs[:5], 1):
+                    channel = conv.channel_name or f"#{conv.channel_id}"
+                    conv_type_label = (
+                        "Thread"
+                        if conv.conversation_type == "thread"
+                        else ("DM" if conv.conversation_type == "dm" else "Chat")
+                    )
+                    summary = conv.topic or await self.create_conversation_summary(conv)
+                    first_msg = min(conv.messages, key=lambda m: m.message_ts)
+                    link = (
+                        f" <{first_msg.slack_permalink}|View>"
+                        if first_msg.slack_permalink
+                        else ""
+                    )
+                    lines.append(f"{i}. *{conv_type_label} in #{channel}*")
+                    lines.append(f"   {summary}{link}\n")
+                if len(p1_convs) > 5:
+                    lines.append(f"   _...and {len(p1_convs) - 5} more P1 items_\n")
+
+            if p2_convs:
+                lines.append("*P2 — Notable:*")
+                for i, conv in enumerate(p2_convs[:5], 1):
+                    channel = conv.channel_name or f"#{conv.channel_id}"
+                    conv_type_label = (
+                        "Thread"
+                        if conv.conversation_type == "thread"
+                        else ("DM" if conv.conversation_type == "dm" else "Chat")
+                    )
+                    summary = conv.topic or await self.create_conversation_summary(conv)
+                    first_msg = min(conv.messages, key=lambda m: m.message_ts)
+                    link = (
+                        f" <{first_msg.slack_permalink}|View>"
+                        if first_msg.slack_permalink
+                        else ""
+                    )
+                    lines.append(f"{i}. *{conv_type_label} in #{channel}*")
+                    lines.append(f"   {summary}{link}\n")
+                if len(p2_convs) > 5:
+                    lines.append(f"   _...and {len(p2_convs) - 5} more P2 items_\n")
+
+            if p3_convs:
+                lines.append("*P3 — Daily Digest:*")
+                for i, conv in enumerate(p3_convs[:5], 1):
+                    channel = conv.channel_name or f"#{conv.channel_id}"
+                    conv_type_label = (
+                        "Thread"
+                        if conv.conversation_type == "thread"
+                        else ("DM" if conv.conversation_type == "dm" else "Chat")
+                    )
+                    summary = conv.topic or await self.create_conversation_summary(conv)
+                    first_msg = min(conv.messages, key=lambda m: m.message_ts)
+                    link = (
+                        f" <{first_msg.slack_permalink}|View>"
+                        if first_msg.slack_permalink
+                        else ""
+                    )
+                    lines.append(f"{i}. *{conv_type_label} in #{channel}*")
+                    lines.append(f"   {summary}{link}\n")
+                if len(p3_convs) > 5:
+                    lines.append(f"   _...and {len(p3_convs) - 5} more P3 items_\n")
+
+            if not (p1_convs or p2_convs or p3_convs):
+                return
+
+            await slack_service.send_message(
+                channel=user.slack_user_id,
+                text="\n".join(lines),
+            )
+        except Exception:
+            logger.exception(f"Failed to send end-of-day digest DM for user={user_id}")

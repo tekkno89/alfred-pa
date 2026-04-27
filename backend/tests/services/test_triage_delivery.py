@@ -665,3 +665,136 @@ class TestPrepareConversationDigest:
                     )
 
         assert len(result) == 1
+
+
+class TestEndOfDayDigest:
+    """Tests for end-of-day digest that includes all priorities."""
+
+    @pytest.mark.asyncio
+    async def test_end_of_day_digest_includes_all_priorities(self, mock_db):
+        """End-of-day digest should include P1, P2, and P3 items grouped by priority."""
+        from app.services.digest_grouper import ConversationGroup
+
+        p1_msg = _make_classification(
+            id="p1-msg",
+            priority_level="p1",
+            abstract="Urgent issue",
+            confidence=0.9,
+        )
+        p2_msg = _make_classification(
+            id="p2-msg",
+            priority_level="p2",
+            abstract="Notable update",
+            confidence=0.8,
+        )
+        p3_msg = _make_classification(
+            id="p3-msg",
+            priority_level="p3",
+            abstract="Daily item",
+            confidence=0.6,
+        )
+
+        p1_conv = ConversationGroup(
+            id="conv-p1",
+            messages=[p1_msg],
+            conversation_type="channel",
+            channel_id="C123",
+            channel_name="general",
+        )
+        p2_conv = ConversationGroup(
+            id="conv-p2",
+            messages=[p2_msg],
+            conversation_type="channel",
+            channel_id="C456",
+            channel_name="random",
+        )
+        p3_conv = ConversationGroup(
+            id="conv-p3",
+            messages=[p3_msg],
+            conversation_type="channel",
+            channel_id="C789",
+            channel_name="updates",
+        )
+
+        conversations = [p1_conv, p2_conv, p3_conv]
+        mock_user = MagicMock(slack_user_id="U_SELF")
+        mock_slack = AsyncMock()
+
+        with patch.object(TriageDeliveryService, "__init__", lambda self, db: None):
+            service = TriageDeliveryService.__new__(TriageDeliveryService)
+            service.db = mock_db
+            service.user_repo = AsyncMock()
+            service.user_repo.get.return_value = mock_user
+
+            with patch(
+                "app.services.triage_delivery.SlackService",
+                return_value=mock_slack,
+            ):
+                await service.send_end_of_day_digest_dm("user-1", conversations)
+
+        mock_slack.send_message.assert_called_once()
+        text = mock_slack.send_message.call_args[1]["text"]
+        assert "End of Day Digest" in text
+        assert "P1 — Important" in text
+        assert "P2 — Notable" in text
+        assert "P3 — Daily Digest" in text
+
+    @pytest.mark.asyncio
+    async def test_end_of_day_digest_empty_conversations(self, mock_db):
+        """End-of-day digest should not send if no conversations."""
+        mock_user = MagicMock(slack_user_id="U_SELF")
+        mock_slack = AsyncMock()
+
+        with patch.object(TriageDeliveryService, "__init__", lambda self, db: None):
+            service = TriageDeliveryService.__new__(TriageDeliveryService)
+            service.db = mock_db
+            service.user_repo = AsyncMock()
+            service.user_repo.get.return_value = mock_user
+
+            with patch(
+                "app.services.triage_delivery.SlackService",
+                return_value=mock_slack,
+            ):
+                await service.send_end_of_day_digest_dm("user-1", [])
+
+        mock_slack.send_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_end_of_day_digest_caps_items_per_priority(self, mock_db):
+        """End-of-day digest should show max 5 items per priority with overflow indicator."""
+        from app.services.digest_grouper import ConversationGroup
+
+        conversations = []
+        for i in range(7):
+            msg = _make_classification(
+                id=f"p1-msg-{i}",
+                priority_level="p1",
+                abstract=f"Urgent {i}",
+                confidence=0.9,
+            )
+            conv = ConversationGroup(
+                id=f"conv-{i}",
+                messages=[msg],
+                conversation_type="channel",
+                channel_id=f"C{i}",
+                channel_name=f"channel-{i}",
+            )
+            conversations.append(conv)
+
+        mock_user = MagicMock(slack_user_id="U_SELF")
+        mock_slack = AsyncMock()
+
+        with patch.object(TriageDeliveryService, "__init__", lambda self, db: None):
+            service = TriageDeliveryService.__new__(TriageDeliveryService)
+            service.db = mock_db
+            service.user_repo = AsyncMock()
+            service.user_repo.get.return_value = mock_user
+
+            with patch(
+                "app.services.triage_delivery.SlackService",
+                return_value=mock_slack,
+            ):
+                await service.send_end_of_day_digest_dm("user-1", conversations)
+
+        text = mock_slack.send_message.call_args[1]["text"]
+        assert "2 more P1 items" in text

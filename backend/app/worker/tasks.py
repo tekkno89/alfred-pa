@@ -481,7 +481,10 @@ async def send_digest(
         class_repo = TriageClassificationRepository(db)
         user_repo = UserRepository(db)
 
-        items = await class_repo.get_unalerted_scheduled_items(user_id, priority)
+        if priority == "all":
+            items = await class_repo.get_unalerted_all_priorities(user_id)
+        else:
+            items = await class_repo.get_unalerted_scheduled_items(user_id, priority)
 
         if not items:
             logger.info(f"No {priority} items to digest for user {user_id}")
@@ -557,9 +560,12 @@ async def send_digest(
             for conv in conversations:
                 unresponded_items.extend(conv.messages)
 
-            await delivery.send_conversation_digest_dm(
-                user_id, conversations, priority, digest_type
-            )
+            if priority == "all":
+                await delivery.send_end_of_day_digest_dm(user_id, conversations)
+            else:
+                await delivery.send_conversation_digest_dm(
+                    user_id, conversations, priority, digest_type
+                )
 
             summary_text = f"{len(conversations)} conversation{'s' if len(conversations) != 1 else ''} to review"
             summary_record = await delivery.create_scheduled_digest_summary(

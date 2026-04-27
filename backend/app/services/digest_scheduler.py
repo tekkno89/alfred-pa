@@ -102,9 +102,9 @@ class DigestScheduler:
             and current_time == settings.p3_digest_time
         ):
             logger.info(
-                f"Scheduling P3 daily digest for user {user_id} at {current_time} ({user_tz})"
+                f"Scheduling end-of-day digest (all priorities) for user {user_id} at {current_time} ({user_tz})"
             )
-            await self._enqueue_digest(pool, user_id, "p3", "daily")
+            await self._enqueue_digest(pool, user_id, "all", "end_of_day")
 
         # Interval-based digests (check if next interval elapsed)
         await self._check_interval_digests(settings, user_id, now, user_tz, pool)

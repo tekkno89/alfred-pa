@@ -372,6 +372,21 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         )
         return list(result.scalars().all())
 
+    async def get_unalerted_all_priorities(
+        self, user_id: str
+    ) -> list[TriageClassification]:
+        """Get items queued for digest across all priorities (P1, P2, P3)."""
+        result = await self.db.execute(
+            select(TriageClassification)
+            .where(TriageClassification.user_id == user_id)
+            .where(TriageClassification.priority_level.in_(["p1", "p2", "p3"]))
+            .where(TriageClassification.queued_for_digest == True)
+            .where(TriageClassification.focus_session_id.is_(None))
+            .order_by(TriageClassification.priority_level.asc())
+            .order_by(TriageClassification.created_at.asc())
+        )
+        return list(result.scalars().all())
+
     async def cleanup_orphaned_focus_session_items(self) -> int:
         """
         Clear focus_session_id from items whose sessions no longer exist or are inactive.
