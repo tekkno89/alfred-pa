@@ -24,6 +24,9 @@ from app.schemas.triage import (
     ChannelMemberInfo,
     ClassificationList,
     ClassificationResponse,
+    ConversationMessageList,
+    ConversationSummaryList,
+    ConversationSummaryResponse,
     DigestResponse,
     FetchMessageByLinkRequest,
     GenerateDefinitionsRequest,
@@ -792,6 +795,130 @@ async def get_digest_children(
         return []
     children = await repo.get_digest_children(classification_id, current_user.id)
     return [ClassificationResponse.model_validate(c) for c in children]
+
+
+@router.get(
+    "/digests/{digest_id}/conversations",
+    response_model=ConversationSummaryList,
+)
+async def get_digest_conversations(
+    digest_id: str,
+    current_user: CurrentUser,
+    db: DbSession,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    priority: str | None = Query(None, pattern="^(p1|p2|p3)$"),
+) -> ConversationSummaryList:
+    """Get conversations for a digest summary."""
+    await _check_triage_access(current_user.id, db, current_user.role)
+    
+    class_repo = TriageClassificationRepository(db)
+    digest = await class_repo.get(digest_id)
+    if not digest or digest.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Digest not found",
+        )
+    if digest.priority_level != "digest_summary":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Not a digest summary",
+        )
+    
+    from app.db.repositories.conversation_summary import ConversationSummaryRepository
+    
+    conv_repo = ConversationSummaryRepository(db)
+    conversations = await conv_repo.get_by_digest(
+        digest_id, priority=priority, limit=limit, offset=offset
+    )
+    total = await conv_repo.count_by_digest(digest_id, priority=priority)
+    
+    return ConversationSummaryList(
+        items=[ConversationSummaryResponse.model_validate(c) for c in conversations],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get(
+    "/conversations/{conversation_id}",
+    response_model=ConversationSummaryResponse,
+)
+async def get_conversation(
+    conversation_id: str,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> ConversationSummaryResponse:
+    """Get a single conversation summary."""
+    await _check_triage_access(current_user.id, db, current_user.role)
+    
+    from app.db.repositories.conversation_summary import ConversationSummaryRepository
+    
+    repo = ConversationSummaryRepository(db)
+    conversation = await repo.get(conversation_id)
+    
+    if not conversation or conversation.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found",
+        )
+    
+    return ConversationSummaryResponse.model_validate(conversation)
+
+
+@router.get(
+    "/conversations/{conversation_id}/messages",
+    response_model=ConversationMessageList,
+)
+async def get_conversation_messages(
+    conversation_id: str,
+    current_user: CurrentUser,
+    db: DbSession,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> ConversationMessageList:
+    """Get messages in a conversation."""
+    await _check_triage_access(current_user.id, db, current_user.role)
+    
+    from app.db.repositories.conversation_summary import ConversationSummaryRepository
+    
+    conv_repo = ConversationSummaryRepository(db)
+    conversation = await conv_repo.get(conversation_id)
+    
+    if not conversation or conversation.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found",
+        )
+    
+    class_repo = TriageClassificationRepository(db)
+    
+    from sqlalchemy import select, func
+    from app.db.models.triage import TriageClassification
+    
+    count_result = await db.execute(
+        select(func.count()).select_from(TriageClassification).where(
+            TriageClassification.conversation_summary_id == conversation_id
+        )
+    )
+    total = count_result.scalar() or 0
+    
+    result = await db.execute(
+        select(TriageClassification)
+        .where(TriageClassification.conversation_summary_id == conversation_id)
+        .order_by(TriageClassification.message_ts.asc())
+        .offset(offset)
+        .limit(limit)
+    )
+    messages = list(result.scalars().all())
+    
+    return ConversationMessageList(
+        items=[ClassificationResponse.model_validate(m) for m in messages],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/digest/{session_id}", response_model=DigestResponse)

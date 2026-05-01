@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
+    from app.db.models.conversation_summary import ConversationSummary
     from app.db.models.user import User
 
 
@@ -188,6 +189,10 @@ class TriageClassification(Base, UUIDMixin, TimestampMixin):
         ForeignKey("triage_classifications.id", ondelete="SET NULL"), nullable=True
     )
     child_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    
+    conversation_summary_id: Mapped[str | None] = mapped_column(
+        ForeignKey("conversation_summaries.id", ondelete="SET NULL"), nullable=True
+    )
 
     # Alert tracking
     last_alerted_at: Mapped[datetime | None] = mapped_column(nullable=True)
@@ -209,6 +214,11 @@ class TriageClassification(Base, UUIDMixin, TimestampMixin):
     user: Mapped["User"] = relationship("User")
     feedback: Mapped["TriageFeedback | None"] = relationship(
         "TriageFeedback", back_populates="classification", uselist=False
+    )
+    conversation_summary: Mapped["ConversationSummary | None"] = relationship(
+        "ConversationSummary",
+        foreign_keys=[conversation_summary_id],
+        back_populates="messages",
     )
 
     def __repr__(self) -> str:

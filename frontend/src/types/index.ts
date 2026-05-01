@@ -997,6 +997,44 @@ export interface TriageSessionStats {
   total: number
 }
 
+export interface ConversationParticipant {
+  slack_id: string
+  name: string | null
+}
+
+export interface ConversationSummary {
+  id: string
+  conversation_type: 'thread' | 'dm' | 'channel'
+  channel_id: string
+  channel_name: string | null
+  thread_ts: string | null
+  abstract: string
+  participants: ConversationParticipant[]
+  message_count: number
+  priority_level: PriorityLevel
+  first_message_ts: string
+  slack_permalink: string | null
+  first_message_at: string | null
+  last_message_at: string | null
+  created_at: string | null
+  reviewed_at: string | null
+  digest_summary_id: string | null
+}
+
+export interface ConversationSummaryList {
+  items: ConversationSummary[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface ConversationMessageList {
+  items: TriageClassification[]
+  total: number
+  limit: number
+  offset: number
+}
+
 export interface GenerateDefinitionsRequest {
   role: string
   critical_messages: string

@@ -555,6 +555,42 @@ If there are no common themes, just summarize: "You have {len(messages)} message
             abstract=intelligent_summary,
         )
 
+    async def persist_conversations_to_summary(
+        self,
+        conversations: list["ConversationGroup"],
+        digest_summary_id: str,
+        user_id: str,
+    ) -> list:
+        """Persist ConversationGroups as ConversationSummary records.
+
+        Creates ConversationSummary records for each conversation,
+        links them to the digest_summary, and links child messages.
+
+        Args:
+            conversations: List of ConversationGroup objects to persist
+            digest_summary_id: ID of the parent digest_summary record
+            user_id: User ID
+
+        Returns:
+            List of persisted ConversationSummary records
+        """
+        from app.services.digest_grouper import DigestGrouper
+
+        grouper = DigestGrouper()
+        persisted = await grouper.persist_conversations(
+            conversations, user_id, self.db
+        )
+
+        if persisted:
+            from app.db.repositories.conversation_summary import ConversationSummaryRepository
+
+            repo = ConversationSummaryRepository(self.db)
+            await repo.link_to_digest(
+                [s.id for s in persisted], digest_summary_id
+            )
+
+        return persisted
+
     async def prepare_conversation_digest(
         self,
         user_id: str,

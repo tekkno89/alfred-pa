@@ -99,6 +99,20 @@ async def client(setup_database) -> AsyncGenerator[AsyncClient, None]:
     app.dependency_overrides.clear()
 
 
+@pytest_asyncio.fixture
+async def test_user(db_session: AsyncSession) -> User:
+    """Create a test user."""
+    user = User(
+        email="test@example.com",
+        password_hash="hashed",
+        slack_user_id="U123",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
 def auth_headers(user: User) -> dict[str, str]:
     """Generate Authorization headers for a user."""
     token = create_access_token(user.id)

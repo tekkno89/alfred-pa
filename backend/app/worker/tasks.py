@@ -574,6 +574,12 @@ async def send_digest(
                 intelligent_summary=summary_text,
             )
 
+            await delivery.persist_conversations_to_summary(
+                conversations=conversations,
+                digest_summary_id=summary_record.id,
+                user_id=user_id,
+            )
+
             summarized_ids = [item.id for item in unresponded_items]
             await class_repo.mark_processed(summarized_ids, "summarized")
 

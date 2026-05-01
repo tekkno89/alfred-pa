@@ -30,11 +30,13 @@ const PRIORITY_STYLES: Record<string, { bg: string; text: string }> = {
   },
 }
 
+const MAX_ITEMS = 10
+
 export function TriageCard() {
   const navigate = useNavigate()
   const { data: settings, isLoading: loadingSettings } = useTriageSettings()
   const { data: stats, isLoading: loadingStats } = useTriageSessionStats()
-  const { data: recent } = useClassifications({ limit: 5, filter: 'needs_attention' })
+  const { data: recent } = useClassifications({ limit: MAX_ITEMS, filter: 'needs_attention' })
 
   const isActive = settings?.is_always_on ?? false
 
@@ -65,7 +67,7 @@ export function TriageCard() {
           Slack Triage
         </CardTitle>
       </CardHeader>
-      <CardContent className="flex-1 overflow-y-auto">
+      <CardContent className="flex-1 overflow-y-auto max-h-80">
         {!isActive ? (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
@@ -84,7 +86,6 @@ export function TriageCard() {
           </div>
         ) : (
           <div className="space-y-3">
-            {/* Stats row */}
             {stats && stats.total > 0 && (
               <div className="flex gap-2 text-xs">
                 <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200">
@@ -106,25 +107,34 @@ export function TriageCard() {
               </div>
             )}
 
-            {/* Recent classifications */}
             {recent && recent.items.length > 0 ? (
-              <div className="space-y-1.5">
-                {recent.items.map((item) => {
-                  const style = PRIORITY_STYLES[item.priority_level] ?? PRIORITY_STYLES.p2
-                  return (
-                    <div key={item.id} className="flex items-start gap-2">
-                      <span
-                        className={`shrink-0 mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium ${style.bg} ${style.text}`}
-                      >
-                        {item.priority_level === 'digest_summary' ? 'digest' : item.priority_level}
-                      </span>
-                      <span className="text-sm truncate flex-1">
-                        {item.abstract || 'Message'}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
+              <>
+                <div className="space-y-1.5">
+                  {recent.items.map((item) => {
+                    const style = PRIORITY_STYLES[item.priority_level] ?? PRIORITY_STYLES.p2
+                    return (
+                      <div key={item.id} className="flex items-start gap-2">
+                        <span
+                          className={`shrink-0 mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium ${style.bg} ${style.text}`}
+                        >
+                          {item.priority_level === 'digest_summary' ? 'digest' : item.priority_level}
+                        </span>
+                        <span className="text-sm truncate flex-1">
+                          {item.abstract || 'Message'}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+                {recent.total > MAX_ITEMS && (
+                  <div className="pt-2 text-center">
+                    <span className="text-xs text-muted-foreground">
+                      +{recent.total - MAX_ITEMS} more{' '}
+                      <span className="text-primary hover:underline">View all</span>
+                    </span>
+                  </div>
+                )}
+              </>
             ) : (
               <p className="text-sm text-muted-foreground">No recent classifications</p>
             )}

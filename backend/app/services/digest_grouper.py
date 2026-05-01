@@ -2,6 +2,7 @@
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from app.db.models.triage import TriageClassification
@@ -448,6 +449,87 @@ class DigestGrouper:
         )
 
         return conversations
+
+    async def persist_conversations(
+        self,
+        conversations: list[ConversationGroup],
+        user_id: str,
+        db,
+    ) -> list:
+        """Persist ConversationGroups as ConversationSummary records.
+
+        This creates ConversationSummary records for each conversation,
+        links child messages via conversation_summary_id, and returns
+        the persisted records.
+
+        Args:
+            conversations: List of ConversationGroup objects to persist
+            user_id: User ID for the summaries
+            db: Database session
+
+        Returns:
+            List of persisted ConversationSummary records
+        """
+        from app.db.models.conversation_summary import ConversationSummary
+        from app.db.repositories.conversation_summary import ConversationSummaryRepository
+        from sqlalchemy import update
+
+        repo = ConversationSummaryRepository(db)
+        persisted = []
+
+        for conv in conversations:
+            if not conv.messages:
+                continue
+
+            sorted_msgs = sorted(conv.messages, key=lambda m: m.message_ts)
+            first_msg = sorted_msgs[0]
+            last_msg = sorted_msgs[-1]
+
+            participants_data = []
+            seen_ids = set()
+            for m in sorted_msgs:
+                if m.sender_slack_id not in seen_ids:
+                    seen_ids.add(m.sender_slack_id)
+                    participants_data.append({
+                        "slack_id": m.sender_slack_id,
+                        "name": m.sender_name,
+                    })
+
+            summary = ConversationSummary(
+                user_id=user_id,
+                conversation_type=conv.conversation_type,
+                channel_id=conv.channel_id,
+                channel_name=conv.channel_name,
+                thread_ts=conv.thread_ts,
+                abstract=conv.topic or f"{len(sorted_msgs)} messages",
+                participants=participants_data,
+                message_count=len(sorted_msgs),
+                priority_level=conv.priority,
+                first_message_ts=first_msg.message_ts,
+                slack_permalink=first_msg.slack_permalink,
+                first_message_at=first_msg.created_at,
+                last_message_at=last_msg.created_at,
+            )
+
+            summary = await repo.create(summary)
+
+            await db.execute(
+                update(TriageClassification)
+                .where(TriageClassification.id.in_([m.id for m in sorted_msgs]))
+                .values(conversation_summary_id=summary.id)
+            )
+            await db.flush()
+
+            for msg in sorted_msgs:
+                msg.conversation_summary_id = summary.id
+
+            persisted.append(summary)
+
+        logger.info(
+            f"Persisted {len(persisted)} conversation summaries for user {user_id}"
+        )
+
+        return persisted
 
     async def group_channel_messages_with_llm(
         self,

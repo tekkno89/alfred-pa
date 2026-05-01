@@ -223,6 +223,54 @@ class ClassificationList(BaseModel):
     total: int = 0
 
 
+class ConversationParticipant(BaseModel):
+    """A participant in a conversation."""
+
+    slack_id: str
+    name: str | None = None
+
+
+class ConversationSummaryResponse(BaseModel):
+    """Response with a conversation summary."""
+
+    model_config = {"from_attributes": True}
+
+    id: str
+    conversation_type: str
+    channel_id: str
+    channel_name: str | None = None
+    thread_ts: str | None = None
+    abstract: str
+    participants: list[ConversationParticipant] = []
+    message_count: int
+    priority_level: str
+    first_message_ts: str
+    slack_permalink: str | None = None
+    first_message_at: UTCDatetime = None
+    last_message_at: UTCDatetime = None
+    created_at: UTCDatetime = None
+    reviewed_at: UTCDatetime = None
+    digest_summary_id: str | None = None
+
+
+class ConversationSummaryList(BaseModel):
+    """Response with list of conversation summaries."""
+
+    items: list[ConversationSummaryResponse]
+    total: int = 0
+    limit: int = 20
+    offset: int = 0
+
+
+class ConversationMessageList(BaseModel):
+    """Response with messages in a conversation."""
+
+    items: list[ClassificationResponse]
+    total: int = 0
+    limit: int = 50
+    offset: int = 0
+
+
 # --- Digest ---
 
 

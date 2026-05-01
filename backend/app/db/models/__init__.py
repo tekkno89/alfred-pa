@@ -1,5 +1,6 @@
 from app.db.models.checkpoint import Checkpoint
 from app.db.models.coding_job import CodingJob
+from app.db.models.conversation_summary import ConversationSummary
 from app.db.models.dashboard import UserDashboardPreference, UserFeatureAccess
 from app.db.models.encryption_key import EncryptionKey
 from app.db.models.focus import FocusModeState, FocusSettings, FocusVIPList
@@ -32,6 +33,7 @@ __all__ = [
     "Message",
     "Memory",
     "Checkpoint",
+    "ConversationSummary",
     "FocusModeState",
     "FocusSettings",
     "FocusVIPList",
