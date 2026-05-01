@@ -838,9 +838,11 @@ Messages (chronological):
                 )
 
                 # Get or create summary
-                summary = conv.topic or await self.create_conversation_summary(
-                    conv, priority
-                )
+                if not conv.topic:
+                    conv.topic = await self.create_conversation_summary(
+                        conv, priority
+                    )
+                summary = conv.topic
 
                 # Get link to first message
                 first_msg = min(conv.messages, key=lambda m: m.message_ts)
@@ -890,9 +892,11 @@ Messages (chronological):
                 if conv.conversation_type == "thread"
                 else ("DM" if conv.conversation_type == "dm" else "Chat")
             )
-            summary = conv.topic or await self.create_conversation_summary(
-                conv, priority
-            )
+            if not conv.topic:
+                conv.topic = await self.create_conversation_summary(
+                    conv, priority
+                )
+            summary = conv.topic
             first_msg = min(conv.messages, key=lambda m: m.message_ts)
             link = (
                 f" <{first_msg.slack_permalink}|View>"
