@@ -1,13 +1,14 @@
 """Remote LLM client for Alfred backend connection."""
 from typing import AsyncIterator, Optional
+import json
+
 import httpx
-from openai import AsyncOpenAI
 
 from src.config import Settings
 
 
 class RemoteLLMService:
-    """OpenAI-compatible streaming LLM client for Alfred backend."""
+    """HTTP client for Alfred backend voice chat endpoint."""
     
     def __init__(self, settings: Settings):
         if not settings.llm.enabled:
@@ -15,13 +16,6 @@ class RemoteLLMService:
         
         self.settings = settings
         self.base_url = settings.get_backend_url()
-        self.model = settings.llm.model
-        
-        # Initialize OpenAI client with custom base URL
-        self.client = AsyncOpenAI(
-            api_key="dummy-key",  # Some servers don't require real key
-            base_url=f"{self.base_url}/v1"
-        )
         
         print(f"LLM client initialized: {self.base_url}")
     
@@ -31,26 +25,49 @@ class RemoteLLMService:
         **kwargs
     ) -> AsyncIterator[str]:
         """
-        Stream tokens from the LLM.
+        Stream tokens from the backend.
         
         Args:
-            messages: OpenAI-format message list
-            **kwargs: Additional parameters (temperature, etc.)
+            messages: OpenAI-format message list (only last user message is used)
+            **kwargs: Additional parameters (ignored)
         
         Yields:
             Text tokens as they arrive
         """
+        # Get the last user message
+        user_message = ""
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                user_message = msg.get("content", "")
+                break
+        
+        if not user_message:
+            yield "No message provided."
+            return
+        
+        url = f"{self.base_url}/api/voice-chat"
+        
         try:
-            stream = await self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                stream=True,
-                **kwargs
-            )
-            
-            async for chunk in stream:
-                if chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                async with client.stream(
+                    "POST",
+                    url,
+                    params={"message": user_message},
+                ) as response:
+                    response.raise_for_status()
+                    
+                    async for line in response.aiter_lines():
+                        if line.startswith("data: "):
+                            data = line[6:]  # Remove "data: " prefix
+                            
+                            if data == "[DONE]":
+                                break
+                            
+                            if data.startswith("ERROR:"):
+                                error_msg = data[6:].strip()
+                                raise RuntimeError(error_msg)
+                            
+                            yield data
         
         except httpx.ConnectError as e:
             raise ConnectionError(

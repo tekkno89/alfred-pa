@@ -100,3 +100,6 @@ logs/
 
 # LiteLLM (optional local dev)
 litellm-config.yaml
+
+# TEMPORARY POC - DO NOT COMMIT
+backend/app/api/voice_poc.py

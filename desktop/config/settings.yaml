@@ -15,7 +15,7 @@ tts:
   sample_rate: 24000
 
 llm:
-  enabled: false         # Set to true in Phase 4
+  enabled: true         # Set to true in Phase 4
   model: gpt-4o          # Model identifier
 
 # Backend URL - configure based on your setup:
