@@ -119,6 +119,7 @@ echo ""
 
 echo "Pre-downloading model weights..."
 echo "  This may take 5-15 minutes depending on your connection."
+echo "  Models are cached in ~/.cache/huggingface/hub/"
 echo ""
 
 # Download Whisper model
@@ -145,8 +146,18 @@ except Exception as e:
     print(f'    ⚠ Warning: {e}', file=sys.stderr)
 " || echo "    ⚠ Whisper download failed - will download on first run"
 
-echo ""
-echo "  [2/2] Chatterbox TTS will download on first use (not pre-cached)"
+echo "  [2/2] Downloading Chatterbox TTS..."
+python -c "
+import sys
+try:
+    from chatterbox.tts import ChatterboxTTS
+    print('    Loading model (will download if not cached)...')
+    model = ChatterboxTTS.from_pretrained(device='cpu')  # Use CPU for download
+    print('    ✓ Chatterbox TTS model cached')
+except Exception as e:
+    print(f'    ⚠ Warning: {e}', file=sys.stderr)
+" || echo "    ⚠ Chatterbox download failed - will download on first run"
+
 echo ""
 
 # ============================================
