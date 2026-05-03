@@ -44,8 +44,10 @@ async def run_phase_1(settings: Settings):
     print("🎤 Listening... (speak now)")
     
     frames = []
+    pre_buffer = []  # Buffer recent audio to catch speech start
+    MAX_PRE_BUFFER = 10  # ~100ms of audio
     silence_count = 0
-    SILENCE_THRESHOLD = 15
+    SILENCE_THRESHOLD = 25  # ~250ms of silence to end speech
     VOLUME_THRESHOLD = 300
     
     try:
@@ -53,10 +55,19 @@ async def run_phase_1(settings: Settings):
             data = stream.read(CHUNK, exception_on_overflow=False)
             rms = audioop.rms(data, 2)
             
+            # Keep pre-buffer of recent audio
+            pre_buffer.append(data)
+            if len(pre_buffer) > MAX_PRE_BUFFER:
+                pre_buffer.pop(0)
+            
             if rms > VOLUME_THRESHOLD:
+                # Include pre-buffered audio when speech starts
+                if len(frames) == 0:
+                    frames.extend(pre_buffer)
                 frames.append(data)
                 silence_count = 0
             elif len(frames) > 0:
+                frames.append(data)  # Continue recording during silence
                 silence_count += 1
                 
                 if silence_count >= SILENCE_THRESHOLD:
@@ -72,6 +83,7 @@ async def run_phase_1(settings: Settings):
                     
                     print("\n🎤 Listening...")
                     frames = []
+                    pre_buffer = []
                     silence_count = 0
             
             await asyncio.sleep(0.01)
@@ -174,8 +186,10 @@ async def run_phase_3(settings: Settings):
     print("🎤 Listening...")
     
     frames = []
+    pre_buffer = []  # Buffer recent audio to catch speech start
+    MAX_PRE_BUFFER = 10  # ~100ms of audio
     silence_count = 0
-    SILENCE_THRESHOLD = 30
+    SILENCE_THRESHOLD = 25
     VOLUME_THRESHOLD = 500
     
     try:
@@ -183,10 +197,19 @@ async def run_phase_3(settings: Settings):
             data = input_stream.read(CHUNK, exception_on_overflow=False)
             rms = audioop.rms(data, 2)
             
+            # Keep pre-buffer of recent audio
+            pre_buffer.append(data)
+            if len(pre_buffer) > MAX_PRE_BUFFER:
+                pre_buffer.pop(0)
+            
             if rms > VOLUME_THRESHOLD:
+                # Include pre-buffered audio when speech starts
+                if len(frames) == 0:
+                    frames.extend(pre_buffer)
                 frames.append(data)
                 silence_count = 0
             elif len(frames) > 0:
+                frames.append(data)  # Continue recording during silence
                 silence_count += 1
                 
                 if silence_count >= SILENCE_THRESHOLD:
@@ -210,6 +233,7 @@ async def run_phase_3(settings: Settings):
                     
                     print("\n🎤 Listening...")
                     frames = []
+                    pre_buffer = []
                     silence_count = 0
             
             await asyncio.sleep(0.01)
@@ -286,8 +310,10 @@ async def run_phase_4(settings: Settings):
     print("Press Ctrl+C to exit.\n")
     
     frames = []
+    pre_buffer = []  # Buffer recent audio to catch speech start
+    MAX_PRE_BUFFER = 10  # ~100ms of audio
     silence_count = 0
-    SILENCE_THRESHOLD = 30
+    SILENCE_THRESHOLD = 25
     VOLUME_THRESHOLD = 500
     
     try:
@@ -295,10 +321,19 @@ async def run_phase_4(settings: Settings):
             data = input_stream.read(CHUNK, exception_on_overflow=False)
             rms = audioop.rms(data, 2)
             
+            # Keep pre-buffer of recent audio
+            pre_buffer.append(data)
+            if len(pre_buffer) > MAX_PRE_BUFFER:
+                pre_buffer.pop(0)
+            
             if rms > VOLUME_THRESHOLD:
+                # Include pre-buffered audio when speech starts
+                if len(frames) == 0:
+                    frames.extend(pre_buffer)
                 frames.append(data)
                 silence_count = 0
             elif len(frames) > 0:
+                frames.append(data)  # Continue recording during silence
                 silence_count += 1
                 
                 if silence_count >= SILENCE_THRESHOLD:
@@ -327,6 +362,7 @@ async def run_phase_4(settings: Settings):
                         print("⚠ No speech detected\n🎤 Listening...")
                     
                     frames = []
+                    pre_buffer = []
                     silence_count = 0
             
             await asyncio.sleep(0.01)
@@ -407,8 +443,10 @@ async def run_phase_5(settings: Settings):
     print("Press Ctrl+C to exit.\n")
     
     frames = []
+    pre_buffer = []  # Buffer recent audio to catch speech start
+    MAX_PRE_BUFFER = 10  # ~100ms of audio
     silence_count = 0
-    SILENCE_THRESHOLD = 30
+    SILENCE_THRESHOLD = 25
     VOLUME_THRESHOLD = 500
     
     try:
@@ -416,10 +454,19 @@ async def run_phase_5(settings: Settings):
             data = input_stream.read(CHUNK, exception_on_overflow=False)
             rms = audioop.rms(data, 2)
             
+            # Keep pre-buffer of recent audio
+            pre_buffer.append(data)
+            if len(pre_buffer) > MAX_PRE_BUFFER:
+                pre_buffer.pop(0)
+            
             if rms > VOLUME_THRESHOLD:
+                # Include pre-buffered audio when speech starts
+                if len(frames) == 0:
+                    frames.extend(pre_buffer)
                 frames.append(data)
                 silence_count = 0
             elif len(frames) > 0:
+                frames.append(data)  # Continue recording during silence
                 silence_count += 1
                 
                 if silence_count >= SILENCE_THRESHOLD:
@@ -461,6 +508,7 @@ async def run_phase_5(settings: Settings):
                         print("⚠ No speech detected\n🎤 Listening...")
                     
                     frames = []
+                    pre_buffer = []
                     silence_count = 0
             
             await asyncio.sleep(0.01)
@@ -547,8 +595,10 @@ async def run_phase_6(settings: Settings):
     print("💡 You can interrupt the bot by speaking over it.\n")
     
     frames = []
+    pre_buffer = []  # Buffer recent audio to catch speech start
+    MAX_PRE_BUFFER = 10  # ~100ms of audio
     silence_count = 0
-    SILENCE_THRESHOLD = 30
+    SILENCE_THRESHOLD = 25
     VOLUME_THRESHOLD = 500
     MIN_WORDS_INTERRUPTION = settings.pipeline.min_words_interruption
     
@@ -559,6 +609,11 @@ async def run_phase_6(settings: Settings):
         while True:
             data = input_stream.read(CHUNK, exception_on_overflow=False)
             rms = audioop.rms(data, 2)
+            
+            # Keep pre-buffer of recent audio
+            pre_buffer.append(data)
+            if len(pre_buffer) > MAX_PRE_BUFFER:
+                pre_buffer.pop(0)
             
             # Check for interruption
             if rms > VOLUME_THRESHOLD and is_playing_response:
@@ -571,14 +626,19 @@ async def run_phase_6(settings: Settings):
                     output_stream.stop_stream()
                     echo_cancel.on_bot_stopped_speaking()
                     frames = []
+                    pre_buffer = []
                     interrupt_buffer = []
             
             elif rms > VOLUME_THRESHOLD:
                 if not echo_cancel.should_mute_mic():
+                    # Include pre-buffered audio when speech starts
+                    if len(frames) == 0:
+                        frames.extend(pre_buffer)
                     frames.append(data)
                 silence_count = 0
             
             elif len(frames) > 0:
+                frames.append(data)  # Continue recording during silence
                 silence_count += 1
                 
                 if silence_count >= SILENCE_THRESHOLD:
@@ -628,6 +688,7 @@ async def run_phase_6(settings: Settings):
                         print("⚠ No speech detected\n🎤 Listening...")
                     
                     frames = []
+                    pre_buffer = []
                     silence_count = 0
                     interrupt_buffer = []
             
