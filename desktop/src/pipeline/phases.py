@@ -110,6 +110,7 @@ async def run_phase_2(settings: Settings):
     print("Press Ctrl+C to exit.\n")
     
     tts_service = ChatterboxTTSService(settings)
+    tts_service.warmup()  # Pre-load model weights
     
     p = pyaudio.PyAudio()
     
@@ -161,6 +162,7 @@ async def run_phase_3(settings: Settings):
     stt_service = WhisperSTTService(settings)
     await stt_service.warmup()  # Pre-load model weights
     tts_service = ChatterboxTTSService(settings)
+    tts_service.warmup()  # Pre-load model weights
     
     INPUT_RATE = 16000
     OUTPUT_RATE = settings.tts.sample_rate
@@ -275,6 +277,7 @@ async def run_phase_4(settings: Settings):
     stt_service = WhisperSTTService(settings)
     await stt_service.warmup()  # Pre-load model weights
     tts_service = ChatterboxTTSService(settings)
+    tts_service.warmup()  # Pre-load model weights
     llm_service = await create_llm_service(settings)
     
     if not llm_service:
@@ -404,6 +407,7 @@ async def run_phase_5(settings: Settings):
     stt_service = WhisperSTTService(settings)
     await stt_service.warmup()  # Pre-load model weights
     tts_service = ChatterboxTTSService(settings)
+    tts_service.warmup()  # Pre-load model weights
     llm_service = await create_llm_service(settings)
     
     if not llm_service:
@@ -552,6 +556,7 @@ async def run_phase_6(settings: Settings):
     stt_service = WhisperSTTService(settings)
     await stt_service.warmup()  # Pre-load model weights
     tts_service = ChatterboxTTSService(settings)
+    tts_service.warmup()  # Pre-load model weights
     llm_service = await create_llm_service(settings)
     
     if not llm_service:

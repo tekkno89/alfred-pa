@@ -50,6 +50,13 @@ class ChatterboxTTSService:
                 else:
                     raise
     
+    def warmup(self):
+        """Pre-load model and generate test audio."""
+        self._ensure_model_loaded()
+        print("Warming up TTS model...")
+        self.generate_audio("Ready.")
+        print("✓ TTS model ready")
+    
     def generate_audio(self, text: str) -> bytes:
         """
         Generate audio for text.
