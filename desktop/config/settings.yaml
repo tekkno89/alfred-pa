@@ -1,0 +1,44 @@
+# Voice Agent Configuration
+# All settings in one place - no environment variables needed
+
+stt:
+  model: large-v3-turbo  # Options: large-v3-turbo, large-v3-turbo-q4, large-v3
+  device: auto           # auto, mps, cpu
+  language: en
+
+tts:
+  model: chatterbox-turbo
+  device: auto           # auto, mps, cpu
+  reference_voice: null  # Path to WAV file, or null for default voice
+  exaggeration: 0.5      # Voice expressiveness (0.0-1.0)
+  cfg_weight: 0.5        # Classifier-free guidance weight (0.0-1.0)
+  sample_rate: 24000
+
+llm:
+  enabled: false         # Set to true in Phase 4
+  model: gpt-4o          # Model identifier
+
+# Backend URL - configure based on your setup:
+# - Local: http://localhost:8000
+# - LAN: http://192.168.1.100:8000 or http://hostname.local:8000
+# - Tailscale/VPN: http://your-tailscale-host:8000
+# - Cloudflare Tunnel: https://your-subdomain.trycloudflare.com
+backend:
+  url: http://localhost:8000
+
+fillers:
+  enabled: true
+  use_defaults: true
+  custom_file: null      # Path to custom_fillers.json
+  timeout_ms: 300        # Max time before filler starts
+
+pipeline:
+  allow_interruptions: true
+  min_words_interruption: 2
+  echo_cancellation: auto  # auto, webrtc, mute_during_speech, disabled
+
+# Development/debugging
+debug:
+  log_level: INFO
+  save_audio: false      # Save raw audio for debugging
+  audio_output_dir: debug/audio

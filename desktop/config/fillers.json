@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "description": "Context-aware filler responses to play while waiting for LLM",
+  "fillers": {
+    "thinking": [
+      "Hmm, let me think about that...",
+      "Good question, give me a moment...",
+      "Let me work through that..."
+    ],
+    "looking_up": [
+      "Let me check on that for you...",
+      "One sec, pulling that up...",
+      "Looking into it now..."
+    ],
+    "acknowledgment": [
+      "Got it, just a moment...",
+      "Sure thing, working on it...",
+      "Right, let me see..."
+    ],
+    "clarification": [
+      "That's an interesting one, let me think...",
+      "Okay, working through it...",
+      "Let me make sure I get this right..."
+    ],
+    "casual": [
+      "Mm, one second...",
+      "Yeah, hold on...",
+      "Alright, give me a sec..."
+    ],
+    "neutral": [
+      "One moment...",
+      "Let me think...",
+      "Just a second..."
+    ]
+  },
+  "classification_rules": {
+    "thinking": {
+      "keywords": ["explain", "how does", "why", "complex", "difference between", "compare"],
+      "description": "Complex questions requiring reasoning"
+    },
+    "looking_up": {
+      "keywords": ["what is", "who is", "where", "when", "search", "find", "look up", "tell me about"],
+      "description": "Factual queries and lookups"
+    },
+    "acknowledgment": {
+      "keywords": ["schedule", "remind", "set", "create", "send", "write", "make"],
+      "description": "Action requests and commands"
+    },
+    "clarification": {
+      "keywords": ["can you", "could you", "would you", "help me"],
+      "description": "Requests for assistance"
+    },
+    "casual": {
+      "keywords": ["hey", "hi", "hello", "yo", "morning", "evening"],
+      "description": "Greetings and casual phrases"
+    }
+  }
+}
