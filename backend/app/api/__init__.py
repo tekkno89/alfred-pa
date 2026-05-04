@@ -18,6 +18,8 @@ from app.api.youtube import router as youtube_router
 from app.api.triage import router as triage_router
 from app.api.coding_jobs import router as coding_jobs_router
 from app.api.user_repositories import router as user_repos_router
+# TEMPORARY POC - DO NOT COMMIT
+from app.api.voice_poc import router as voice_poc_router
 
 router = APIRouter()
 
@@ -47,3 +49,5 @@ router.include_router(youtube_router, prefix="/youtube", tags=["youtube"])
 router.include_router(triage_router, prefix="/triage", tags=["triage"])
 router.include_router(coding_jobs_router, prefix="/coding-jobs", tags=["coding"])
 router.include_router(user_repos_router, prefix="/user-repos", tags=["repositories"])
+# TEMPORARY POC - DO NOT COMMIT
+router.include_router(voice_poc_router, tags=["voice-poc"])

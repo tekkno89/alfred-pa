@@ -1,16 +1,107 @@
 """Pipeline builders for each development phase."""
 import asyncio
+import logging
 import pyaudio
 import audioop
+import threading
+import queue
+import time
 from pathlib import Path
 
 from src.config import Settings
 from src.services.whisper_stt import WhisperSTTService
-from src.services.chatterbox_tts import ChatterboxTTSService
+from src.services.chatterbox_tts import ChatterboxTTSService, get_streaming_timers
 from src.services.remote_llm import create_llm_service
 from src.utils.backend import test_backend_connection, print_connection_help
 from src.processors.filler_processor import FillerProcessor
 from src.processors.echo_cancellation import create_echo_cancellation
+
+logger = logging.getLogger(__name__)
+
+
+def play_audio_stream(output_stream, text: str, tts_service, echo_cancel=None, on_start=None, on_end=None):
+    """
+    Play TTS audio stream with concurrent generation and playback.
+    
+    Uses a queue to decouple generation from playback:
+    - Generator thread creates audio chunks
+    - Main thread plays chunks as they arrive
+    
+    Instrumented with timing logs for streaming diagnosis.
+    
+    Args:
+        output_stream: PyAudio output stream
+        text: Text to synthesize
+        tts_service: TTS service instance
+        echo_cancel: Optional echo cancellation controller (deprecated, use on_start/on_end)
+        on_start: Optional callback when playback starts
+        on_end: Optional callback when playback ends
+    """
+    timers = get_streaming_timers()
+    timers.start_response()
+    
+    audio_queue = queue.Queue()
+    generation_complete = threading.Event()
+    playback_tid = threading.get_ident()
+    
+    # Track chunk indices for playback logging
+    chunk_playback_state = {'index': 0}
+    
+    # Handle echo_cancel for backwards compatibility
+    if echo_cancel and not on_start:
+        on_start = echo_cancel.on_bot_started_speaking
+        on_end = echo_cancel.on_bot_stopped_speaking
+    
+    def generate_chunks():
+        """Generate audio chunks in a background thread."""
+        gen_tid = threading.get_ident()
+        try:
+            for chunk in tts_service.generate_audio_stream(text):
+                # Get chunk index from the bytes (we'll track via state)
+                audio_queue.put(chunk)
+        finally:
+            generation_complete.set()
+            timers.log_event(0, "GENERATION_COMPLETE", f"queue_final_depth={audio_queue.qsize()}")
+    
+    # Signal playback start
+    if on_start:
+        on_start()
+    
+    # Start generation in background thread
+    gen_thread = threading.Thread(target=generate_chunks, daemon=True)
+    gen_thread.start()
+    timers.log_event(0, "GEN_THREAD_STARTED", f"gen_tid={gen_thread.ident}")
+    
+    # Play chunks as they arrive
+    while True:
+        try:
+            # Wait for chunk with timeout to check if generation is done
+            chunk = audio_queue.get(timeout=0.1)
+            
+            chunk_playback_state['index'] += 1
+            chunk_idx = chunk_playback_state['index']
+            
+            # PLAYBACK_STARTED
+            timers.log_event(chunk_idx, "PLAYBACK_STARTED", f"queue_remaining={audio_queue.qsize()}")
+            playback_start = time.time()
+            
+            output_stream.write(chunk)
+            
+            # PLAYBACK_FINISHED
+            playback_dur = time.time() - playback_start
+            timers.log_event(chunk_idx, "PLAYBACK_FINISHED", f"playback_dur={playback_dur:.3f}s")
+            
+        except queue.Empty:
+            if generation_complete.is_set() and audio_queue.empty():
+                break
+    
+    gen_thread.join()
+    
+    # Signal playback end
+    if on_end:
+        on_end()
+    
+    timers.log_event(0, "RESPONSE_COMPLETE", "")
 
 
 async def run_phase_1(settings: Settings):
@@ -351,14 +442,16 @@ async def run_phase_4(settings: Settings):
                         messages.append({"role": "user", "content": text})
                         
                         print("🤖 Thinking...")
-                        response_text = await llm_service.generate(messages)
+                        response_text = ""
+                        async for token in llm_service.generate_stream(messages):
+                            response_text += token
                         
                         print(f"🤖 Alfred: \"{response_text}\"")
                         
                         messages.append({"role": "assistant", "content": response_text})
                         
-                        response_audio = tts_service.generate_audio(response_text)
-                        output_stream.write(response_audio)
+                        # Stream TTS sentence by sentence with concurrent playback
+                        play_audio_stream(output_stream, response_text, tts_service)
                         
                         print("\n🎤 Listening...")
                     else:
@@ -498,14 +591,16 @@ async def run_phase_5(settings: Settings):
                         messages.append({"role": "user", "content": text})
                         
                         print("🤖 Thinking...")
-                        response_text = await llm_service.generate(messages)
+                        response_text = ""
+                        async for token in llm_service.generate_stream(messages):
+                            response_text += token
                         
                         print(f"🤖 Alfred: \"{response_text}\"")
                         
                         messages.append({"role": "assistant", "content": response_text})
                         
-                        response_audio = tts_service.generate_audio(response_text)
-                        output_stream.write(response_audio)
+                        # Stream TTS sentence by sentence with concurrent playback
+                        play_audio_stream(output_stream, response_text, tts_service)
                         
                         print("\n🎤 Listening...")
                     else:
@@ -674,19 +769,24 @@ async def run_phase_6(settings: Settings):
                         messages.append({"role": "user", "content": text})
                         
                         print("🤖 Thinking...")
-                        response_text = await llm_service.generate(messages)
+                        response_text = ""
+                        async for token in llm_service.generate_stream(messages):
+                            response_text += token
                         
                         print(f"🤖 Alfred: \"{response_text}\"")
                         
                         messages.append({"role": "assistant", "content": response_text})
                         
-                        # Play response with interruption tracking
+                        # Stream TTS sentence by sentence with interruption tracking
                         is_playing_response = True
-                        echo_cancel.on_bot_started_speaking()
-                        response_audio = tts_service.generate_audio(response_text)
-                        output_stream.write(response_audio)
+                        play_audio_stream(
+                            output_stream, 
+                            response_text, 
+                            tts_service,
+                            on_start=echo_cancel.on_bot_started_speaking,
+                            on_end=echo_cancel.on_bot_stopped_speaking
+                        )
                         is_playing_response = False
-                        echo_cancel.on_bot_stopped_speaking()
                         
                         print("\n🎤 Listening...")
                     else:
