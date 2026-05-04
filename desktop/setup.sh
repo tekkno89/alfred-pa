@@ -82,18 +82,58 @@ echo "Creating isolated Python environment with UV..."
 uv venv
 source .venv/bin/activate
 
-echo "Installing dependencies with UV..."
-
-echo "  Installing Chatterbox TTS (with --no-deps to prevent torch downgrade)..."
-uv pip install chatterbox-tts --no-deps
-
-echo "  Installing remaining dependencies..."
+echo "Installing base dependencies with UV..."
 uv pip install -e .
 
-echo "  Installing PyTorch 2.11+ (required for transformers compatibility)..."
-uv pip install --force-reinstall torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0
+echo "✓ Base dependencies installed"
+echo ""
 
-echo "✓ Dependencies installed"
+# ============================================
+# TTS Provider Selection
+# ============================================
+
+echo "╔════════════════════════════════════════════════════════════╗"
+echo "║              TTS Provider Selection                         ║"
+echo "╚════════════════════════════════════════════════════════════╝"
+echo ""
+echo "Choose a TTS provider:"
+echo ""
+echo "  [1] Chatterbox TTS"
+echo "      - Voice cloning from reference audio"
+echo "      - 5-12s per chunk generation"
+echo "      - Good for custom voice cloning"
+echo ""
+echo "  [2] Qwen3-TTS (Recommended)"
+echo "      - 97ms streaming latency"
+echo "      - 9 built-in speakers (Ryan, Vivian, etc.)"
+echo "      - 10 languages, emotion/prosody control"
+echo "      - Better for real-time conversation"
+echo ""
+read -p "Select TTS provider [1 or 2]: " -n 1 -r
+echo
+
+if [[ $REPLY == "1" ]]; then
+    echo ""
+    echo "Installing Chatterbox TTS..."
+    uv pip install chatterbox-tts --no-deps
+    echo "  Installing PyTorch 2.11+ (required for transformers compatibility)..."
+    uv pip install --force-reinstall torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0
+    echo "✓ Chatterbox TTS installed"
+    TTS_PROVIDER="chatterbox"
+elif [[ $REPLY == "2" ]]; then
+    echo ""
+    echo "Installing Qwen3-TTS..."
+    uv pip install -e ".[qwen]"
+    echo "✓ Qwen3-TTS installed"
+    TTS_PROVIDER="qwen"
+else
+    echo ""
+    echo "Invalid selection. Defaulting to Chatterbox."
+    uv pip install chatterbox-tts --no-deps
+    uv pip install --force-reinstall torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0
+    TTS_PROVIDER="chatterbox"
+fi
+
 echo ""
 
 # ============================================
@@ -146,8 +186,26 @@ except Exception as e:
     print(f'    ⚠ Warning: {e}', file=sys.stderr)
 " || echo "    ⚠ Whisper download failed - will download on first run"
 
-echo "  [2/2] Downloading Chatterbox TTS..."
-python -c "
+# Download TTS model based on provider
+if [[ "$TTS_PROVIDER" == "qwen" ]]; then
+    echo "  [2/2] Downloading Qwen3-TTS..."
+    python -c "
+import sys
+try:
+    from qwen_tts import Qwen3TTSModel
+    print('    Loading model (will download if not cached)...')
+    model = Qwen3TTSModel.from_pretrained(
+        'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice',
+        device_map='cpu',
+        dtype='float32',
+    )
+    print('    ✓ Qwen3-TTS model cached')
+except Exception as e:
+    print(f'    ⚠ Warning: {e}', file=sys.stderr)
+" || echo "    ⚠ Qwen3-TTS download failed - will download on first run"
+else
+    echo "  [2/2] Downloading Chatterbox TTS..."
+    python -c "
 import sys
 try:
     from chatterbox.tts import ChatterboxTTS
@@ -157,6 +215,7 @@ try:
 except Exception as e:
     print(f'    ⚠ Warning: {e}', file=sys.stderr)
 " || echo "    ⚠ Chatterbox download failed - will download on first run"
+fi
 
 echo ""
 
@@ -186,14 +245,38 @@ try:
     print('  ✓ Whisper MLX imported')
 except ImportError as e:
     print(f'  ⚠ Whisper MLX import failed: {e}')
+" || echo "  ⚠ Import test failed"
+
+# TTS provider check
+if [[ "$TTS_PROVIDER" == "qwen" ]]; then
+    python -c "
+try:
+    from qwen_tts import Qwen3TTSModel
+    print('  ✓ Qwen3-TTS imported')
+except ImportError as e:
+    print(f'  ⚠ Qwen3-TTS import failed: {e}')
+"
+else
+    python -c "
 try:
     from chatterbox.tts import ChatterboxTTS
     print('  ✓ Chatterbox TTS imported')
 except ImportError as e:
     print(f'  ⚠ Chatterbox TTS import failed: {e}')
-print('')
-print('  ✅ Smoke test passed!')
 "
+fi
+
+echo ""
+echo "  ✅ Smoke test passed!"
+echo ""
+
+# Update config with selected provider
+if grep -q "provider: chatterbox" config/settings.yaml 2>/dev/null; then
+    if [[ "$TTS_PROVIDER" == "qwen" ]]; then
+        sed -i '' 's/provider: chatterbox/provider: qwen/' config/settings.yaml
+        echo "✓ Updated config/settings.yaml to use Qwen3-TTS"
+    fi
+fi
 
 echo ""
 echo "╔════════════════════════════════════════════════════════════╗"

@@ -10,13 +10,48 @@ from pathlib import Path
 
 from src.config import Settings
 from src.services.whisper_stt import WhisperSTTService
-from src.services.chatterbox_tts import ChatterboxTTSService, get_streaming_timers
 from src.services.remote_llm import create_llm_service
 from src.utils.backend import test_backend_connection, print_connection_help
 from src.processors.filler_processor import FillerProcessor
 from src.processors.echo_cancellation import create_echo_cancellation
 
 logger = logging.getLogger(__name__)
+
+
+def get_tts_service(settings: Settings):
+    """
+    Factory function to create the appropriate TTS service based on config.
+    
+    Args:
+        settings: Application settings
+    
+    Returns:
+        TTS service instance (ChatterboxTTSService or QwenTTSService)
+    """
+    provider = settings.tts.provider
+    
+    if provider == "qwen":
+        from src.services.qwen_tts import QwenTTSService
+        logger.info("Using Qwen3-TTS provider")
+        return QwenTTSService(settings)
+    else:
+        from src.services.chatterbox_tts import ChatterboxTTSService
+        logger.info("Using Chatterbox TTS provider")
+        return ChatterboxTTSService(settings)
+
+
+def get_streaming_timers():
+    """Get streaming timers (provider-agnostic)."""
+    provider = Settings.load().tts.provider
+    if provider == "qwen":
+        # Qwen doesn't have timers yet, return a stub
+        class StubTimers:
+            def start_response(self): pass
+            def log_event(self, *args): pass
+        return StubTimers()
+    else:
+        from src.services.chatterbox_tts import get_streaming_timers as _get_timers
+        return _get_timers()
 
 
 def play_audio_stream(output_stream, text: str, tts_service, echo_cancel=None, on_start=None, on_end=None):
@@ -200,7 +235,7 @@ async def run_phase_2(settings: Settings):
     print("Type text and press Enter to hear it synthesized.")
     print("Press Ctrl+C to exit.\n")
     
-    tts_service = ChatterboxTTSService(settings)
+    tts_service = get_tts_service(settings)
     tts_service.warmup()  # Pre-load model weights
     
     p = pyaudio.PyAudio()
@@ -252,7 +287,7 @@ async def run_phase_3(settings: Settings):
     
     stt_service = WhisperSTTService(settings)
     await stt_service.warmup()  # Pre-load model weights
-    tts_service = ChatterboxTTSService(settings)
+    tts_service = get_tts_service(settings)
     tts_service.warmup()  # Pre-load model weights
     
     INPUT_RATE = 16000
@@ -367,7 +402,7 @@ async def run_phase_4(settings: Settings):
     
     stt_service = WhisperSTTService(settings)
     await stt_service.warmup()  # Pre-load model weights
-    tts_service = ChatterboxTTSService(settings)
+    tts_service = get_tts_service(settings)
     tts_service.warmup()  # Pre-load model weights
     llm_service = await create_llm_service(settings)
     
@@ -499,7 +534,7 @@ async def run_phase_5(settings: Settings):
     
     stt_service = WhisperSTTService(settings)
     await stt_service.warmup()  # Pre-load model weights
-    tts_service = ChatterboxTTSService(settings)
+    tts_service = get_tts_service(settings)
     tts_service.warmup()  # Pre-load model weights
     llm_service = await create_llm_service(settings)
     
@@ -650,7 +685,7 @@ async def run_phase_6(settings: Settings):
     
     stt_service = WhisperSTTService(settings)
     await stt_service.warmup()  # Pre-load model weights
-    tts_service = ChatterboxTTSService(settings)
+    tts_service = get_tts_service(settings)
     tts_service.warmup()  # Pre-load model weights
     llm_service = await create_llm_service(settings)
     

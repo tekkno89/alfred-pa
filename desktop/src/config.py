@@ -14,12 +14,19 @@ class STTConfig(BaseModel):
 
 class TTSConfig(BaseModel):
     """Text-to-speech configuration."""
-    model: str = "chatterbox-turbo"
+    provider: Literal["chatterbox", "qwen"] = "chatterbox"
     device: str = "auto"
+    sample_rate: int = 24000
+    
+    # Chatterbox-specific
     reference_voice: Optional[str] = None
     exaggeration: float = 0.5
     cfg_weight: float = 0.5
-    sample_rate: int = 24000
+    
+    # Qwen-specific
+    qwen_speaker: str = "Ryan"  # Ryan, Aiden, Vivian, Serena, etc.
+    qwen_language: str = "English"  # Auto for auto-detect
+    qwen_instruct: Optional[str] = None  # Emotion/prosody control
 
 
 class LLMConfig(BaseModel):
