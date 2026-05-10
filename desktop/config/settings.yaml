@@ -7,7 +7,7 @@ stt:
   language: en
 
 tts:
-  provider: chatterbox   # Options: chatterbox, qwen
+  provider: chatterbox   # Options: chatterbox, qwen (experimental - requires manual patching)
   device: auto           # auto, mps, cpu
   sample_rate: 24000
   

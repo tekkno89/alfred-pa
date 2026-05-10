@@ -1,7 +1,31 @@
 """
 Qwen3-TTS service with native streaming support.
 
-Features:
+⚠️  EXPERIMENTAL - Requires manual patching (as of qwen-tts 0.1.1)
+See: https://github.com/QwenLM/Qwen3-TTS/pull/201
+
+Known issues (transformers 4.57.3):
+1. @check_model_inputs() decorator syntax wrong in tokenizer_v2.py
+2. Missing pad_token_id in Qwen3TTSTalkerConfig
+3. "default" rope_type not supported - must change to "linear"
+4. Missing "factor" in rope_parameters
+
+Patches required:
+```bash
+# Patch decorator
+sed -i '' 's/@check_model_inputs()/@check_model_inputs/' \
+  .venv/lib/python*/site-packages/qwen_tts/core/tokenizer_12hz/modeling_qwen3_tts_tokenizer_v2.py
+
+# Patch pad_token_id
+sed -i '' 's/self.padding_idx = config.pad_token_id/self.padding_idx = getattr(config, "pad_token_id", None)/g' \
+  .venv/lib/python*/site-packages/qwen_tts/core/models/modeling_qwen3_tts.py
+
+# Patch rope_type (still fails on missing factor)
+sed -i '' 's/self.rope_type = "default"/self.rope_type = "linear"/g' \
+  .venv/lib/python*/site-packages/qwen_tts/core/models/modeling_qwen3_tts.py
+```
+
+Features (when working):
 - Ultra-low latency streaming (97ms to first audio)
 - 10 languages built-in (Chinese, English, Japanese, Korean, German, French, Russian, Portuguese, Spanish, Italian)
 - 9 premium speakers with voice design support
@@ -79,10 +103,12 @@ class QwenTTSService:
             model_name = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
             
             # Configure for MPS/CUDA
+            # Note: Qwen3-TTS requires patching for transformers 4.57.3
+            # See: https://github.com/QwenLM/Qwen3-TTS/pull/201
             if self.device == "mps":
                 device_map = "mps"
-                dtype = torch.float16  # MPS works better with float16
-                attn_implementation = "eager"  # flash_attention_2 not supported on MPS
+                dtype = torch.float32  # MPS more stable with float32 for Qwen
+                attn_implementation = "sdpa"  # SDPA has working MPS path
             elif self.device == "cuda":
                 device_map = "cuda:0"
                 dtype = torch.bfloat16
