@@ -10,6 +10,7 @@ from app.db.models.message import Message
 from app.db.models.note import Note
 from app.db.models.oauth_token import UserOAuthToken
 from app.db.models.session import Session
+from app.db.models.slack_message_cache import SlackMessageCache
 from app.db.models.slack_search import SlackChannelSummary, UserChannelParticipation
 from app.db.models.system_settings import SystemSetting
 from app.db.models.todo import Todo
@@ -55,6 +56,7 @@ __all__ = [
     "SenderBehaviorModel",
     "TriageFeedback",
     "SlackChannelCache",
+    "SlackMessageCache",
     "UserChannelParticipation",
     "SlackChannelSummary",
     "CodingJob",
