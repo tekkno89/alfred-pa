@@ -1,0 +1,13 @@
+# direnv configuration for Alfred development
+# Copy this file to .envrc in your worktree root
+
+# Database URL - uses worktree folder name as DB name
+# Main repo: alfred_alfred-pa
+# Worktree at .worktrees/my-feature: alfred_my-feature
+export DATABASE_URL="postgresql://alfred:alfred@localhost:5432/alfred_$(basename $PWD)"
+
+# Required for app startup even in tests
+export JWT_SECRET="dev-secret-change-in-production"
+
+# Test database host (for running tests outside Docker)
+export TEST_DB_HOST="localhost"

@@ -94,6 +94,64 @@ npm run build                   # Production build (includes tsc --noEmit)
 
 **After making frontend changes, run `npm run build` to catch TypeScript errors.**
 
+### Git Worktrees
+
+When working in a git worktree, **use a separate database** to avoid schema conflicts with the main repo.
+
+**Quick setup (3 commands):**
+```bash
+# 1. Create worktree
+git worktree add .worktrees/my-feature -b my-feature
+cd .worktrees/my-feature
+
+# 2. Configure environment (if using direnv)
+cp ../.envrc.example .envrc
+direnv allow
+
+# 3. Setup database and run migrations
+./scripts/setup-worktree.sh
+```
+
+**Environment setup (.envrc):**
+```bash
+# Copy .envrc.example to .envrc in your worktree
+# It auto-generates DB name from folder: alfred_my-feature
+export DATABASE_URL="postgresql://alfred:alfred@localhost:5432/alfred_$(basename $PWD)"
+export JWT_SECRET="dev-secret-change-in-production"
+export TEST_DB_HOST="localhost"
+```
+
+**Running tests in a worktree:**
+```bash
+cd backend
+JWT_SECRET=dev-secret DATABASE_URL="postgresql+asyncpg://alfred:alfred@localhost:5432/alfred_my-feature" uv run pytest
+```
+
+**Running migrations in a worktree:**
+```bash
+cd backend
+DATABASE_URL="postgresql+asyncpg://alfred:alfred@localhost:5432/alfred_my-feature" JWT_SECRET=dev-secret uv run alembic upgrade head
+```
+
+**Cleanup when done:**
+```bash
+./scripts/cleanup-worktree.sh
+```
+
+**Why separate databases:**
+- Migrations in worktrees don't affect main database
+- Can reset worktree without losing main DB state
+- Standard practice — migration + code land together in PR
+
+**Merging branches with migrations:**
+```bash
+# After merging, check for multiple heads (rare)
+uv run alembic heads
+
+# If you see multiple heads, merge them:
+uv run alembic merge -m "merge X and Y" <rev1> <rev2>
+```
+
 ## Task Tracking
 
 Implementation tasks are tracked in `.claude/plans/`.
