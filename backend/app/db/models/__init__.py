@@ -16,7 +16,9 @@ from app.db.models.system_settings import SystemSetting
 from app.db.models.todo import Todo
 from app.db.models.triage import (
     ChannelSourceExclusion,
+    FeedbackEmbedding,
     MonitoredChannel,
+    SenderActionDistribution,
     SenderBehaviorModel,
     SlackChannelCache,
     TriageClassification,
@@ -55,6 +57,8 @@ __all__ = [
     "TriageClassification",
     "SenderBehaviorModel",
     "TriageFeedback",
+    "FeedbackEmbedding",
+    "SenderActionDistribution",
     "SlackChannelCache",
     "SlackMessageCache",
     "UserChannelParticipation",

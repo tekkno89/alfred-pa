@@ -3,8 +3,8 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import ARRAY, JSON
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy.dialects.postgresql import ARRAY, JSON, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
@@ -291,6 +291,65 @@ class TriageFeedback(Base, UUIDMixin, TimestampMixin):
     classification: Mapped["TriageClassification"] = relationship(
         "TriageClassification", back_populates="feedback"
     )
+    embedding: Mapped["FeedbackEmbedding | None"] = relationship(
+        "FeedbackEmbedding", back_populates="feedback", uselist=False
+    )
 
     def __repr__(self) -> str:
         return f"<TriageFeedback(classification={self.classification_id}, correct={self.was_correct})>"
+
+
+class FeedbackEmbedding(Base, UUIDMixin, TimestampMixin):
+    """Embedding of a corrected message for few-shot retrieval.
+
+    Persists beyond R-Cache TTL since it's derived data (no raw text).
+    Used by R3b to retrieve semantically similar past corrections.
+    """
+
+    __tablename__ = "feedback_embeddings"
+
+    triage_feedback_id: Mapped[str] = mapped_column(
+        ForeignKey("triage_feedback.id", ondelete="CASCADE"), nullable=False
+    )
+    embedding_vector: Mapped[list[float]] = mapped_column(
+        ARRAY(Float, dimensions=1), nullable=False
+    )
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    feedback: Mapped["TriageFeedback"] = relationship(
+        "TriageFeedback", back_populates="embedding"
+    )
+
+    def __repr__(self) -> str:
+        return f"<FeedbackEmbedding(feedback={self.triage_feedback_id})>"
+
+
+class SenderActionDistribution(Base, UUIDMixin, TimestampMixin):
+    """Per-(sender, channel) action distribution derived from corrections.
+
+    Tracks the historical distribution of corrected actions for a sender
+    in a specific channel, with 30-day half-life decay.
+    Separate from SenderBehaviorModel which tracks response timing.
+    """
+
+    __tablename__ = "sender_action_distributions"
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    sender_slack_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    channel_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    action_distribution: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    sample_count: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
+    last_computed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+    user: Mapped["User"] = relationship("User")
+
+    __table_args__ = (
+        {"comment": "UNIQUE(user_id, sender_slack_id, channel_id) enforced via migration index"},
+    )
+
+    def __repr__(self) -> str:
+        return f"<SenderActionDistribution(sender={self.sender_slack_id}, channel={self.channel_id})>"
