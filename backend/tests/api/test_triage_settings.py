@@ -265,6 +265,61 @@ class TestMonitoredChannels:
         )
         assert response.status_code == 404
 
+    @patch("app.api.triage.TriageCacheService")
+    async def test_public_channel_defaults_sensitive_false(
+        self, mock_cache_cls, client: AsyncClient, test_user
+    ):
+        mock_cache_cls.return_value = AsyncMock()
+
+        response = await client.post(
+            "/api/triage/channels",
+            json={
+                "slack_channel_id": "C88888",
+                "channel_name": "public-channel",
+                "channel_type": "public",
+            },
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 201
+        assert response.json()["sensitive"] is False
+
+    @patch("app.api.triage.TriageCacheService")
+    async def test_private_channel_defaults_sensitive_true(
+        self, mock_cache_cls, client: AsyncClient, test_user
+    ):
+        mock_cache_cls.return_value = AsyncMock()
+
+        response = await client.post(
+            "/api/triage/channels",
+            json={
+                "slack_channel_id": "C77777",
+                "channel_name": "private-channel",
+                "channel_type": "private",
+            },
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 201
+        assert response.json()["sensitive"] is True
+
+    @patch("app.api.triage.TriageCacheService")
+    async def test_explicit_sensitive_overrides_default(
+        self, mock_cache_cls, client: AsyncClient, test_user
+    ):
+        mock_cache_cls.return_value = AsyncMock()
+
+        response = await client.post(
+            "/api/triage/channels",
+            json={
+                "slack_channel_id": "C66666",
+                "channel_name": "sensitive-public",
+                "channel_type": "public",
+                "sensitive": True,
+            },
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 201
+        assert response.json()["sensitive"] is True
+
 
 # --- Source Exclusions ---
 
