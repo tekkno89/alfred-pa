@@ -29,7 +29,7 @@ class ConversationSummaryRepository(BaseRepository[ConversationSummary]):
             .order_by(ConversationSummary.first_message_at.desc())
         )
         if priority:
-            query = query.where(ConversationSummary.priority_level == priority)
+            query = query.where(ConversationSummary.action == priority)
         query = query.offset(offset).limit(limit)
         result = await self.db.execute(query)
         return list(result.scalars().all())
@@ -42,7 +42,7 @@ class ConversationSummaryRepository(BaseRepository[ConversationSummary]):
             ConversationSummary.digest_summary_id == digest_id
         )
         if priority:
-            query = query.where(ConversationSummary.priority_level == priority)
+            query = query.where(ConversationSummary.action == priority)
         result = await self.db.execute(query)
         return result.scalar() or 0
 

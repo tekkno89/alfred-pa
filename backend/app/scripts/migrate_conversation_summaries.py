@@ -51,13 +51,13 @@ async def migrate_digest(digest_id: str, user_id: str, db) -> int:
         first_msg = sorted_msgs[0]
         last_msg = sorted_msgs[-1]
 
-        priority_order = {"p0": 0, "p1": 1, "p2": 2, "p3": 3}
+        priority_order = {"notify_now": 0, "summarize_next": 1, "summarize_eod": 2, "ignore": 3}
         highest = 3
         for m in sorted_msgs:
-            p = priority_order.get(m.priority_level, 3)
+            p = priority_order.get(m.action, 3)
             if p < highest:
                 highest = p
-        priority_level = ["p0", "p1", "p2", "p3"][highest]
+        action = ["notify_now", "summarize_next", "summarize_eod", "ignore"][highest]
 
         participants_data = []
         seen_ids = set()
@@ -80,7 +80,7 @@ async def migrate_digest(digest_id: str, user_id: str, db) -> int:
             abstract=f"{len(sorted_msgs)} messages",
             participants=participants_data,
             message_count=len(sorted_msgs),
-            priority_level=priority_level,
+            action=action,
             first_message_ts=first_msg.message_ts,
             slack_permalink=first_msg.slack_permalink,
             digest_summary_id=digest_id,
@@ -108,7 +108,7 @@ async def run_migration(batch_size: int = 100) -> None:
     async with async_session_maker() as db:
         result = await db.execute(
             select(TriageClassification)
-            .where(TriageClassification.priority_level == "digest_summary")
+            .where(TriageClassification.action == "digest_summary")
             .order_by(TriageClassification.created_at.asc())
         )
         digests = list(result.scalars().all())

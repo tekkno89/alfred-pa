@@ -29,7 +29,7 @@ class ConversationSummary(Base, UUIDMixin, TimestampMixin):
     abstract: Mapped[str] = mapped_column(Text, nullable=False)
     participants: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     message_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    priority_level: Mapped[str] = mapped_column(String(20), nullable=False)
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
     
     first_message_ts: Mapped[str] = mapped_column(String(50), nullable=False)
     slack_permalink: Mapped[str | None] = mapped_column(Text, nullable=True)

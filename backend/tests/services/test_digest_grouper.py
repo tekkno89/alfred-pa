@@ -27,7 +27,7 @@ def create_classification(
         channel_name=channel_name or f"channel-{channel_id}",
         message_ts=message_ts,
         thread_ts=thread_ts,
-        priority_level="p1",
+        action="summarize_next",
         confidence=0.9,
         classification_path="channel",
         created_at=datetime.utcnow(),

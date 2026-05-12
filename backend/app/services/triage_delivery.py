@@ -909,8 +909,15 @@ Messages (chronological):
         if len(conversations) > 5:
             settings = get_settings()
             triage_url = f"{settings.frontend_url}/triage"
+            action_to_p = {
+                "notify_now": "P0",
+                "summarize_next": "P1",
+                "summarize_eod": "P2",
+                "ignore": "P3",
+            }
+            p_label = action_to_p.get(priority, priority.upper())
             lines.append(
-                f"   _...and {len(conversations) - 5} more {priority.upper()} items_"
+                f"   _...and {len(conversations) - 5} more {p_label} items_"
             )
             lines.append(f"   <{triage_url}|View all in Triage>\n")
         return lines

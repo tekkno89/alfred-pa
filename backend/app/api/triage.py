@@ -623,17 +623,17 @@ async def list_classifications(
     items = []
     total = 0
 
-    if filter == "p0":
+    if filter == "notify_now":
         # P0 alerts only (individual items)
         items = await repo.get_recent(
             current_user.id,
             limit=limit,
             offset=offset,
-            priority_level="p0",
+            action="notify_now",
         )
         total = await repo.count_filtered(
             current_user.id,
-            priority_level="p0",
+            action="notify_now",
         )
     elif filter == "reviewed":
         # Reviewed summaries
@@ -675,7 +675,7 @@ async def list_classifications(
             digest_type="scheduled",
             reviewed=False,
         )
-    elif filter == "review":
+    elif filter == "notify_now":
         # Summaries containing review items
         items = await repo.get_summaries_by_filter(
             current_user.id,
@@ -696,7 +696,7 @@ async def list_classifications(
             current_user.id,
             limit=limit,
             offset=0,  # We'll paginate summaries separately
-            priority_level="p0",
+            action="notify_now",
             reviewed=False,
         )
         # Get unreviewed summaries
@@ -711,7 +711,7 @@ async def list_classifications(
         # Total count
         p0_count = await repo.count_filtered(
             current_user.id,
-            priority_level="p0",
+            action="notify_now",
             reviewed=False,
         )
         summary_count = await repo.count_summaries_by_filter(
@@ -765,7 +765,7 @@ async def mark_all_classifications_reviewed(
         count = await repo.mark_all_reviewed_by_filter(
             current_user.id, digest_type="scheduled"
         )
-    elif data.filter == "review":
+    elif data.filter == "notify_now":
         count = await repo.mark_all_reviewed_by_filter(current_user.id, has_review=True)
     else:
         count = 0
@@ -792,7 +792,7 @@ async def get_digest_children(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Classification not found",
         )
-    if classification.priority_level != "digest_summary":
+    if classification.action != "summarize_eod":
         return []
     children = await repo.get_digest_children(classification_id, current_user.id)
     return [ClassificationResponse.model_validate(c) for c in children]
@@ -820,7 +820,7 @@ async def get_digest_conversations(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Digest not found",
         )
-    if digest.priority_level != "digest_summary":
+    if digest.action != "summarize_eod":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Not a digest summary",
@@ -934,11 +934,11 @@ async def get_session_digest(
     items = await repo.get_by_session(current_user.id, session_id)
     return DigestResponse(
         session_id=session_id,
-        p0_count=sum(1 for i in items if i.priority_level == "p0"),
-        p1_count=sum(1 for i in items if i.priority_level == "p1"),
-        p2_count=sum(1 for i in items if i.priority_level == "p2"),
-        p3_count=sum(1 for i in items if i.priority_level == "p3"),
-        review_count=sum(1 for i in items if i.priority_level == "review"),
+        p0_count=sum(1 for i in items if i.action == "notify_now"),
+        p1_count=sum(1 for i in items if i.action == "summarize_next"),
+        p2_count=sum(1 for i in items if i.action == "summarize_eod"),
+        p3_count=sum(1 for i in items if i.action == "ignore"),
+        review_count=sum(1 for i in items if i.action == "notify_now"),
         items=[ClassificationResponse.model_validate(i) for i in items],
     )
 
@@ -953,11 +953,11 @@ async def get_latest_digest(
     repo = TriageClassificationRepository(db)
     items = await repo.get_recent(current_user.id, limit=50)
     return DigestResponse(
-        p0_count=sum(1 for i in items if i.priority_level == "p0"),
-        p1_count=sum(1 for i in items if i.priority_level == "p1"),
-        p2_count=sum(1 for i in items if i.priority_level == "p2"),
-        p3_count=sum(1 for i in items if i.priority_level == "p3"),
-        review_count=sum(1 for i in items if i.priority_level == "review"),
+        p0_count=sum(1 for i in items if i.action == "notify_now"),
+        p1_count=sum(1 for i in items if i.action == "summarize_next"),
+        p2_count=sum(1 for i in items if i.action == "summarize_eod"),
+        p3_count=sum(1 for i in items if i.action == "ignore"),
+        review_count=sum(1 for i in items if i.action == "notify_now"),
         items=[ClassificationResponse.model_validate(i) for i in items],
     )
 
@@ -1024,41 +1024,41 @@ async def get_session_stats(
     repo = TriageClassificationRepository(db)
     p0 = await repo.count_filtered(
         current_user.id,
-        priority_level="p0",
+        action="notify_now",
         reviewed=False,
     )
     p1 = await repo.count_filtered(
         current_user.id,
-        priority_level="p1",
+        action="summarize_next",
         reviewed=False,
     )
     p2 = await repo.count_filtered(
         current_user.id,
-        priority_level="p2",
+        action="summarize_eod",
         reviewed=False,
     )
     p3 = await repo.count_filtered(
         current_user.id,
-        priority_level="p3",
+        action="ignore",
         reviewed=False,
     )
     review = await repo.count_filtered(
         current_user.id,
-        priority_level="review",
+        action="notify_now",
         reviewed=False,
     )
     digest_summary = await repo.count_filtered(
         current_user.id,
-        priority_level="digest_summary",
+        action="summarize_eod",
         reviewed=False,
     )
     return {
-        "p0": p0,
-        "p1": p1,
-        "p2": p2,
-        "p3": p3,
-        "review": review,
-        "digest_summary": digest_summary,
+        "notify_now": p0,
+        "summarize_next": p1,
+        "summarize_eod": p2,
+        "ignore": p3,
+        "notify_now": review,
+        "summarize_eod": digest_summary,
         "total": p0 + p1 + p2 + p3 + review + digest_summary,
     }
 
@@ -1214,7 +1214,7 @@ async def generate_definitions_from_calibration(
     await _check_triage_access(current_user.id, db, current_user.role)
     from app.services.triage_wizard import TriageWizardService
 
-    valid_priorities = {"p0", "p1", "p2", "p3"}
+    valid_priorities = {"notify_now", "summarize_next", "summarize_eod", "ignore"}
     valid_ratings = [r for r in data.ratings if r.priority in valid_priorities]
 
     if not valid_ratings:

@@ -507,7 +507,7 @@ class DigestGrouper:
                 abstract=conv.topic or f"{len(sorted_msgs)} messages",
                 participants=participants_data,
                 message_count=len(sorted_msgs),
-                priority_level=conv.priority,
+                action=conv.priority,
                 first_message_ts=first_msg.message_ts,
                 slack_permalink=first_msg.slack_permalink,
                 first_message_at=first_msg.created_at,

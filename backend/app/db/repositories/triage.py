@@ -160,7 +160,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
             select(TriageClassification)
             .where(TriageClassification.user_id == user_id)
             .where(TriageClassification.focus_session_id == focus_session_id)
-            .where(TriageClassification.priority_level.in_(["p1", "p2"]))
+            .where(TriageClassification.action.in_(["summarize_next", "summarize_eod"]))
             .where(TriageClassification.surfaced_at_break == False)  # noqa: E712
             .where(TriageClassification.digest_summary_id.is_(None))
         )
@@ -186,7 +186,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         self,
         query,
         user_id: str,
-        priority_level: str | list[str] | None = None,
+        action: str | list[str] | None = None,
         channel_id: str | None = None,
         reviewed: bool | None = None,
         exclude_active_session_digest: bool = False,
@@ -195,20 +195,20 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         query = query.where(TriageClassification.user_id == user_id)
         # Hide items that have been consolidated into a digest summary,
         # unless the user is explicitly filtering by a digest-eligible level
-        show_consolidated = isinstance(priority_level, str) and priority_level in (
-            "p1",
-            "p2",
+        show_consolidated = isinstance(action, str) and action in (
+            "summarize_next",
+            "summarize_eod",
         )
         if not show_consolidated:
             query = query.where(TriageClassification.digest_summary_id.is_(None))
-        if priority_level:
-            if isinstance(priority_level, list):
+        if action:
+            if isinstance(action, list):
                 query = query.where(
-                    TriageClassification.priority_level.in_(priority_level)
+                    TriageClassification.action.in_(action)
                 )
             else:
                 query = query.where(
-                    TriageClassification.priority_level == priority_level
+                    TriageClassification.action == action
                 )
         if channel_id:
             query = query.where(TriageClassification.channel_id == channel_id)
@@ -222,7 +222,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
             )
             query = query.where(
                 ~(
-                    (TriageClassification.priority_level.in_(["p1", "p2", "p3"]))
+                    (TriageClassification.action.in_(["summarize_next", "summarize_eod", "ignore"]))
                     & (TriageClassification.focus_session_id.in_(active_session_ids))
                 )
             )
@@ -233,7 +233,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         user_id: str,
         limit: int = 50,
         offset: int = 0,
-        priority_level: str | list[str] | None = None,
+        action: str | list[str] | None = None,
         channel_id: str | None = None,
         reviewed: bool | None = None,
         exclude_active_session_digest: bool = False,
@@ -244,7 +244,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         query = self._apply_filters(
             query,
             user_id,
-            priority_level,
+            action,
             channel_id,
             reviewed,
             exclude_active_session_digest,
@@ -256,7 +256,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
     async def count_filtered(
         self,
         user_id: str,
-        priority_level: str | list[str] | None = None,
+        action: str | list[str] | None = None,
         channel_id: str | None = None,
         reviewed: bool | None = None,
         exclude_active_session_digest: bool = False,
@@ -266,7 +266,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         query = self._apply_filters(
             query,
             user_id,
-            priority_level,
+            action,
             channel_id,
             reviewed,
             exclude_active_session_digest,
@@ -341,7 +341,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         result = await self.db.execute(
             select(TriageClassification)
             .where(TriageClassification.user_id == user_id)
-            .where(TriageClassification.priority_level == priority)
+            .where(TriageClassification.action == priority)
             .where(TriageClassification.queued_for_digest == True)
             .order_by(TriageClassification.created_at.asc())
         )
@@ -353,7 +353,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
             select(func.count())
             .select_from(TriageClassification)
             .where(TriageClassification.user_id == user_id)
-            .where(TriageClassification.priority_level == priority)
+            .where(TriageClassification.action == priority)
             .where(TriageClassification.queued_for_digest == True)
         )
         return result.scalar() or 0
@@ -365,7 +365,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         result = await self.db.execute(
             select(TriageClassification)
             .where(TriageClassification.user_id == user_id)
-            .where(TriageClassification.priority_level == priority)
+            .where(TriageClassification.action == priority)
             .where(TriageClassification.queued_for_digest == True)
             .where(TriageClassification.focus_session_id.is_(None))
             .order_by(TriageClassification.created_at.asc())
@@ -379,10 +379,10 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         result = await self.db.execute(
             select(TriageClassification)
             .where(TriageClassification.user_id == user_id)
-            .where(TriageClassification.priority_level.in_(["p1", "p2", "p3"]))
+            .where(TriageClassification.action.in_(["summarize_next", "summarize_eod", "ignore"]))
             .where(TriageClassification.queued_for_digest == True)
             .where(TriageClassification.focus_session_id.is_(None))
-            .order_by(TriageClassification.priority_level.asc())
+            .order_by(TriageClassification.action.asc())
             .order_by(TriageClassification.created_at.asc())
         )
         return list(result.scalars().all())
@@ -452,7 +452,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         query = (
             select(TriageClassification)
             .where(TriageClassification.user_id == user_id)
-            .where(TriageClassification.priority_level == "digest_summary")
+            .where(TriageClassification.action == "summarize_eod")
         )
         if digest_type:
             query = query.where(TriageClassification.digest_type == digest_type)
@@ -464,7 +464,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
             subquery = (
                 select(TriageClassification.digest_summary_id)
                 .where(TriageClassification.user_id == user_id)
-                .where(TriageClassification.priority_level == "review")
+                .where(TriageClassification.action == "notify_now")
                 .where(TriageClassification.digest_summary_id.isnot(None))
                 .distinct()
             )
@@ -486,7 +486,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
             select(func.count())
             .select_from(TriageClassification)
             .where(TriageClassification.user_id == user_id)
-            .where(TriageClassification.priority_level == "digest_summary")
+            .where(TriageClassification.action == "summarize_eod")
         )
         if digest_type:
             query = query.where(TriageClassification.digest_type == digest_type)
@@ -498,7 +498,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
             subquery = (
                 select(TriageClassification.digest_summary_id)
                 .where(TriageClassification.user_id == user_id)
-                .where(TriageClassification.priority_level == "review")
+                .where(TriageClassification.action == "notify_now")
                 .where(TriageClassification.digest_summary_id.isnot(None))
                 .distinct()
             )
@@ -516,7 +516,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         subquery = (
             select(TriageClassification.id)
             .where(TriageClassification.user_id == user_id)
-            .where(TriageClassification.priority_level == "digest_summary")
+            .where(TriageClassification.action == "summarize_eod")
             .where(TriageClassification.reviewed_at.is_(None))
         )
         if digest_type:
@@ -525,7 +525,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
             review_subquery = (
                 select(TriageClassification.digest_summary_id)
                 .where(TriageClassification.user_id == user_id)
-                .where(TriageClassification.priority_level == "review")
+                .where(TriageClassification.action == "notify_now")
                 .where(TriageClassification.digest_summary_id.isnot(None))
                 .distinct()
             )
@@ -546,7 +546,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
             update(TriageClassification)
             .where(TriageClassification.id == classification_id)
             .where(TriageClassification.user_id == user_id)
-            .values(priority_level=new_priority)
+            .values(action=new_priority)
         )
         await self.db.flush()
         return result.rowcount
