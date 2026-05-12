@@ -683,7 +683,7 @@ async def cleanup_slack_message_cache(ctx: dict) -> dict:
 
             except Exception as e:
                 logger.error(f"Error deleting cache batch: {e}")
-                break
+                return {"status": "error", "deleted_count": total_deleted, "error": str(e)}
 
         logger.info(f"Deleted {total_deleted} expired Slack message cache rows")
         return {"status": "complete", "deleted_count": total_deleted}
