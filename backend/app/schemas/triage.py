@@ -187,7 +187,9 @@ class ClassificationResponse(BaseModel):
     message_ts: str
     thread_ts: str | None = None
     slack_permalink: str | None = None
-    priority_level: str
+    action: str
+    review: bool = False
+    is_consolidated: bool = False
     confidence: float
     classification_reason: str | None = None
     abstract: str | None = None
@@ -246,7 +248,7 @@ class ConversationSummaryResponse(BaseModel):
     abstract: str
     participants: list[ConversationParticipant] = []
     message_count: int
-    priority_level: str
+    action: str
     first_message_ts: str
     slack_permalink: str | None = None
     first_message_at: UTCDatetime = None

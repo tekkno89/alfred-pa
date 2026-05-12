@@ -11,24 +11,27 @@ from app.services.triage_enrichment import EnrichedTriagePayload
 
 logger = logging.getLogger(__name__)
 
-# Default priority level definitions
-DEFAULT_P0 = (
+DEFAULT_NOTIFY_NOW = (
     "Needs immediate attention RIGHT NOW. Production incidents, emergencies, "
-    "someone explicitly saying something is urgent/critical. Casual requests "
-    "or favors (e.g. borrowing something, quick questions) are NOT P0."
+    "someone explicitly saying something is urgent/critical. Direct questions "
+    "that require an immediate response."
 )
-DEFAULT_P1 = (
+
+DEFAULT_SUMMARIZE_NEXT = (
     "Time-sensitive requests that need action soon. Direct asks requiring a response, "
-    "important questions needing input, meaningful requests with a deadline."
+    "important questions needing input, meaningful requests with a deadline. "
+    "Should be included in the next available digest window."
 )
-DEFAULT_P2 = (
+
+DEFAULT_SUMMARIZE_EOD = (
     "Noteworthy but not time-sensitive. Project updates, FYI items, relevant "
-    "discussions, informational messages worth reviewing later."
+    "discussions, informational messages worth reviewing in the end-of-day digest."
 )
-DEFAULT_P3 = (
+
+DEFAULT_IGNORE = (
     "Low priority. General chatter, memes, social messages, non-work banter, "
-    "automated notifications that need no action. When in doubt between P2 and P3, "
-    "lean toward P3."
+    "automated notifications that need no action. @here, @channel, @everyone "
+    "broadcasts that are not specifically relevant to the user."
 )
 
 
@@ -69,20 +72,26 @@ def _parse_json_response(response: str) -> dict:
 
 
 def _extract_fields_from_truncated(text: str) -> dict | None:
-    """Best-effort field extraction from truncated JSON.
-
-    When thinking models (e.g. gemini-2.5-flash) exhaust their token budget,
-    the JSON response may be cut off mid-field.  We can still salvage the
-    classification if priority and confidence were emitted before truncation.
-    """
-    priority_m = re.search(r'"priority"\s*:\s*"(\w+)"', text)
-    if not priority_m:
+    """Best-effort field extraction from truncated JSON."""
+    action_m = re.search(r'"action"\s*:\s*"(\w+)"', text)
+    if not action_m:
+        priority_m = re.search(r'"priority"\s*:\s*"(\w+)"', text)
+        if priority_m:
+            old_to_new = {
+                "p0": "notify_now",
+                "p1": "summarize_next",
+                "p2": "summarize_eod",
+                "p3": "ignore",
+                "review": "notify_now",
+            }
+            action_m = type("Match", (), {"group": lambda self, i: old_to_new.get(priority_m.group(1), "summarize_eod")})()
+    if not action_m:
         return None
     confidence_m = re.search(r'"confidence"\s*:\s*([\d.]+)', text)
     reason_m = re.search(r'"reason"\s*:\s*"((?:[^"\\]|\\.)*)"?', text, re.DOTALL)
     abstract_m = re.search(r'"abstract"\s*:\s*"((?:[^"\\]|\\.)*)"?', text, re.DOTALL)
     return {
-        "priority": priority_m.group(1),
+        "action": action_m.group(1),
         "confidence": float(confidence_m.group(1)) if confidence_m else 0.5,
         "reason": reason_m.group(1)
         if reason_m
@@ -95,20 +104,25 @@ def _extract_fields_from_truncated(text: str) -> dict | None:
 class ClassificationResult:
     """Result of classifying a message."""
 
-    priority: str  # p0 | p1 | p2 | p3 | review
+    action: str  # notify_now | summarize_next | summarize_eod | ignore
     confidence: float
     reason: str
-    abstract: str  # brief summary, never raw message text
+    abstract: str
+    review: bool = False
     keyword_matches: list[str] = field(default_factory=list)
 
 
 class TriageClassifier:
-    """Classifies messages into priority levels."""
+    """Classifies messages into action labels."""
 
     def __init__(
         self,
         sensitivity: str = "medium",
         custom_classification_rules: str | None = None,
+        notify_now_definition: str | None = None,
+        summarize_next_definition: str | None = None,
+        summarize_eod_definition: str | None = None,
+        ignore_definition: str | None = None,
         p0_definition: str | None = None,
         p1_definition: str | None = None,
         p2_definition: str | None = None,
@@ -116,10 +130,10 @@ class TriageClassifier:
     ) -> None:
         self.sensitivity = sensitivity
         self.custom_classification_rules = custom_classification_rules
-        self.p0_definition = p0_definition or DEFAULT_P0
-        self.p1_definition = p1_definition or DEFAULT_P1
-        self.p2_definition = p2_definition or DEFAULT_P2
-        self.p3_definition = p3_definition or DEFAULT_P3
+        self.notify_now_definition = notify_now_definition or p0_definition or DEFAULT_NOTIFY_NOW
+        self.summarize_next_definition = summarize_next_definition or p1_definition or DEFAULT_SUMMARIZE_NEXT
+        self.summarize_eod_definition = summarize_eod_definition or p2_definition or DEFAULT_SUMMARIZE_EOD
+        self.ignore_definition = ignore_definition or p3_definition or DEFAULT_IGNORE
 
     async def classify(self, payload: EnrichedTriagePayload) -> ClassificationResult:
         """Classify a message based on enriched context."""
@@ -143,10 +157,9 @@ class TriageClassifier:
         self, payload: EnrichedTriagePayload
     ) -> ClassificationResult:
         """Classify a channel message."""
-        # Critical channel priority auto-escalates
         if payload.channel_priority == "critical":
             return ClassificationResult(
-                priority="p0",
+                action="notify_now",
                 confidence=0.9,
                 reason=f"Channel #{payload.channel_name} is set to critical priority",
                 abstract=f"Message in critical channel #{payload.channel_name}",
@@ -165,9 +178,9 @@ class TriageClassifier:
         )
 
         sensitivity_guidance = {
-            "low": "Only classify as P0 if there is a genuine emergency or the sender explicitly says it's urgent.",
-            "medium": "Classify as P0 if the message appears to need immediate attention. Use P1 for time-sensitive requests.",
-            "high": "Be liberal with P0/P1 classification. Any message that could be important should be marked P0 or P1.",
+            "low": "Only classify as notify_now if there is a genuine emergency or the sender explicitly says it's urgent.",
+            "medium": "Classify as notify_now if the message appears to need immediate attention. Use summarize_next for time-sensitive requests.",
+            "high": "Be liberal with notify_now/summarize_next classification. Any message that could be important should be marked accordingly.",
         }
 
         # Build VIP context
@@ -185,16 +198,23 @@ class TriageClassifier:
         if payload.dm_conversation_context:
             dm_context = f"\n\n{payload.dm_conversation_context}"
 
-        system_prompt = f"""You are a message triage classifier. Classify a Slack message into one of the following priority levels.
+        system_prompt = f"""You are a message triage classifier. Classify a Slack message into one of the following ACTIONS.
 
-Priority levels:
-- p0: {self.p0_definition}
-- p1: {self.p1_definition}
-- p2: {self.p2_definition}
-- p3: {self.p3_definition}
-- review: ONLY use when you genuinely cannot decide between the other levels. This flags the message for manual review.
+Actions (what Alfred should DO with this message):
+- notify_now: {self.notify_now_definition}
+- summarize_next: {self.summarize_next_definition}
+- summarize_eod: {self.summarize_eod_definition}
+- ignore: {self.ignore_definition}
 
-DMs and @mentions raise the likelihood a message is P0 or P1 — but still evaluate the actual message content before classifying.
+**Display Layer:** Users see P0/P1/P2/P3 in the UI where:
+- P0 = notify_now
+- P1 = summarize_next
+- P2 = summarize_eod
+- P3 = ignore
+
+Do NOT use "review" as an action - instead set review=true if confidence is low.
+
+DMs and @mentions raise the likelihood a message is notify_now or summarize_next — but still evaluate the actual message content before classifying.
 
 **How to use conversation context:**
 When provided with thread or DM conversation context (previous messages), use it to understand:
@@ -222,7 +242,7 @@ Context:
 - Thread reply: {bool(payload.thread_ts)}
 
 Respond with valid JSON only:
-{{"priority": "p0|p1|p2|p3|review", "confidence": 0.0-1.0, "reason": "brief explanation", "abstract": "1-sentence summary of the message topic without quoting the message"}}
+{{"action": "notify_now|summarize_next|summarize_eod|ignore", "confidence": 0.0-1.0, "review": true|false, "reason": "brief explanation", "abstract": "1-sentence summary of the message topic without quoting the message"}}
 
 IMPORTANT: The "abstract" must be a brief topic summary of the CURRENT message only. Do NOT reproduce the original message text."""
 
@@ -252,25 +272,41 @@ Channel-specific triage instructions (follow these):
             )
 
             result = _parse_json_response(response)
-            priority = result.get("priority", "review")
-            if priority not in ("p0", "p1", "p2", "p3", "review"):
-                priority = "review"
+            action = result.get("action", "")
+            if action not in ("notify_now", "summarize_next", "summarize_eod", "ignore"):
+                old_priority = result.get("priority", "")
+                priority_to_action = {
+                    "p0": "notify_now",
+                    "p1": "summarize_next",
+                    "p2": "summarize_eod",
+                    "p3": "ignore",
+                    "review": "notify_now",
+                }
+                action = priority_to_action.get(old_priority, "summarize_eod")
+
+            review_flag = result.get("review", False)
+            if result.get("confidence"):
+                conf = float(result.get("confidence", 0.5))
+                if conf < 0.6:
+                    review_flag = True
 
             return ClassificationResult(
-                priority=priority,
+                action=action,
                 confidence=min(1.0, max(0.0, float(result.get("confidence", 0.5)))),
                 reason=result.get("reason", "LLM classification"),
                 abstract=result.get("abstract", "Message classified by AI"),
+                review=review_flag,
             )
 
         except Exception:
             logger.exception(
-                "LLM classification failed (raw response: %r), defaulting to review",
+                "LLM classification failed (raw response: %r), defaulting to summarize_eod",
                 response if "response" in dir() else "N/A",
             )
             return ClassificationResult(
-                priority="review",
+                action="summarize_eod",
                 confidence=0.3,
-                reason="LLM classification failed, defaulting to review",
+                reason="LLM classification failed, defaulting to summarize_eod",
                 abstract="Message pending review (classification error)",
+                review=True,
             )

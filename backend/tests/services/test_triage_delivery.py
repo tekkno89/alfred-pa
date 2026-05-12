@@ -21,7 +21,7 @@ def _make_classification(**overrides):
         "sender_name": "Sender",
         "channel_id": "C12345",
         "channel_name": "general",
-        "priority_level": "p2",
+        "action": "summarize_eod",
         "abstract": "Test message",
         "slack_permalink": "https://workspace.slack.com/archives/C12345/p123",
         "surfaced_at_break": False,
@@ -31,6 +31,14 @@ def _make_classification(**overrides):
         "created_at": datetime.utcnow(),
     }
     defaults.update(overrides)
+    if "priority_level" in defaults:
+        priority_to_action = {
+            "p0": "notify_now",
+            "p1": "summarize_next",
+            "p2": "summarize_eod",
+            "p3": "ignore",
+        }
+        defaults["action"] = priority_to_action.get(defaults.pop("priority_level"), "summarize_eod")
     m = MagicMock(**defaults)
     # Make confidence and created_at comparable
     m.confidence = defaults["confidence"]

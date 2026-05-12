@@ -81,7 +81,8 @@ class TriagePipeline:
             message_ts=message_ts,
             thread_ts=thread_ts,
             slack_permalink=payload.slack_permalink,
-            priority_level=result.priority,
+            action=result.action,
+            review=result.review,
             confidence=result.confidence,
             classification_reason=result.reason,
             abstract=result.abstract,
@@ -89,43 +90,37 @@ class TriagePipeline:
             keyword_matches=result.keyword_matches if result.keyword_matches else None,
         )
 
-        # Check if alerts are disabled for this priority - mark as alerted immediately
-        priority = result.priority
+        action = result.action
         alerts_enabled = {
-            "p0": settings.p0_alerts_enabled if settings else True,
-            "p1": settings.p1_alerts_enabled if settings else True,
-            "p2": settings.p2_alerts_enabled if settings else True,
-            "p3": settings.p3_alerts_enabled if settings else True,
-        }.get(priority, True)
+            "notify_now": settings.p0_alerts_enabled if settings else True,
+            "summarize_next": settings.p1_alerts_enabled if settings else True,
+            "summarize_eod": settings.p2_alerts_enabled if settings else True,
+            "ignore": settings.p3_alerts_enabled if settings else True,
+        }.get(action, True)
 
         if not alerts_enabled:
-            # Mark as alerted immediately so it doesn't queue for digest
             from datetime import datetime
             classification.last_alerted_at = datetime.utcnow()
             classification.queued_for_digest = False
             logger.info(
-                f"{priority.upper()} alerts disabled for user {user_id}, "
+                f"{action} alerts disabled for user {user_id}, "
                 f"marking classification as alerted immediately"
             )
         else:
-            # Queue for digest if P1/P2/P3
-            if priority in ("p1", "p2", "p3"):
+            if action in ("summarize_next", "summarize_eod"):
                 classification.queued_for_digest = True
             else:
-                # P0 - not queued for digest (immediate alert)
                 classification.queued_for_digest = False
 
         classification = await self.class_repo.create(classification)
         await self.db.commit()
 
-        # 4. Deliver P0 notifications (with deduplication)
-        if result.priority == "p0":
-            # Check if P0 alerts are enabled
+        if action == "notify_now":
             p0_enabled = settings.p0_alerts_enabled if settings else True
 
             if not p0_enabled:
                 logger.info(
-                    f"P0 alerts disabled for user {user_id}, skipping notification"
+                    f"notify_now alerts disabled for user {user_id}, skipping notification"
                 )
             else:
                 from app.services.alert_deduplication import AlertDeduplicationService
@@ -154,15 +149,14 @@ class TriagePipeline:
                     await self.db.commit()
                 else:
                     logger.info(
-                        f"P0 alert deduplicated for classification {classification.id} "
+                        f"notify_now alert deduplicated for classification {classification.id} "
                         f"(thread={thread_ts}, sender={sender_slack_id})"
                     )
 
-        # 5. Debug mode: enhanced logging and SSE payload (no raw text)
         if settings and settings.debug_mode:
             logger.debug(
                 f"[TRIAGE DEBUG] user={user_id} "
-                f"priority={result.priority} confidence={result.confidence:.2f} "
+                f"action={result.action} confidence={result.confidence:.2f} "
                 f"reason={result.reason} path={event_type} "
                 f"sender={sender_slack_id} channel={channel_id}"
             )
@@ -172,7 +166,7 @@ class TriagePipeline:
                     "triage.debug",
                     {
                         "classification_id": classification.id,
-                        "priority": result.priority,
+                        "action": result.action,
                         "confidence": result.confidence,
                         "reason": result.reason,
                         "path": event_type,

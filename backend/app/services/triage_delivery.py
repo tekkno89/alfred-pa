@@ -121,8 +121,8 @@ class TriageDeliveryService:
             )
 
         # P0 messages are instantly notified during focus mode and don't appear in digests
-        p1_count = sum(1 for i in all_items if i.priority_level == "p1")
-        p2_count = sum(1 for i in all_items if i.priority_level == "p2")
+        p1_count = sum(1 for i in all_items if i.action == "summarize_next")
+        p2_count = sum(1 for i in all_items if i.action == "summarize_eod")
 
         # Send Slack DM digest
         user = await self.user_repo.get(user_id)
@@ -140,7 +140,7 @@ class TriageDeliveryService:
                 lines = [header, stats]
 
                 # Show P1 items (top 3 by confidence)
-                p1_items = [i for i in all_items if i.priority_level == "p1"]
+                p1_items = [i for i in all_items if i.action == "summarize_next"]
                 if p1_items:
                     sorted_p1 = sorted(
                         p1_items, key=lambda x: (-x.confidence, x.created_at)
@@ -165,7 +165,7 @@ class TriageDeliveryService:
                         )
 
                 # Show P2 items (top 3 by confidence)
-                p2_items = [i for i in all_items if i.priority_level == "p2"]
+                p2_items = [i for i in all_items if i.action == "summarize_eod"]
                 if p2_items:
                     sorted_p2 = sorted(
                         p2_items, key=lambda x: (-x.confidence, x.created_at)
@@ -240,7 +240,8 @@ class TriageDeliveryService:
             channel_id=items[0].channel_id if items else "SYSTEM",
             channel_name=None,
             message_ts=items[-1].message_ts if items else "",
-            priority_level="digest_summary",
+            action="summarize_eod",
+            is_consolidated=True,
             confidence=1.0,
             classification_reason=f"Consolidated {len(items)} digest items",
             abstract=abstract,
@@ -928,24 +929,24 @@ Messages (chronological):
             slack_service = SlackService()
             lines = ["*End of Day Digest*\n"]
 
-            p1_convs = [c for c in conversations if c.priority == "p1"]
-            p2_convs = [c for c in conversations if c.priority == "p2"]
-            p3_convs = [c for c in conversations if c.priority == "p3"]
+            p1_convs = [c for c in conversations if c.priority == "summarize_next"]
+            p2_convs = [c for c in conversations if c.priority == "summarize_eod"]
+            p3_convs = [c for c in conversations if c.priority == "ignore"]
 
             if p1_convs:
                 lines.extend(
                     await self._format_priority_section(
-                        p1_convs, "P1 — Important", "p1"
+                        p1_convs, "P1 — Important", "summarize_next"
                     )
                 )
             if p2_convs:
                 lines.extend(
-                    await self._format_priority_section(p2_convs, "P2 — Notable", "p2")
+                    await self._format_priority_section(p2_convs, "P2 — Notable", "summarize_eod")
                 )
             if p3_convs:
                 lines.extend(
                     await self._format_priority_section(
-                        p3_convs, "P3 — Daily Digest", "p3"
+                        p3_convs, "P3 — Daily Digest", "ignore"
                     )
                 )
 

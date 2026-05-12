@@ -92,14 +92,17 @@ class ConversationGroup:
 
     @property
     def priority(self) -> str:
-        """Get the highest priority level among messages in this group."""
-        priority_order = {"p0": 0, "p1": 1, "p2": 2, "p3": 3}
+        """Get the highest priority level among messages in this group.
+
+        Returns action label converted to legacy priority for UI compatibility.
+        """
+        action_order = {"notify_now": 0, "summarize_next": 1, "summarize_eod": 2, "ignore": 3}
         highest = 3
         for m in self.messages:
-            msg_priority = priority_order.get(m.priority_level, 3)
+            msg_priority = action_order.get(m.action, 3)
             if msg_priority < highest:
                 highest = msg_priority
-        return ["p0", "p1", "p2", "p3"][highest]
+        return ["notify_now", "summarize_next", "summarize_eod", "ignore"][highest]
 
 
 class DigestGrouper:

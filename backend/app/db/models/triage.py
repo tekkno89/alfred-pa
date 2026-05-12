@@ -176,8 +176,11 @@ class TriageClassification(Base, UUIDMixin, TimestampMixin):
     thread_ts: Mapped[str | None] = mapped_column(String(50), nullable=True)
     slack_permalink: Mapped[str | None] = mapped_column(Text, nullable=True)
     focus_started_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    # p0 | p1 | p2 | p3 | review | digest_summary
-    priority_level: Mapped[str] = mapped_column(String(20), nullable=False)
+
+    action: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    review: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    is_consolidated: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     classification_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -225,7 +228,7 @@ class TriageClassification(Base, UUIDMixin, TimestampMixin):
     )
 
     def __repr__(self) -> str:
-        return f"<TriageClassification(user_id={self.user_id}, priority={self.priority_level})>"
+        return f"<TriageClassification(user_id={self.user_id}, action={self.action})>"
 
 
 class SenderBehaviorModel(Base, UUIDMixin, TimestampMixin):
