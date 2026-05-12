@@ -3,6 +3,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSON, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -195,7 +196,7 @@ class TriageClassification(Base, UUIDMixin, TimestampMixin):
         ForeignKey("triage_classifications.id", ondelete="SET NULL"), nullable=True
     )
     child_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    
+
     conversation_summary_id: Mapped[str | None] = mapped_column(
         ForeignKey("conversation_summaries.id", ondelete="SET NULL"), nullable=True
     )
@@ -288,6 +289,7 @@ class TriageFeedback(Base, UUIDMixin, TimestampMixin):
     was_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
     # p0 | p1 | p2 | p3 | review (what it should have been)
     correct_priority: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    correct_action: Mapped[str | None] = mapped_column(String(20), nullable=True)
     feedback_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
@@ -315,7 +317,7 @@ class FeedbackEmbedding(Base, UUIDMixin, TimestampMixin):
         ForeignKey("triage_feedback.id", ondelete="CASCADE"), nullable=False
     )
     embedding_vector: Mapped[list[float]] = mapped_column(
-        ARRAY(Float, dimensions=1), nullable=False
+        Vector(768), nullable=False
     )
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

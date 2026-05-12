@@ -1,5 +1,6 @@
 """Local embedding provider using fastembed."""
 
+import asyncio
 from functools import lru_cache
 
 from fastembed import TextEmbedding
@@ -61,6 +62,34 @@ class LocalEmbeddingProvider:
         """
         embeddings = list(self.model.embed(texts))
         return [e.tolist() for e in embeddings]
+
+    async def embed_text(self, text: str) -> list[float]:
+        """
+        Async wrapper for embedding a single text.
+
+        Uses asyncio.to_thread to run the synchronous embed() in a thread pool.
+
+        Args:
+            text: The text to embed.
+
+        Returns:
+            A list of floats representing the embedding.
+        """
+        return await asyncio.to_thread(self.embed, text)
+
+    async def embed_text_batch(self, texts: list[str]) -> list[list[float]]:
+        """
+        Async wrapper for embedding multiple texts.
+
+        Uses asyncio.to_thread to run the synchronous embed_batch() in a thread pool.
+
+        Args:
+            texts: List of texts to embed.
+
+        Returns:
+            List of embeddings, one per input text.
+        """
+        return await asyncio.to_thread(self.embed_batch, texts)
 
 
 @lru_cache

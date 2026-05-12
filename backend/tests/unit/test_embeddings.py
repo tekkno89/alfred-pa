@@ -83,6 +83,48 @@ class TestLocalEmbeddingProvider:
             # Now it should be loaded
             mock_te.assert_called_once_with(model_name="test-model")
 
+    @pytest.mark.asyncio
+    async def test_embed_text_async(self):
+        """Should return a list of floats asynchronously."""
+        with patch("app.core.embeddings.TextEmbedding") as mock_te:
+            import numpy as np
+
+            mock_model = MagicMock()
+            mock_model.embed.return_value = iter([np.array([0.1, 0.2, 0.3, 0.4])])
+            mock_te.return_value = mock_model
+
+            from app.core.embeddings import LocalEmbeddingProvider
+
+            provider = LocalEmbeddingProvider("test-model")
+            result = await provider.embed_text("Hello world")
+
+            assert isinstance(result, list)
+            assert all(isinstance(x, float) for x in result)
+            mock_model.embed.assert_called_once_with(["Hello world"])
+
+    @pytest.mark.asyncio
+    async def test_embed_text_batch_async(self):
+        """Should return a list of embeddings asynchronously."""
+        with patch("app.core.embeddings.TextEmbedding") as mock_te:
+            import numpy as np
+
+            mock_model = MagicMock()
+            mock_model.embed.return_value = iter([
+                np.array([0.1, 0.2]),
+                np.array([0.3, 0.4]),
+            ])
+            mock_te.return_value = mock_model
+
+            from app.core.embeddings import LocalEmbeddingProvider
+
+            provider = LocalEmbeddingProvider("test-model")
+            texts = ["Text 1", "Text 2"]
+            result = await provider.embed_text_batch(texts)
+
+            assert isinstance(result, list)
+            assert len(result) == 2
+            assert all(isinstance(emb, list) for emb in result)
+
 
 class TestDetectRememberIntent:
     """Tests for remember intent detection."""

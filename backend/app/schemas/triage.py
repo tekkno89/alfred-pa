@@ -300,6 +300,9 @@ class TriageFeedbackCreate(BaseModel):
     classification_id: str = Field(..., min_length=1)
     was_correct: bool
     correct_priority: str | None = Field(None, pattern="^(p0|p1|p2|p3|review)$")
+    correct_action: str | None = Field(
+        None, pattern="^(notify_now|summarize_next|summarize_eod|ignore)$"
+    )
     feedback_text: str | None = Field(None, max_length=2000)
 
 
