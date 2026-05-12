@@ -2,8 +2,9 @@
 
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 
+from app.core.config import get_settings
 from app.db.repositories import FocusModeStateRepository
 from app.db.session import async_session_maker
 
@@ -637,3 +638,34 @@ async def send_digest(
                 "item_count": len(items_for_digest),
                 "summary_id": summary_record.id,
             }
+
+
+async def cleanup_slack_message_cache(ctx: dict) -> dict:
+    """
+    Cron job: delete Slack message cache rows older than retention period.
+    Runs daily at 2 AM UTC.
+    """
+    from app.db.models.slack_message_cache import SlackMessageCache
+    from sqlalchemy import delete
+
+    settings = get_settings()
+    retention_days = settings.slack_message_cache_retention_days
+
+    logger.info(
+        f"Starting Slack message cache cleanup (retention={retention_days} days)"
+    )
+
+    cutoff = datetime.utcnow() - timedelta(days=retention_days)
+
+    async with get_db_session() as db:
+        try:
+            stmt = delete(SlackMessageCache).where(
+                SlackMessageCache.cached_at < cutoff
+            )
+            result = await db.execute(stmt)
+            deleted = result.rowcount
+            logger.info(f"Deleted {deleted} expired Slack message cache rows")
+            return {"status": "complete", "deleted_count": deleted}
+        except Exception as e:
+            logger.error(f"Error deleting cache: {e}")
+            return {"status": "error", "deleted_count": 0, "error": str(e)}
