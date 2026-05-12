@@ -10,6 +10,7 @@ from app.worker.tasks import (
     check_due_todo_reminders,
     cleanup_expired_classifications,
     cleanup_orphaned_focus_items,
+    cleanup_slack_message_cache,
     expire_focus_session,
     process_triage_job,
     refresh_slack_channel_cache,
@@ -103,6 +104,7 @@ class WorkerSettings:
         refresh_slack_channel_cache,
         update_user_channel_participation,
         update_channel_summaries,
+        cleanup_slack_message_cache,
     ]
 
     # Cron jobs (optional - for periodic cleanup as backup)
@@ -124,6 +126,11 @@ class WorkerSettings:
             cleanup_expired_classifications,
             hour={3},
             minute={0},  # Daily at 3 AM
+        ),
+        cron(
+            cleanup_slack_message_cache,
+            hour={2},
+            minute={0},  # Daily at 2 AM UTC
         ),
         cron(
             refresh_slack_channel_cache,
