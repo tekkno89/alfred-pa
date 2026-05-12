@@ -644,12 +644,15 @@ async def cleanup_slack_message_cache(ctx: dict) -> dict:
     """
     Cron job: delete Slack message cache rows older than retention period.
     Runs daily at 2 AM UTC.
+
+    Uses batching (1000 rows per batch) for operational safety to avoid
+    long-running transactions and table locks.
     """
-    from app.db.models.slack_message_cache import SlackMessageCache
-    from sqlalchemy import delete
+    from sqlalchemy import text
 
     settings = get_settings()
     retention_days = settings.slack_message_cache_retention_days
+    batch_size = 1000
 
     logger.info(
         f"Starting Slack message cache cleanup (retention={retention_days} days)"
@@ -658,14 +661,29 @@ async def cleanup_slack_message_cache(ctx: dict) -> dict:
     cutoff = datetime.utcnow() - timedelta(days=retention_days)
 
     async with get_db_session() as db:
-        try:
-            stmt = delete(SlackMessageCache).where(
-                SlackMessageCache.cached_at < cutoff
-            )
-            result = await db.execute(stmt)
-            deleted = result.rowcount
-            logger.info(f"Deleted {deleted} expired Slack message cache rows")
-            return {"status": "complete", "deleted_count": deleted}
-        except Exception as e:
-            logger.error(f"Error deleting cache: {e}")
-            return {"status": "error", "deleted_count": 0, "error": str(e)}
+        total_deleted = 0
+        while True:
+            try:
+                result = await db.execute(
+                    text(
+                        "DELETE FROM slack_message_cache "
+                        "WHERE cached_at < :cutoff "
+                        "LIMIT :batch_size"
+                    ),
+                    {"cutoff": cutoff, "batch_size": batch_size},
+                )
+                deleted = result.rowcount
+
+                if deleted == 0:
+                    break
+
+                total_deleted += deleted
+                logger.debug(f"Deleted batch of {deleted} cache rows")
+                await db.commit()
+
+            except Exception as e:
+                logger.error(f"Error deleting cache batch: {e}")
+                break
+
+        logger.info(f"Deleted {total_deleted} expired Slack message cache rows")
+        return {"status": "complete", "deleted_count": total_deleted}
