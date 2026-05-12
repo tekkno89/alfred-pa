@@ -88,7 +88,11 @@ class DigestResponseChecker:
         return unresponded
 
     async def _check_user_message_response(
-        self, user_id: str, user_slack_id: str, conversation: ConversationGroup
+        self,
+        user_id: str,
+        user_slack_id: str,
+        conversation: ConversationGroup | None,
+        classification: TriageClassification | None = None,
     ) -> bool:
         """
         Check if user posted a message after the last message in the conversation.
@@ -96,7 +100,8 @@ class DigestResponseChecker:
         Args:
             user_id: Alfred user ID (for token lookup)
             user_slack_id: User's Slack ID
-            conversation: ConversationGroup to check
+            conversation: ConversationGroup to check (for grouped messages)
+            classification: Single TriageClassification to check (for notify_now)
 
         Returns:
             True if user posted after the conversation, False otherwise
@@ -104,45 +109,75 @@ class DigestResponseChecker:
         client = await self._get_user_client(user_id)
         if not client:
             logger.warning(
-                f"No user client for {user_id}, cannot check response for {conversation.id}"
+                f"No user client for {user_id}, cannot check response"
             )
             return False
 
         try:
-            if conversation.conversation_type == "thread":
-                response = await client.conversations_replies(
-                    channel=conversation.channel_id,
-                    ts=conversation.thread_ts,
-                    limit=50,
-                )
-            else:
-                response = await client.conversations_history(
-                    channel=conversation.channel_id,
-                    limit=20,
-                )
-
-            messages = response.get("messages", [])
-            last_conv_ts = conversation.last_message_ts
-
-            for msg in messages:
-                msg_ts = msg.get("ts", "0")
-                msg_user = msg.get("user")
-
-                if msg.get("bot_id") or msg.get("subtype") == "bot_message":
-                    continue
-
-                if msg_user == user_slack_id and msg_ts > last_conv_ts:
-                    logger.debug(
-                        f"User {user_slack_id} posted message {msg_ts} after "
-                        f"conversation last message {last_conv_ts}"
+            if conversation:
+                if conversation.conversation_type == "thread":
+                    response = await client.conversations_replies(
+                        channel=conversation.channel_id,
+                        ts=conversation.thread_ts,
+                        limit=50,
                     )
-                    return True
+                else:
+                    response = await client.conversations_history(
+                        channel=conversation.channel_id,
+                        limit=20,
+                    )
+
+                messages = response.get("messages", [])
+                last_conv_ts = conversation.last_message_ts
+
+                for msg in messages:
+                    msg_ts = msg.get("ts", "0")
+                    msg_user = msg.get("user")
+
+                    if msg.get("bot_id") or msg.get("subtype") == "bot_message":
+                        continue
+
+                    if msg_user == user_slack_id and msg_ts > last_conv_ts:
+                        logger.debug(
+                            f"User {user_slack_id} posted message {msg_ts} after "
+                            f"conversation last message {last_conv_ts}"
+                        )
+                        return True
+
+            elif classification:
+                if classification.thread_ts:
+                    response = await client.conversations_replies(
+                        channel=classification.channel_id,
+                        ts=classification.thread_ts,
+                        limit=50,
+                    )
+                else:
+                    response = await client.conversations_history(
+                        channel=classification.channel_id,
+                        limit=20,
+                    )
+
+                messages = response.get("messages", [])
+
+                for msg in messages:
+                    msg_ts = msg.get("ts", "0")
+                    msg_user = msg.get("user")
+
+                    if msg.get("bot_id") or msg.get("subtype") == "bot_message":
+                        continue
+
+                    if msg_user == user_slack_id and msg_ts > classification.message_ts:
+                        logger.debug(
+                            f"User {user_slack_id} posted message {msg_ts} after "
+                            f"classification message {classification.message_ts}"
+                        )
+                        return True
 
             return False
 
         except Exception as e:
             logger.warning(
-                f"Error checking user response for conversation {conversation.id}: {e}"
+                f"Error checking user response: {e}"
             )
             return False
 

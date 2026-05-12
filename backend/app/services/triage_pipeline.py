@@ -139,6 +139,29 @@ class TriagePipeline:
                 )
 
                 if should_alert:
+                    from app.db.repositories import UserRepository
+                    from app.services.digest_response_checker import DigestResponseChecker
+
+                    user_repo = UserRepository(self.db)
+                    user = await user_repo.get(user_id)
+
+                    if user and user.slack_user_id:
+                        checker = DigestResponseChecker(self.db)
+                        user_responded = await checker._check_user_message_response(
+                            user_id=user_id,
+                            user_slack_id=user.slack_user_id,
+                            conversation=None,
+                            classification=classification,
+                        )
+
+                        if user_responded:
+                            logger.info(
+                                f"Skipping notify_now for classification {classification.id}: "
+                                f"user already responded"
+                            )
+                            await self.db.commit()
+                            return
+
                     await self._deliver_urgent(
                         user_id=user_id,
                         classification=classification,

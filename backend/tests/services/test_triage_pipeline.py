@@ -26,7 +26,7 @@ class TestTriagePipeline:
 
         mock_classifier = AsyncMock()
         mock_classifier.classify.return_value = ClassificationResult(
-            priority="review",
+            action="notify_now",
             confidence=0.8,
             reason="casual message",
             abstract="A test message",
@@ -73,7 +73,7 @@ class TestTriagePipeline:
         mock_class_repo.create.assert_called_once()
         created = mock_class_repo.create.call_args[0][0]
         assert created.user_id == "user-1"
-        assert created.priority_level == "review"
+        assert created.action == "notify_now"
         assert created.classification_path == "dm"
         mock_db.commit.assert_called_once()
 
@@ -93,7 +93,7 @@ class TestTriagePipeline:
 
         mock_classifier = AsyncMock()
         mock_classifier.classify.return_value = ClassificationResult(
-            priority="p2",
+            action="summarize_eod",
             confidence=0.9,
             reason="low priority",
             abstract="General message",
@@ -166,7 +166,7 @@ class TestTriagePipeline:
 
         mock_classifier = AsyncMock()
         mock_classifier.classify.return_value = ClassificationResult(
-            priority="p0",
+            action="notify_now",
             confidence=0.95,
             reason="emergency",
             abstract="Server outage reported",
@@ -300,7 +300,7 @@ class TestTriagePipeline:
 
         mock_classifier = AsyncMock()
         mock_classifier.classify.return_value = ClassificationResult(
-            priority="p3",
+            action="ignore",
             confidence=0.9,
             reason="casual",
             abstract="Greeting",
@@ -310,7 +310,7 @@ class TestTriagePipeline:
         mock_class_repo = AsyncMock()
         mock_settings_repo = AsyncMock()
         mock_settings_repo.get_by_user_id.return_value = MagicMock(
-            debug_mode=False, always_on_min_priority="p1"
+            debug_mode=False, always_on_min_action="summarize_next"
         )
 
         with self._pipeline_patches(
@@ -349,7 +349,7 @@ class TestTriagePipeline:
 
         mock_classifier = AsyncMock()
         mock_classifier.classify.return_value = ClassificationResult(
-            priority="p1",
+            action="summarize_next",
             confidence=0.85,
             reason="direct ask",
             abstract="A direct request",
@@ -359,7 +359,7 @@ class TestTriagePipeline:
         mock_class_repo = AsyncMock()
         mock_settings_repo = AsyncMock()
         mock_settings_repo.get_by_user_id.return_value = MagicMock(
-            debug_mode=False, always_on_min_priority="p1"
+            debug_mode=False, always_on_min_action="summarize_next"
         )
 
         with self._pipeline_patches(
@@ -398,7 +398,7 @@ class TestTriagePipeline:
 
         mock_classifier = AsyncMock()
         mock_classifier.classify.return_value = ClassificationResult(
-            priority="p0",
+            action="notify_now",
             confidence=0.95,
             reason="urgent",
             abstract="Urgent matter",
@@ -414,7 +414,7 @@ class TestTriagePipeline:
         mock_class_repo.create.return_value = created_classification
         mock_settings_repo = AsyncMock()
         mock_settings_repo.get_by_user_id.return_value = MagicMock(
-            debug_mode=False, always_on_min_priority="p2"
+            debug_mode=False, always_on_min_action="summarize_eod"
         )
 
         with self._pipeline_patches(
@@ -453,7 +453,7 @@ class TestTriagePipeline:
 
         mock_classifier = AsyncMock()
         mock_classifier.classify.return_value = ClassificationResult(
-            priority="review",
+            action="notify_now",
             confidence=0.5,
             reason="uncertain",
             abstract="Ambiguous message",
@@ -463,7 +463,7 @@ class TestTriagePipeline:
         mock_class_repo = AsyncMock()
         mock_settings_repo = AsyncMock()
         mock_settings_repo.get_by_user_id.return_value = MagicMock(
-            debug_mode=False, always_on_min_priority="p0"
+            debug_mode=False, always_on_min_action="notify_now"
         )
 
         with self._pipeline_patches(
@@ -502,7 +502,7 @@ class TestTriagePipeline:
 
         mock_classifier = AsyncMock()
         mock_classifier.classify.return_value = ClassificationResult(
-            priority="p3",
+            action="ignore",
             confidence=0.9,
             reason="casual",
             abstract="Greeting",
@@ -512,7 +512,7 @@ class TestTriagePipeline:
         mock_class_repo = AsyncMock()
         mock_settings_repo = AsyncMock()
         mock_settings_repo.get_by_user_id.return_value = MagicMock(
-            debug_mode=False, always_on_min_priority="p0"
+            debug_mode=False, always_on_min_action="notify_now"
         )
 
         with self._pipeline_patches(
@@ -551,7 +551,7 @@ class TestTriagePipeline:
 
         mock_classifier = AsyncMock()
         mock_classifier.classify.return_value = ClassificationResult(
-            priority="p3",
+            action="ignore",
             confidence=0.9,
             reason="casual",
             abstract="Greeting",
@@ -561,7 +561,7 @@ class TestTriagePipeline:
         mock_class_repo = AsyncMock()
         mock_settings_repo = AsyncMock()
         mock_settings_repo.get_by_user_id.return_value = MagicMock(
-            debug_mode=False, always_on_min_priority="p3"
+            debug_mode=False, always_on_min_action="ignore"
         )
 
         with self._pipeline_patches(
