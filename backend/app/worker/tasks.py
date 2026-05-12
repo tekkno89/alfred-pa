@@ -268,7 +268,7 @@ async def auto_enroll_user_channels(ctx: dict) -> dict:
         # Get all users with triage enabled
         result = await db.execute(
             select(TriageUserSettings.user_id).where(
-                TriageUserSettings.is_always_on == True
+                TriageUserSettings.is_always_on.is_(True)
             )
         )
         user_ids = list(result.scalars().all())

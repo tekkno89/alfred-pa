@@ -602,7 +602,7 @@ async def list_classifications(
     db: DbSession,
     filter: str = Query(
         "needs_attention",
-        pattern="^(needs_attention|p0|focus|scheduled|review|reviewed)$",
+        pattern="^(needs_attention|notify_now|focus|scheduled|review|reviewed)$",
     ),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -675,7 +675,7 @@ async def list_classifications(
             digest_type="scheduled",
             reviewed=False,
         )
-    elif filter == "notify_now":
+    elif filter == "review":
         # Summaries containing review items
         items = await repo.get_summaries_by_filter(
             current_user.id,
@@ -892,9 +892,7 @@ async def get_conversation_messages(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Conversation not found",
         )
-    
-    class_repo = TriageClassificationRepository(db)
-    
+
     from sqlalchemy import select, func
     from app.db.models.triage import TriageClassification
     
@@ -1057,8 +1055,8 @@ async def get_session_stats(
         "summarize_next": p1,
         "summarize_eod": p2,
         "ignore": p3,
-        "notify_now": review,
-        "summarize_eod": digest_summary,
+        "review": review,
+        "digest_summary": digest_summary,
         "total": p0 + p1 + p2 + p3 + review + digest_summary,
     }
 
