@@ -611,7 +611,7 @@ async def list_classifications(
 
     Filters:
     - needs_attention: P0 alerts + unreviewed summaries (default)
-    - p0: P0 alerts only
+    - notify_now: P0 alerts only
     - focus: Focus session summaries
     - scheduled: Scheduled digest summaries
     - review: Summaries containing review items
