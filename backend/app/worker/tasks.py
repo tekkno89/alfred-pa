@@ -827,3 +827,68 @@ async def deliver_eod_digests(ctx: dict) -> dict:
         "delivered_count": delivered_count,
         "users_checked": len(all_settings),
     }
+
+
+async def degrade_stale_notify_now(ctx: dict) -> dict:
+    """
+    Cron job: Degrade notify_now items not engaged with after timeout.
+
+    Default timeout: 4 hours (configurable per user via notify_now_degrade_minutes).
+    Degrades to summarize_next for inclusion in next digest.
+
+    Runs every 5 minutes.
+    """
+    from sqlalchemy import and_, select
+
+    from app.db.models.triage import TriageClassification, TriageUserSettings
+
+    async with get_db_session() as db:
+        result = await db.execute(
+            select(TriageUserSettings).where(
+                TriageUserSettings.is_always_on == True  # noqa: E712
+            )
+        )
+        all_settings = list(result.scalars().all())
+
+    degraded_total = 0
+
+    for settings in all_settings:
+        user_id = settings.user_id
+        timeout_minutes = settings.notify_now_degrade_minutes or 240
+        cutoff = datetime.utcnow() - timedelta(minutes=timeout_minutes)
+
+        async with get_db_session() as db:
+            result = await db.execute(
+                select(TriageClassification).where(
+                    and_(
+                        TriageClassification.user_id == user_id,
+                        TriageClassification.action == "notify_now",
+                        TriageClassification.created_at < cutoff,
+                        TriageClassification.reviewed_at.is_(None),
+                    )
+                )
+            )
+            stale = list(result.scalars().all())
+
+            for item in stale:
+                item.action = "summarize_next"
+                if item.classification_reason:
+                    item.classification_reason = (
+                        f"[AUTO-DEGRADED] {item.classification_reason}"
+                    )
+                else:
+                    item.classification_reason = "[AUTO-DEGRADED] No reason provided"
+                degraded_total += 1
+
+            if stale:
+                await db.commit()
+                logger.info(
+                    f"Degraded {len(stale)} stale notify_now items for user {user_id}"
+                )
+
+    logger.info(f"Notify_now auto-degrade complete: {degraded_total} items degraded")
+    return {
+        "status": "complete",
+        "degraded_count": degraded_total,
+        "users_checked": len(all_settings),
+    }

@@ -13,6 +13,7 @@ from app.worker.tasks import (
     cleanup_expired_classifications,
     cleanup_orphaned_focus_items,
     cleanup_slack_message_cache,
+    degrade_stale_notify_now,
     deliver_eod_digests,
     expire_focus_session,
     process_triage_job,
@@ -111,6 +112,7 @@ class WorkerSettings:
         check_escalations,
         check_delivery_triggers,
         deliver_eod_digests,
+        degrade_stale_notify_now,
     ]
 
     # Cron jobs (optional - for periodic cleanup as backup)
@@ -164,6 +166,10 @@ class WorkerSettings:
         ),
         cron(
             deliver_eod_digests,
+            minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},  # Every 5 minutes
+        ),
+        cron(
+            degrade_stale_notify_now,
             minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},  # Every 5 minutes
         ),
     ]
