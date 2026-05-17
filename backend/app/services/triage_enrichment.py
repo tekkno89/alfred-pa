@@ -1,10 +1,11 @@
 """Triage enrichment — gathers metadata for classification."""
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.repositories.triage import (
@@ -137,6 +138,11 @@ class EnrichedTriagePayload:
     p1_definition: str | None = None
     p2_definition: str | None = None
     p3_definition: str | None = None
+
+    # Learning signals (Phase 2)
+    few_shot_examples: list[Any] = field(default_factory=list)
+    sender_action_distribution: dict | None = None
+    topic_biases: list[dict] = field(default_factory=list)
 
 
 def generate_slack_permalink(
@@ -306,5 +312,52 @@ class TriageEnrichmentService:
                 logger.exception(
                     f"Failed to fetch DM conversation context for {channel_id}"
                 )
+
+        # Fetch learning signals (Phase 2)
+        try:
+            from app.db.models.triage import SenderActionDistribution
+            from app.services.learned_example_retriever import LearnedExampleRetriever
+            from app.services.topic_affinity_service import TopicAffinityService
+
+            # Few-shot examples from past corrections
+            example_retriever = LearnedExampleRetriever(self.db)
+            payload.few_shot_examples = await example_retriever.retrieve_examples(
+                user_id=user_id,
+                channel_id=channel_id if event_type == "channel" else None,
+                sender_slack_id=sender_slack_id,
+                message_text=message_text,
+                top_k=3,
+            )
+
+            # Sender action distribution for this channel
+            if event_type == "channel":
+                dist_result = await self.db.execute(
+                    select(SenderActionDistribution).where(
+                        SenderActionDistribution.user_id == user_id,
+                        SenderActionDistribution.sender_slack_id == sender_slack_id,
+                        SenderActionDistribution.channel_id == channel_id,
+                    )
+                )
+                dist = dist_result.scalar_one_or_none()
+                if dist:
+                    payload.sender_action_distribution = {
+                        "notify_now": dist.action_distribution.get("notify_now", 0),
+                        "summarize_next": dist.action_distribution.get("summarize_next", 0),
+                        "summarize_eod": dist.action_distribution.get("summarize_eod", 0),
+                        "ignore": dist.action_distribution.get("ignore", 0),
+                        "sample_count": dist.sample_count,
+                    }
+
+            # Topic biases
+            topic_service = TopicAffinityService(self.db)
+            biases = await topic_service.get_biases(user_id)
+            payload.topic_biases = [
+                {"keyword": b.keyword, "weight": b.weight}
+                for b in biases
+                if b.weight > 0.1
+            ][:5]
+
+        except Exception:
+            logger.exception("Failed to fetch learning signals")
 
         return payload

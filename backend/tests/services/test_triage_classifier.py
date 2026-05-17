@@ -59,7 +59,7 @@ class TestClassifyDM:
 
         mock_provider = AsyncMock()
         mock_provider.generate.return_value = (
-            '{"priority": "review", "confidence": 0.8, '
+            '{"priority": "p1", "confidence": 0.8, '
             '"reason": "casual message", "abstract": "Asking about availability"}'
         )
 
@@ -69,7 +69,7 @@ class TestClassifyDM:
         ):
             result = await classifier.classify(payload)
 
-        assert result.priority == "review"
+        assert result.priority == "p1"
         assert result.confidence == 0.8
         mock_provider.generate.assert_called_once()
 
@@ -102,7 +102,9 @@ class TestClassifyChannel:
         ):
             result = await classifier.classify(payload)
 
-        assert result.priority == "review"
+        assert result.priority == "p2"
+        assert result.action == "summarize_eod"
+        assert result.review is True
         assert result.confidence == 0.3
 
 

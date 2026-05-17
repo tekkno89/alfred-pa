@@ -4,10 +4,14 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from app.core.config import get_settings
 from app.core.llm import LLMMessage, get_llm_provider
 from app.services.triage_enrichment import EnrichedTriagePayload
+
+if TYPE_CHECKING:
+    from app.services.learned_example_retriever import LearnedExample
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +105,18 @@ def _extract_fields_from_truncated(text: str) -> dict | None:
 
 
 @dataclass
+class ReasoningSignals:
+    """Structured reasoning behind classification."""
+
+    few_shot_examples: list["LearnedExample"] = field(default_factory=list)
+    sender_distribution: dict | None = None
+    topic_bias: list[str] = field(default_factory=list)
+    channel_rule: str | None = None
+    vip_sender: bool = False
+    confidence_threshold_met: bool = True
+
+
+@dataclass
 class ClassificationResult:
     """Result of classifying a message."""
 
@@ -110,6 +126,18 @@ class ClassificationResult:
     abstract: str
     review: bool = False
     keyword_matches: list[str] = field(default_factory=list)
+    reasoning_signals: ReasoningSignals = field(default_factory=ReasoningSignals)
+
+    @property
+    def priority(self) -> str:
+        """Map action to priority for backward compatibility."""
+        mapping = {
+            "notify_now": "p0",
+            "summarize_next": "p1",
+            "summarize_eod": "p2",
+            "ignore": "p3",
+        }
+        return mapping.get(self.action, "p2")
 
 
 class TriageClassifier:
@@ -158,11 +186,17 @@ class TriageClassifier:
     ) -> ClassificationResult:
         """Classify a channel message."""
         if payload.channel_priority == "critical":
+            reasoning_signals = ReasoningSignals(
+                channel_rule="critical_channel",
+                vip_sender=payload.is_vip,
+                confidence_threshold_met=True,
+            )
             return ClassificationResult(
                 action="notify_now",
                 confidence=0.9,
                 reason=f"Channel #{payload.channel_name} is set to critical priority",
                 abstract=f"Message in critical channel #{payload.channel_name}",
+                reasoning_signals=reasoning_signals,
             )
 
         return await self._llm_classify(payload, path="channel")
@@ -198,6 +232,31 @@ class TriageClassifier:
         if payload.dm_conversation_context:
             dm_context = f"\n\n{payload.dm_conversation_context}"
 
+        # Build few-shot examples from learned corrections
+        few_shot_context = ""
+        if payload.few_shot_examples:
+            examples_text = []
+            for ex in payload.few_shot_examples[:3]:
+                reason_text = f" (User said: {ex.feedback_reason})" if ex.feedback_reason else ""
+                examples_text.append(
+                    f'- Similar message: "{ex.original_abstract}" → {ex.correct_action}{reason_text}'
+                )
+            few_shot_context = "\n\n**Similar past corrections** (learn from these):\n" + "\n".join(examples_text)
+
+        # Build sender distribution context
+        sender_dist_context = ""
+        if payload.sender_action_distribution:
+            dist = payload.sender_action_distribution
+            if dist.get("sample_count", 0) >= 2:
+                sender_dist_context = f"\n\n**Sender's past messages in this channel** typically classified as: {dist}"
+
+        # Build topic bias context
+        topic_bias_context = ""
+        if payload.topic_biases:
+            positive_topics = [t for t in payload.topic_biases if t.get("weight", 0) > 0.1]
+            if positive_topics:
+                topic_bias_context = f"\n\n**Topics you care about**: {', '.join(t['keyword'] for t in positive_topics[:5])}"
+
         system_prompt = f"""You are a message triage classifier. Classify a Slack message into one of the following ACTIONS.
 
 Actions (what Alfred should DO with this message):
@@ -231,7 +290,7 @@ DO NOT summarize all previous messages. ONLY use context that is directly releva
 
 Sensitivity: {self.sensitivity}
 {sensitivity_guidance.get(self.sensitivity, sensitivity_guidance["medium"])}
-{vip_context}{thread_context}{dm_context}
+{vip_context}{thread_context}{dm_context}{few_shot_context}{sender_dist_context}{topic_bias_context}
 
 Context:
 - Message type: {path}
@@ -290,12 +349,21 @@ Channel-specific triage instructions (follow these):
                 if conf < 0.6:
                     review_flag = True
 
+            reasoning_signals = ReasoningSignals(
+                few_shot_examples=payload.few_shot_examples,
+                sender_distribution=payload.sender_action_distribution,
+                topic_bias=payload.topic_biases,
+                vip_sender=payload.is_vip,
+                confidence_threshold_met=conf >= 0.6 if result.get("confidence") else True,
+            )
+
             return ClassificationResult(
                 action=action,
                 confidence=min(1.0, max(0.0, float(result.get("confidence", 0.5)))),
                 reason=result.get("reason", "LLM classification"),
                 abstract=result.get("abstract", "Message classified by AI"),
                 review=review_flag,
+                reasoning_signals=reasoning_signals,
             )
 
         except Exception:
@@ -303,10 +371,18 @@ Channel-specific triage instructions (follow these):
                 "LLM classification failed (raw response: %r), defaulting to summarize_eod",
                 response if "response" in dir() else "N/A",
             )
+            reasoning_signals = ReasoningSignals(
+                few_shot_examples=payload.few_shot_examples,
+                sender_distribution=payload.sender_action_distribution,
+                topic_bias=payload.topic_biases,
+                vip_sender=payload.is_vip,
+                confidence_threshold_met=False,
+            )
             return ClassificationResult(
                 action="summarize_eod",
                 confidence=0.3,
                 reason="LLM classification failed, defaulting to summarize_eod",
                 abstract="Message pending review (classification error)",
                 review=True,
+                reasoning_signals=reasoning_signals,
             )
