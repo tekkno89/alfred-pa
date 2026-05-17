@@ -390,3 +390,30 @@ class TopicAffinity(Base, UUIDMixin, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<TopicAffinity(user={self.user_id}, keyword={self.keyword}, weight={self.weight})>"
+
+
+class SuppressedDelivery(Base, UUIDMixin, TimestampMixin):
+    """Record of a delivery suppressed by engagement check.
+
+    Used for counterfactual review: "would you have wanted to know sooner?"
+    Retained for 90 days.
+
+    Canonical cap: 10 suppressed items per user per day.
+    """
+
+    __tablename__ = "suppressed_deliveries"
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    message_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    original_action: Mapped[str] = mapped_column(String(20), nullable=False)
+    suppression_reason: Mapped[str] = mapped_column(String(50), nullable=False)
+    outcome_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_review_response: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    user: Mapped["User"] = relationship("User")
+
+    def __repr__(self) -> str:
+        return f"<SuppressedDelivery(user={self.user_id}, action={self.original_action})>"
