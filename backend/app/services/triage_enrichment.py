@@ -109,6 +109,7 @@ class EnrichedTriagePayload:
 
     # Enrichment fields
     sender_name: str = ""
+    is_bot: bool = False
     is_vip: bool = False
     focus_session_id: str | None = None
     focus_started_at: datetime | None = None
@@ -180,6 +181,7 @@ class TriageEnrichmentService:
         message_ts: str,
         thread_ts: str | None,
         message_text: str,
+        bot_id: str | None = None,
     ) -> EnrichedTriagePayload:
         """Build an enriched payload with all context for classification."""
         payload = EnrichedTriagePayload(
@@ -190,6 +192,7 @@ class TriageEnrichmentService:
             message_ts=message_ts,
             thread_ts=thread_ts,
             message_text=message_text,
+            is_bot=bool(bot_id),
         )
 
         # User settings

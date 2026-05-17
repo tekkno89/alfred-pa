@@ -145,11 +145,13 @@ async def process_triage_job(
     message_ts: str,
     thread_ts: str | None = None,
     message_text: str = "",
+    bot_id: str | None = None,
 ) -> dict:
     """
     Process a message through the triage pipeline.
 
     message_text is used in-memory only and never persisted.
+    bot_id is set for messages from bots/apps, used for short-circuit logic.
     """
     async with get_db_session() as db:
         from app.services.triage_pipeline import TriagePipeline
@@ -163,6 +165,7 @@ async def process_triage_job(
             message_ts=message_ts,
             thread_ts=thread_ts,
             message_text=message_text,
+            bot_id=bot_id,
         )
         logger.info(f"Triage pipeline complete for user={user_id} channel={channel_id}")
         return {"status": "processed", "user_id": user_id}

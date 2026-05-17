@@ -1,4 +1,37 @@
-"""Triage pipeline — processes messages through enrichment, classification, and delivery."""
+"""Triage pipeline — processes messages through enrichment, classification, and delivery.
+
+ARCHITECTURE NOTE: Bot Message Filtering
+========================================
+
+Bot messages are short-circuited in TriagePipeline.process(), NOT in TriageEventRouter.
+
+Why pipeline instead of router?
+- The router's job is to determine WHO receives the message (which users are in focus mode
+  or have is_always_on enabled). It enqueues ALL eligible messages.
+- The pipeline's job is to determine WHAT action to take. It has access to classification
+  logic and can short-circuit bot messages before expensive LLM calls.
+- This separation keeps responsibilities clear: routing vs. classification.
+
+Before this change:
+- Bot messages were filtered in TriageEventRouter._should_triage() by checking
+  event.get("bot_id") and returning False early.
+- This caused issues with focus mode: if a user was in focus mode and a bot sent a message,
+  the bot filter prevented the message from being enqueued at all, breaking focus mode
+  behavior for legitimate human messages in the same channel.
+
+After this change:
+- Bot messages ARE enqueued by the router (same as human messages).
+- The pipeline checks for bot_id and short-circuits to 'ignore' before LLM classification.
+- Users can configure explicit bot rules (e.g., notify_now for PagerDuty) via
+  ChannelSourceExclusion with entity_type='bot'.
+- Focus mode continues to work correctly for all messages.
+
+Expected behavior:
+1. Bot message arrives -> router enqueues it -> pipeline sees bot_id -> checks for
+   explicit rule -> if no rule, defaults to 'ignore' without LLM call.
+2. Human message arrives -> router enqueues it -> pipeline processes normally -> LLM
+   classification determines action.
+"""
 
 import logging
 
@@ -6,12 +39,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.triage import TriageClassification
 from app.db.repositories.triage import (
+    ChannelSourceExclusionRepository,
     TriageClassificationRepository,
     TriageUserSettingsRepository,
 )
 from app.services.notifications import NotificationService
 from app.services.slack import SlackService
-from app.services.triage_classifier import TriageClassifier
+from app.services.triage_classifier import ClassificationResult, TriageClassifier
 from app.services.triage_enrichment import TriageEnrichmentService
 
 logger = logging.getLogger(__name__)
@@ -38,6 +72,7 @@ class TriagePipeline:
         message_ts: str,
         thread_ts: str | None,
         message_text: str,
+        bot_id: str | None = None,
     ) -> None:
         """Process a single message through the triage pipeline.
 
@@ -53,21 +88,49 @@ class TriagePipeline:
             message_ts=message_ts,
             thread_ts=thread_ts,
             message_text=message_text,
+            bot_id=bot_id,
         )
 
         # Fetch settings once (used for filtering + debug mode)
         settings = await self.settings_repo.get_by_user_id(user_id)
 
-        # 2. Classify
-        classifier = TriageClassifier(
-            sensitivity=payload.sensitivity,
-            custom_classification_rules=payload.custom_classification_rules,
-            p0_definition=payload.p0_definition,
-            p1_definition=payload.p1_definition,
-            p2_definition=payload.p2_definition,
-            p3_definition=payload.p3_definition,
-        )
-        result = await classifier.classify(payload)
+        # Bot short-circuit: check for explicit bot rules before LLM classification
+        if payload.is_bot and bot_id:
+            bot_rule_repo = ChannelSourceExclusionRepository(self.db)
+            bot_rule = await bot_rule_repo.get_bot_rule(
+                user_id=user_id, channel_id=channel_id, bot_id=bot_id
+            )
+
+            if bot_rule:
+                action = bot_rule.action
+                logger.info(
+                    f"Bot rule short-circuit: bot={bot_id} action={action} "
+                    f"user={user_id} channel={channel_id}"
+                )
+            else:
+                action = "ignore"
+                logger.info(
+                    f"Bot message ignored (no rule): bot={bot_id} "
+                    f"user={user_id} channel={channel_id}"
+                )
+
+            result = ClassificationResult(
+                action=action,
+                confidence=1.0,
+                reason="Bot short-circuit",
+                abstract="",
+            )
+        else:
+            # 2. Classify via LLM
+            classifier = TriageClassifier(
+                sensitivity=payload.sensitivity,
+                custom_classification_rules=payload.custom_classification_rules,
+                p0_definition=payload.p0_definition,
+                p1_definition=payload.p1_definition,
+                p2_definition=payload.p2_definition,
+                p3_definition=payload.p3_definition,
+            )
+            result = await classifier.classify(payload)
 
         # 3. Store classification (no message text)
         classification = TriageClassification(

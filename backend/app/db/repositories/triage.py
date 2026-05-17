@@ -123,6 +123,29 @@ class ChannelSourceExclusionRepository(BaseRepository[ChannelSourceExclusion]):
         )
         return list(result.scalars().all())
 
+    async def get_bot_rule(
+        self, user_id: str, channel_id: str, bot_id: str
+    ) -> ChannelSourceExclusion | None:
+        """Get bot rule for a specific bot in a channel.
+
+        Args:
+            user_id: The Alfred user ID
+            channel_id: Slack channel ID
+            bot_id: Slack bot ID (e.g., B12345)
+
+        Returns:
+            ChannelSourceExclusion if rule exists, None otherwise
+        """
+        result = await self.db.execute(
+            select(ChannelSourceExclusion)
+            .join(MonitoredChannel)
+            .where(ChannelSourceExclusion.user_id == user_id)
+            .where(MonitoredChannel.slack_channel_id == channel_id)
+            .where(ChannelSourceExclusion.slack_entity_id == bot_id)
+            .where(ChannelSourceExclusion.entity_type == "bot")
+        )
+        return result.scalar_one_or_none()
+
 
 class TriageClassificationRepository(BaseRepository[TriageClassification]):
     """Repository for TriageClassification CRUD operations."""

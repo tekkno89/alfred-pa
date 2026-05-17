@@ -42,9 +42,6 @@ class TriageEventRouter:
         text = event.get("text", "")
         bot_id = event.get("bot_id")
 
-        # Skip messages from bots by default (include overrides checked per-user later)
-        is_bot_message = bool(bot_id)
-
         is_dm = channel_id.startswith("D")
 
         if is_dm:
@@ -54,7 +51,7 @@ class TriageEventRouter:
                 message_ts=message_ts,
                 thread_ts=thread_ts,
                 text=text,
-                is_bot_message=is_bot_message,
+                bot_id=bot_id,
                 authorizations=authorizations or [],
             )
         else:
@@ -67,7 +64,7 @@ class TriageEventRouter:
                 message_ts=message_ts,
                 thread_ts=thread_ts,
                 text=text,
-                is_bot_message=is_bot_message,
+                bot_id=bot_id,
             )
 
     async def _route_dm(
@@ -77,7 +74,7 @@ class TriageEventRouter:
         message_ts: str,
         thread_ts: str | None,
         text: str,
-        is_bot_message: bool,
+        bot_id: str | None,
         authorizations: list[dict[str, Any]],
     ) -> None:
         """Route a DM to triage for the recipient."""
@@ -93,7 +90,7 @@ class TriageEventRouter:
             if not recipient:
                 continue
 
-            if await self._should_triage(recipient.id, is_bot_message):
+            if await self._should_triage(recipient.id):
                 await self._enqueue_triage(
                     user_id=recipient.id,
                     event_type="dm",
@@ -102,6 +99,7 @@ class TriageEventRouter:
                     message_ts=message_ts,
                     thread_ts=thread_ts,
                     text=text,
+                    bot_id=bot_id,
                 )
 
     async def _route_channel(
@@ -111,7 +109,7 @@ class TriageEventRouter:
         message_ts: str,
         thread_ts: str | None,
         text: str,
-        is_bot_message: bool,
+        bot_id: str | None,
     ) -> None:
         """Route a monitored channel message to triage for all monitoring users."""
         monitored = await self.channel_repo.get_users_for_channel(channel_id)
@@ -121,7 +119,7 @@ class TriageEventRouter:
             if user and user.slack_user_id == sender_slack_id:
                 continue
 
-            if await self._should_triage(mc.user_id, is_bot_message):
+            if await self._should_triage(mc.user_id):
                 await self._enqueue_triage(
                     user_id=mc.user_id,
                     event_type="channel",
@@ -130,9 +128,10 @@ class TriageEventRouter:
                     message_ts=message_ts,
                     thread_ts=thread_ts,
                     text=text,
+                    bot_id=bot_id,
                 )
 
-    async def _should_triage(self, user_id: str, is_bot_message: bool) -> bool:
+    async def _should_triage(self, user_id: str) -> bool:
         """Check if triage should run for this user.
 
         Triage is active when:
@@ -147,10 +146,6 @@ class TriageEventRouter:
         if not in_focus and not settings.is_always_on:
             return False
 
-        # Default: skip bot messages (per-user include overrides checked in pipeline)
-        if is_bot_message:
-            return False
-
         return True
 
     async def _enqueue_triage(
@@ -162,6 +157,7 @@ class TriageEventRouter:
         message_ts: str,
         thread_ts: str | None,
         text: str,
+        bot_id: str | None = None,
     ) -> None:
         """Enqueue an ARQ job to process this message through the triage pipeline."""
         try:
@@ -177,6 +173,7 @@ class TriageEventRouter:
                 message_ts=message_ts,
                 thread_ts=thread_ts,
                 message_text=text,
+                bot_id=bot_id,
             )
             logger.debug(
                 f"Enqueued triage job for user={user_id} "
