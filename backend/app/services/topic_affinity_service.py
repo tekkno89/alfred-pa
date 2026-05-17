@@ -6,7 +6,7 @@ store as per-user weighted lists with source tracking for audit.
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import delete, select
@@ -16,7 +16,7 @@ from app.core.llm import LLMMessage, get_llm_provider
 from app.db.models.triage import TopicAffinity
 
 if TYPE_CHECKING:
-    from app.core.config import Settings
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,7 @@ class TopicAffinityService:
                 # Update weight with decay
                 new_weight = existing.weight * 0.9 + weight_delta  # 10% decay
                 existing.weight = max(-1.0, min(1.0, new_weight))  # Clamp
-                existing.last_updated = datetime.utcnow()
+                existing.last_updated = datetime.now(UTC)
             else:
                 # Create new keyword
                 affinity = TopicAffinity(
@@ -144,7 +144,7 @@ class TopicAffinityService:
         biases = []
         for affinity in affinities:
             # Apply temporal decay
-            age_days = (datetime.utcnow() - affinity.last_updated).days
+            age_days = (datetime.now(UTC) - affinity.last_updated).days
             decay_factor = 0.5 ** (age_days / HALF_LIFE_DAYS)
             decayed_weight = affinity.weight * decay_factor
 
