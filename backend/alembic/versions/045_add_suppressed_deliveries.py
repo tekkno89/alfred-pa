@@ -14,9 +14,6 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Drop existing table with different schema (if exists)
-    op.execute('DROP TABLE IF EXISTS suppressed_deliveries CASCADE')
-    
     op.create_table(
         'suppressed_deliveries',
         sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True),
