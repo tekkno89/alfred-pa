@@ -8,6 +8,7 @@ from arq.connections import RedisSettings
 from app.core.config import get_settings
 from app.worker.tasks import (
     check_due_todo_reminders,
+    check_escalations,
     cleanup_expired_classifications,
     cleanup_orphaned_focus_items,
     cleanup_slack_message_cache,
@@ -105,6 +106,7 @@ class WorkerSettings:
         update_user_channel_participation,
         update_channel_summaries,
         cleanup_slack_message_cache,
+        check_escalations,
     ]
 
     # Cron jobs (optional - for periodic cleanup as backup)

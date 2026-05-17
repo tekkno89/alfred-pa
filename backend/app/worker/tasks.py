@@ -690,3 +690,45 @@ async def cleanup_slack_message_cache(ctx: dict) -> dict:
 
         logger.info(f"Deleted {total_deleted} expired Slack message cache rows")
         return {"status": "complete", "deleted_count": total_deleted}
+
+
+async def check_escalations(ctx: dict, user_id: str) -> dict:
+    """
+    Check for escalation patterns and promote summarize_next → notify_now.
+
+    Patterns detected:
+    - Multi-ping: Same sender messages 2+ times within 5 minutes
+    - Thread acceleration: ≥5 new messages in 10 minutes (Phase 3 placeholder)
+
+    Runs every 5 minutes per user with active triage.
+    """
+    async with get_db_session() as db:
+        from app.services.escalation_detector import EscalationDetector
+        from app.services.slack import SlackService
+
+        detector = EscalationDetector(db)
+        slack = SlackService()
+        since = datetime.utcnow() - timedelta(minutes=30)
+
+        triggers = await detector.detect_escalations(user_id, since)
+
+        if not triggers:
+            return {"status": "no_escalations", "user_id": user_id}
+
+        promoted_count = 0
+        for trigger in triggers[:5]:
+            if await detector.evaluate_escalation(trigger, slack):
+                promoted = await detector.promote_to_notify_now(
+                    trigger.classification_id,
+                    trigger.reason,
+                )
+                if promoted:
+                    promoted_count += 1
+
+        logger.info(f"Escalation check for {user_id}: {promoted_count}/{len(triggers)} promoted")
+        return {
+            "status": "complete",
+            "user_id": user_id,
+            "triggers_found": len(triggers),
+            "promoted_count": promoted_count,
+        }
