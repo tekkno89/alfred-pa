@@ -183,7 +183,8 @@ class TestUpdateAffinity:
 
 class TestGetBiases:
     async def test_get_biases_with_decay(self, service, mock_db):
-        now = datetime.utcnow()
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
         affinity1 = TopicAffinity(
             user_id="user-123",
             keyword="python",
@@ -214,7 +215,8 @@ class TestGetBiases:
         assert biases[1].weight == pytest.approx(-0.5, abs=0.01)
 
     async def test_get_biases_filters_low_weight(self, service, mock_db):
-        now = datetime.utcnow()
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
         affinity = TopicAffinity(
             user_id="user-123",
             keyword="python",
