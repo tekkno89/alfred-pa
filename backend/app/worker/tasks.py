@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 from app.core.config import get_settings
 from app.db.repositories import FocusModeStateRepository
+from app.db.repositories.triage import TriageUserSettingsRepository
 from app.db.session import async_session_maker
 
 logger = logging.getLogger(__name__)
@@ -261,11 +262,12 @@ async def auto_enroll_user_channels(ctx: dict) -> dict:
     - Remove channels user has left
     - Set default priority (private=high, public=medium)
     """
+    from sqlalchemy import select
+
     from app.db.models.triage import MonitoredChannel, TriageUserSettings
     from app.db.repositories.triage import MonitoredChannelRepository
     from app.services.slack_user import SlackUserService
     from app.services.triage_cache import TriageCacheService
-    from sqlalchemy import select
 
     async with get_db_session() as db:
         # Get all users with triage enabled
@@ -290,8 +292,9 @@ async def auto_enroll_user_channels(ctx: dict) -> dict:
                     continue
 
                 # Fetch user's channels (public + private)
-                from app.services.slack import _paginate_conversations
                 from slack_sdk.web.async_client import AsyncWebClient
+
+                from app.services.slack import _paginate_conversations
 
                 client = AsyncWebClient(token=user_token)
 
@@ -373,9 +376,10 @@ async def update_user_channel_participation(ctx: dict) -> dict:
     """
     Daily cron: update channel participation data for all Slack-connected users.
     """
+    from sqlalchemy import select
+
     from app.db.models.oauth_token import UserOAuthToken
     from app.services.channel_intelligence import ChannelIntelligenceService
-    from sqlalchemy import select
 
     async with get_db_session() as db:
         result = await db.execute(
@@ -732,3 +736,94 @@ async def check_escalations(ctx: dict, user_id: str) -> dict:
             "triggers_found": len(triggers),
             "promoted_count": promoted_count,
         }
+
+
+async def check_delivery_triggers(ctx: dict) -> dict:
+    """
+    Cron job: Check delivery triggers for all users with pending items.
+
+    Runs every 5 minutes to check:
+    - Calendar end triggers (meeting just ended)
+    - Stale queue triggers (items > 30 min old)
+    - Idle detection (placeholder)
+    """
+    from app.services.digest_delivery_orchestrator import DigestDeliveryOrchestrator
+
+    async with get_db_session() as db:
+        orchestrator = DigestDeliveryOrchestrator(db)
+        user_ids = await orchestrator.get_users_with_pending_items()
+
+    triggered_count = 0
+    delivered_count = 0
+
+    for user_id in user_ids:
+        try:
+            async with get_db_session() as db:
+                orchestrator = DigestDeliveryOrchestrator(db)
+                trigger = await orchestrator.check_triggers(user_id)
+
+                if trigger:
+                    triggered_count += 1
+                    result = await orchestrator.deliver_summarize_next(
+                        user_id, trigger
+                    )
+                    if result.get("status") == "enqueued":
+                        delivered_count += 1
+
+        except Exception as e:
+            logger.error(f"Error checking delivery triggers for user {user_id}: {e}")
+
+    logger.info(
+        f"Delivery trigger check complete: {triggered_count} triggered, "
+        f"{delivered_count} delivered for {len(user_ids)} users"
+    )
+    return {
+        "status": "complete",
+        "users_checked": len(user_ids),
+        "triggered_count": triggered_count,
+        "delivered_count": delivered_count,
+    }
+
+
+async def deliver_eod_digests(ctx: dict) -> dict:
+    """
+    Cron job: Deliver EOD digests at configured times.
+
+    Runs every 5 minutes to check each user's EOD review time
+    and deliver if it matches current time in their timezone.
+    """
+    from app.services.digest_delivery_orchestrator import DigestDeliveryOrchestrator
+    from app.services.timezone import get_current_time_in_tz, get_user_timezone
+
+    async with get_db_session() as db:
+        settings_repo = TriageUserSettingsRepository(db)
+        all_settings = await settings_repo.get_all_always_on()
+
+    delivered_count = 0
+
+    for settings in all_settings:
+        try:
+            user_id = settings.user_id
+            if not settings.eod_review_time:
+                continue
+
+            user_tz = await get_user_timezone(db, user_id)
+            now_local = get_current_time_in_tz(user_tz)
+            current_time = now_local.strftime("%H:%M")
+
+            if current_time == settings.eod_review_time:
+                async with get_db_session() as db:
+                    orchestrator = DigestDeliveryOrchestrator(db)
+                    result = await orchestrator.deliver_eod_digest(user_id)
+                    if result.get("status") == "enqueued":
+                        delivered_count += 1
+
+        except Exception as e:
+            logger.error(f"Error delivering EOD digest for user {settings.user_id}: {e}")
+
+    logger.info(f"EOD digest check complete: {delivered_count} delivered")
+    return {
+        "status": "complete",
+        "delivered_count": delivered_count,
+        "users_checked": len(all_settings),
+    }

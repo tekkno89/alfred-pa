@@ -7,11 +7,13 @@ from arq.connections import RedisSettings
 
 from app.core.config import get_settings
 from app.worker.tasks import (
+    check_delivery_triggers,
     check_due_todo_reminders,
     check_escalations,
     cleanup_expired_classifications,
     cleanup_orphaned_focus_items,
     cleanup_slack_message_cache,
+    deliver_eod_digests,
     expire_focus_session,
     process_triage_job,
     refresh_slack_channel_cache,
@@ -107,6 +109,8 @@ class WorkerSettings:
         update_channel_summaries,
         cleanup_slack_message_cache,
         check_escalations,
+        check_delivery_triggers,
+        deliver_eod_digests,
     ]
 
     # Cron jobs (optional - for periodic cleanup as backup)
@@ -153,6 +157,14 @@ class WorkerSettings:
             cleanup_orphaned_focus_items,
             hour={4},
             minute={0},  # Daily at 4 AM UTC
+        ),
+        cron(
+            check_delivery_triggers,
+            minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},  # Every 5 minutes
+        ),
+        cron(
+            deliver_eod_digests,
+            minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},  # Every 5 minutes
         ),
     ]
 
