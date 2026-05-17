@@ -76,7 +76,6 @@ class TestLearnedExampleRetriever:
     async def test_retrieve_examples_returns_learned_examples(self, retriever, mock_db):
         """retrieve_examples should return LearnedExample objects."""
         mock_feedback_emb = MagicMock()
-        mock_feedback_emb.embedding_vector.cosine_distance.return_value = 0.2
 
         mock_feedback = MagicMock()
         mock_feedback.correct_action = "notify_now"
@@ -87,7 +86,7 @@ class TestLearnedExampleRetriever:
 
         mock_result = MagicMock()
         mock_result.all.return_value = [
-            (mock_feedback_emb, mock_feedback, mock_classification)
+            (mock_feedback_emb, mock_feedback, mock_classification, 0.8)
         ]
         mock_db.execute.return_value = mock_result
 
@@ -110,6 +109,7 @@ class TestLearnedExampleRetriever:
             assert examples[0].correct_action == "notify_now"
             assert examples[0].feedback_reason == "This was urgent"
             assert examples[0].original_abstract == "Test abstract"
+            assert examples[0].similarity == 0.8
 
     @pytest.mark.asyncio
     async def test_store_correction_embedding(self, retriever, mock_db):

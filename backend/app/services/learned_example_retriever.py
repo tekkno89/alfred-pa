@@ -71,11 +71,13 @@ class LearnedExampleRetriever:
         embedding_provider = get_embedding_provider()
         embedding = await embedding_provider.embed_text(message_text)
 
+        distance_expr = FeedbackEmbedding.embedding_vector.cosine_distance(embedding)
         query = (
             select(
                 FeedbackEmbedding,
                 TriageFeedback,
                 TriageClassification,
+                (1 - distance_expr).label("similarity"),
             )
             .join(
                 TriageFeedback,
@@ -88,8 +90,8 @@ class LearnedExampleRetriever:
             .where(TriageFeedback.user_id == user_id)
             .where(TriageFeedback.was_correct.is_(False))
             .where(TriageFeedback.correct_action.isnot(None))
-            .order_by(FeedbackEmbedding.embedding_vector.cosine_distance(embedding))
-            .limit(top_k * 2)
+            .order_by(distance_expr)
+            .limit(top_k)
         )
 
         if channel_id:
@@ -103,15 +105,14 @@ class LearnedExampleRetriever:
         rows = result.all()
 
         examples = []
-        for row in rows[:top_k]:
-            feedback_emb, feedback, classification = row
-            similarity = 1.0 - feedback_emb.embedding_vector.cosine_distance(embedding)
+        for row in rows:
+            feedback_emb, feedback, classification, similarity = row
             examples.append(
                 LearnedExample(
                     original_abstract=classification.abstract or "Message",
                     correct_action=feedback.correct_action or "summarize_next",
                     feedback_reason=feedback.feedback_text,
-                    similarity=similarity,
+                    similarity=float(similarity),
                 )
             )
 

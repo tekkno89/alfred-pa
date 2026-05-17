@@ -46,6 +46,12 @@ def upgrade() -> None:
         )
 
     op.execute(
+        "ALTER TABLE feedback_embeddings "
+        "ALTER COLUMN embedding_vector TYPE vector(768) "
+        "USING embedding_vector::vector(768)"
+    )
+
+    op.execute(
         "CREATE INDEX IF NOT EXISTS feedback_embeddings_embedding_vector_idx "
         "ON feedback_embeddings USING ivfflat (embedding_vector vector_cosine_ops) "
         "WITH (lists = 100)"
@@ -53,7 +59,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("triage_feedback", "correct_action")
     op.execute(
         "DROP INDEX IF EXISTS feedback_embeddings_embedding_vector_idx"
     )
+    op.execute(
+        "ALTER TABLE feedback_embeddings "
+        "ALTER COLUMN embedding_vector TYPE double precision[] "
+        "USING embedding_vector::double precision[]"
+    )
+    op.drop_column("triage_feedback", "correct_action")
