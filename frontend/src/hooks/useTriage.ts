@@ -24,6 +24,9 @@ import type {
   CalibrationMessage,
   CalibrateGenerateRequest,
   FetchMessageByLinkRequest,
+  AwayModeToggleRequest,
+  AwayModeToggleResponse,
+  AwayModeConfigureRequest,
 } from '@/types'
 
 // --- Settings ---
@@ -359,5 +362,37 @@ export function useGenerateDefinitionsFromCalibration() {
         '/triage/settings/calibrate/generate',
         data
       ),
+  })
+}
+
+// --- Away Mode ---
+
+export function useToggleAwayMode() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: AwayModeToggleRequest) =>
+      apiPost<AwayModeToggleResponse, AwayModeToggleRequest>(
+        '/triage/away-mode/toggle',
+        data
+      ),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['triage-settings'], (old: TriageSettings | undefined) =>
+        old ? { ...old, away_mode_enabled: data.enabled } : old
+      )
+    },
+  })
+}
+
+export function useConfigureAwayMode() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: AwayModeConfigureRequest) =>
+      apiPost<TriageSettings, AwayModeConfigureRequest>(
+        '/triage/away-mode/configure',
+        data
+      ),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['triage-settings'], data)
+    },
   })
 }

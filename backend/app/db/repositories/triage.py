@@ -346,6 +346,18 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         )
         await self.db.flush()
 
+    async def clear_queued_for_digest(self, ids: list[str], user_id: str) -> None:
+        """Clear queued_for_digest flag for the given classification IDs."""
+        if not ids:
+            return
+        await self.db.execute(
+            update(TriageClassification)
+            .where(TriageClassification.id.in_(ids))
+            .where(TriageClassification.user_id == user_id)
+            .values(queued_for_digest=False)
+        )
+        await self.db.flush()
+
     async def delete_expired(self, user_id: str, retention_days: int) -> int:
         """Delete classifications older than retention_days. Returns count deleted."""
         cutoff = datetime.utcnow() - timedelta(days=retention_days)

@@ -831,6 +831,11 @@ export interface TriageSettings {
   p1_alerts_enabled: boolean
   p2_alerts_enabled: boolean
   p3_alerts_enabled: boolean
+  eod_review_time: string
+  notify_now_degrade_minutes: number
+  away_mode_enabled: boolean
+  away_mode_notify_now_behavior: 'push_immediately' | 'queue_for_catchup'
+  product_mode: 'always_on' | 'focus_only' | 'disabled'
 }
 
 export interface TriageSettingsUpdate {
@@ -864,6 +869,11 @@ export interface TriageSettingsUpdate {
   p1_alerts_enabled?: boolean
   p2_alerts_enabled?: boolean
   p3_alerts_enabled?: boolean
+  eod_review_time?: string
+  notify_now_degrade_minutes?: number
+  away_mode_enabled?: boolean
+  away_mode_notify_now_behavior?: 'push_immediately' | 'queue_for_catchup' | null
+  product_mode?: 'always_on' | 'focus_only' | 'disabled' | null
 }
 
 export interface MonitoredChannel {
@@ -1084,4 +1094,18 @@ export interface SampleMessagesRequest {
 
 export interface FetchMessageByLinkRequest {
   permalink: string
+}
+
+// Away Mode
+export interface AwayModeToggleRequest {
+  enabled: boolean
+}
+
+export interface AwayModeToggleResponse {
+  enabled: boolean
+  queued_count: number
+}
+
+export interface AwayModeConfigureRequest {
+  notify_now_behavior: 'push_immediately' | 'queue_for_catchup'
 }

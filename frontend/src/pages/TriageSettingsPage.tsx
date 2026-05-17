@@ -28,6 +28,7 @@ import {
 import { useNotificationContext } from '@/components/notifications/NotificationProvider'
 import { ClassifierWizardModal } from '@/components/triage/ClassifierWizardModal'
 import { ChannelConfigModal } from '@/components/triage/ChannelConfigModal'
+import { AwayModeToggle } from '@/components/triage/AwayModeToggle'
 import { useAuthStore } from '@/lib/auth'
 import type { MonitoredChannel, ChannelPriority } from '@/types'
 
@@ -231,6 +232,10 @@ export function TriageSettingsPage() {
                 updateSettings.mutate({ debug_mode: checked })
               }
             />
+          </div>
+
+          <div className="border-t pt-4">
+            <AwayModeToggle />
           </div>
         </CardContent>
       </Card>
