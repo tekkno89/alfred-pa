@@ -5,12 +5,11 @@ store as per-user weighted lists with source tracking for audit.
 """
 
 import logging
-import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm import LLMMessage, get_llm_provider
@@ -22,7 +21,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 HALF_LIFE_DAYS = 30
-MAX_KEYWORDS_PER_USER = 500
 
 
 @dataclass
