@@ -21,6 +21,7 @@ from app.db.models.triage import (
     SenderActionDistribution,
     SenderBehaviorModel,
     SlackChannelCache,
+    TopicAffinity,
     TriageClassification,
     TriageFeedback,
     TriageUserSettings,
@@ -65,4 +66,5 @@ __all__ = [
     "SlackChannelSummary",
     "CodingJob",
     "UserRepo",
+    "TopicAffinity",
 ]

@@ -358,3 +358,35 @@ class SenderActionDistribution(Base, UUIDMixin, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<SenderActionDistribution(sender={self.sender_slack_id}, channel={self.channel_id})>"
+
+
+class TopicAffinity(Base, UUIDMixin, TimestampMixin):
+    """Per-user topic keyword with weight and source tracking.
+
+    Derived data from message classification/correction.
+    No raw text stored - only extracted keywords.
+
+    Source categories for audit:
+    - 'public': learned from public non-sensitive channels
+    - 'sensitive': learned from sensitive-flagged public channels
+    - 'dm': learned from DMs
+    """
+
+    __tablename__ = "topic_affinities"
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    keyword: Mapped[str] = mapped_column(String(100), nullable=False)
+    weight: Mapped[float] = mapped_column(Float, nullable=False)
+    source_category: Mapped[str] = mapped_column(String(50), nullable=False)
+    last_updated: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    user: Mapped["User"] = relationship("User")
+
+    __table_args__ = (
+        {"comment": "UNIQUE(user_id, keyword) enforced via migration index"},
+    )
+
+    def __repr__(self) -> str:
+        return f"<TopicAffinity(user={self.user_id}, keyword={self.keyword}, weight={self.weight})>"
