@@ -58,6 +58,16 @@ class TriageSettingsUpdate(BaseModel):
     p2_alerts_enabled: bool | None = None
     p3_alerts_enabled: bool | None = None
 
+    eod_review_time: str | None = Field(None, max_length=10)
+    notify_now_degrade_minutes: int | None = Field(None, ge=1, le=1440)
+    away_mode_enabled: bool | None = None
+    away_mode_notify_now_behavior: str | None = Field(
+        None, pattern="^(push_immediately|queue_for_catchup)$"
+    )
+    product_mode: str | None = Field(
+        None, pattern="^(always_on|focus_only|disabled)$"
+    )
+
 
 class TriageSettingsResponse(BaseModel):
     """Response with triage settings."""
@@ -95,6 +105,12 @@ class TriageSettingsResponse(BaseModel):
     p1_alerts_enabled: bool = True
     p2_alerts_enabled: bool = True
     p3_alerts_enabled: bool = True
+
+    eod_review_time: str = "17:30"
+    notify_now_degrade_minutes: int = 240
+    away_mode_enabled: bool = False
+    away_mode_notify_now_behavior: str = "push_immediately"
+    product_mode: str = "always_on"
 
 
 # --- Monitored Channels ---

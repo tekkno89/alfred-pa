@@ -92,6 +92,22 @@ class TriageUserSettings(Base, UUIDMixin, TimestampMixin):
         Boolean, default=True, server_default="true"
     )
 
+    eod_review_time: Mapped[str] = mapped_column(
+        String(10), default="17:30", server_default="17:30"
+    )
+    notify_now_degrade_minutes: Mapped[int] = mapped_column(
+        Integer, default=240, server_default="240"
+    )
+    away_mode_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
+    away_mode_notify_now_behavior: Mapped[str] = mapped_column(
+        String(20), default="push_immediately", server_default="push_immediately"
+    )
+    product_mode: Mapped[str] = mapped_column(
+        String(20), default="always_on", server_default="always_on"
+    )
+
     # Relationships
     user: Mapped["User"] = relationship("User")
 

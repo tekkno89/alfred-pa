@@ -179,6 +179,110 @@ class TestTriageSettings:
         )
         assert response.status_code == 403
 
+    async def test_new_settings_defaults(self, client: AsyncClient, test_user):
+        """Test that new smart delivery settings have correct defaults."""
+        response = await client.get(
+            "/api/triage/settings",
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["eod_review_time"] == "17:30"
+        assert data["notify_now_degrade_minutes"] == 240
+        assert data["away_mode_enabled"] is False
+        assert data["away_mode_notify_now_behavior"] == "push_immediately"
+        assert data["product_mode"] == "always_on"
+
+    async def test_update_eod_review_time(self, client: AsyncClient, test_user):
+        """Test updating EOD review time."""
+        response = await client.patch(
+            "/api/triage/settings",
+            json={"eod_review_time": "18:00"},
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 200
+        assert response.json()["eod_review_time"] == "18:00"
+
+    async def test_update_notify_now_degrade_minutes(self, client: AsyncClient, test_user):
+        """Test updating notify_now degrade minutes."""
+        response = await client.patch(
+            "/api/triage/settings",
+            json={"notify_now_degrade_minutes": 120},
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 200
+        assert response.json()["notify_now_degrade_minutes"] == 120
+
+    async def test_notify_now_degrade_minutes_validation(
+        self, client: AsyncClient, test_user
+    ):
+        """Test notify_now_degrade_minutes must be between 1 and 1440."""
+        response = await client.patch(
+            "/api/triage/settings",
+            json={"notify_now_degrade_minutes": 0},
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 422
+
+        response = await client.patch(
+            "/api/triage/settings",
+            json={"notify_now_degrade_minutes": 1441},
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 422
+
+    async def test_update_away_mode_enabled(self, client: AsyncClient, test_user):
+        """Test updating away mode enabled."""
+        response = await client.patch(
+            "/api/triage/settings",
+            json={"away_mode_enabled": True},
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 200
+        assert response.json()["away_mode_enabled"] is True
+
+    async def test_away_mode_notify_now_behavior_validation(
+        self, client: AsyncClient, test_user
+    ):
+        """Test away_mode_notify_now_behavior must be a valid value."""
+        response = await client.patch(
+            "/api/triage/settings",
+            json={"away_mode_notify_now_behavior": "invalid"},
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 422
+
+    async def test_update_away_mode_notify_now_behavior(
+        self, client: AsyncClient, test_user
+    ):
+        """Test updating away mode notify_now behavior."""
+        response = await client.patch(
+            "/api/triage/settings",
+            json={"away_mode_notify_now_behavior": "queue_for_catchup"},
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 200
+        assert response.json()["away_mode_notify_now_behavior"] == "queue_for_catchup"
+
+    async def test_product_mode_validation(self, client: AsyncClient, test_user):
+        """Test product_mode must be a valid value."""
+        response = await client.patch(
+            "/api/triage/settings",
+            json={"product_mode": "invalid"},
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 422
+
+    async def test_update_product_mode(self, client: AsyncClient, test_user):
+        """Test updating product mode."""
+        response = await client.patch(
+            "/api/triage/settings",
+            json={"product_mode": "focus_only"},
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 200
+        assert response.json()["product_mode"] == "focus_only"
+
 
 # --- Monitored Channels ---
 
