@@ -237,3 +237,188 @@ class TestResolveUserName:
         result = await resolve_user_name(mock_slack, mock_redis, "U123")
 
         assert result == "U123"
+
+
+class TestLearningSignalsEnrichment:
+    """Tests for learning signal fetching in enrich method."""
+
+    @pytest.mark.asyncio
+    async def test_few_shot_examples_populated(self):
+        """enrich should populate few_shot_examples from LearnedExampleRetriever."""
+        from unittest.mock import MagicMock, patch
+        from app.services.triage_enrichment import TriageEnrichmentService
+        from app.services.learned_example_retriever import LearnedExample
+
+        mock_db = AsyncMock()
+        service = TriageEnrichmentService(mock_db)
+
+        mock_db.execute = AsyncMock(return_value=MagicMock(scalar_one_or_none=lambda: None))
+
+        mock_example = LearnedExample(
+            original_abstract="Test",
+            correct_action="notify_now",
+            feedback_reason="Urgent",
+            similarity=0.9,
+        )
+
+        with patch(
+            "app.services.learned_example_retriever.LearnedExampleRetriever"
+        ) as mock_retriever_class:
+            mock_retriever = AsyncMock()
+            mock_retriever.retrieve_examples = AsyncMock(return_value=[mock_example])
+            mock_retriever_class.return_value = mock_retriever
+
+            with patch(
+                "app.services.topic_affinity_service.TopicAffinityService"
+            ) as mock_topic_class:
+                mock_topic = AsyncMock()
+                mock_topic.get_biases = AsyncMock(return_value=[])
+                mock_topic_class.return_value = mock_topic
+
+                payload = await service.enrich(
+                    user_id="u1",
+                    event_type="channel",
+                    channel_id="C123",
+                    sender_slack_id="U123",
+                    message_ts="1234567890.123456",
+                    thread_ts=None,
+                    message_text="Test message",
+                )
+
+                assert len(payload.few_shot_examples) == 1
+                assert payload.few_shot_examples[0].correct_action == "notify_now"
+
+    @pytest.mark.asyncio
+    async def test_sender_distribution_populated(self):
+        """enrich should populate sender_action_distribution from SenderActionDistribution."""
+        from unittest.mock import MagicMock, patch
+        from app.services.triage_enrichment import TriageEnrichmentService
+
+        mock_db = AsyncMock()
+        service = TriageEnrichmentService(mock_db)
+
+        mock_dist = MagicMock()
+        mock_dist.sample_count = 15
+        mock_dist.action_distribution = {
+            "notify_now": 0.5,
+            "summarize_next": 0.3,
+            "summarize_eod": 0.1,
+            "ignore": 0.1,
+        }
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_dist
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        with patch(
+            "app.services.learned_example_retriever.LearnedExampleRetriever"
+        ) as mock_retriever_class:
+            mock_retriever = AsyncMock()
+            mock_retriever.retrieve_examples = AsyncMock(return_value=[])
+            mock_retriever_class.return_value = mock_retriever
+
+            with patch(
+                "app.services.topic_affinity_service.TopicAffinityService"
+            ) as mock_topic_class:
+                mock_topic = AsyncMock()
+                mock_topic.get_biases = AsyncMock(return_value=[])
+                mock_topic_class.return_value = mock_topic
+
+                payload = await service.enrich(
+                    user_id="u1",
+                    event_type="channel",
+                    channel_id="C123",
+                    sender_slack_id="U123",
+                    message_ts="1234567890.123456",
+                    thread_ts=None,
+                    message_text="Test message",
+                )
+
+                assert payload.sender_action_distribution is not None
+                assert payload.sender_action_distribution["notify_now"] == 0.5
+
+    @pytest.mark.asyncio
+    async def test_topic_biases_populated(self):
+        """enrich should populate topic_biases from TopicAffinityService."""
+        from unittest.mock import MagicMock, patch
+        from app.services.triage_enrichment import TriageEnrichmentService
+        from app.services.topic_affinity_service import KeywordBias
+
+        mock_db = AsyncMock()
+        service = TriageEnrichmentService(mock_db)
+
+        mock_db.execute = AsyncMock(return_value=MagicMock(scalar_one_or_none=lambda: None))
+
+        mock_bias = KeywordBias(
+            keyword="urgent",
+            weight=0.8,
+            source_category="public",
+        )
+
+        with patch(
+            "app.services.learned_example_retriever.LearnedExampleRetriever"
+        ) as mock_retriever_class:
+            mock_retriever = AsyncMock()
+            mock_retriever.retrieve_examples = AsyncMock(return_value=[])
+            mock_retriever_class.return_value = mock_retriever
+
+            with patch(
+                "app.services.topic_affinity_service.TopicAffinityService"
+            ) as mock_topic_class:
+                mock_topic = AsyncMock()
+                mock_topic.get_biases = AsyncMock(return_value=[mock_bias])
+                mock_topic_class.return_value = mock_topic
+
+                payload = await service.enrich(
+                    user_id="u1",
+                    event_type="channel",
+                    channel_id="C123",
+                    sender_slack_id="U123",
+                    message_ts="1234567890.123456",
+                    thread_ts=None,
+                    message_text="Test message",
+                )
+
+                assert len(payload.topic_biases) == 1
+                assert payload.topic_biases[0]["keyword"] == "urgent"
+
+    @pytest.mark.asyncio
+    async def test_learning_signals_default_on_exception(self):
+        """enrich should default learning signals to empty/None on exception."""
+        from unittest.mock import MagicMock, patch
+        from app.services.triage_enrichment import TriageEnrichmentService
+
+        mock_db = AsyncMock()
+        service = TriageEnrichmentService(mock_db)
+
+        mock_settings_result = MagicMock()
+        mock_settings_result.scalar_one_or_none.return_value = None
+        mock_db.execute = AsyncMock(return_value=mock_settings_result)
+
+        with patch(
+            "app.services.learned_example_retriever.LearnedExampleRetriever"
+        ) as mock_retriever_class:
+            mock_retriever = AsyncMock()
+            mock_retriever.retrieve_examples = AsyncMock(side_effect=Exception("Error"))
+            mock_retriever_class.return_value = mock_retriever
+
+            with patch(
+                "app.services.topic_affinity_service.TopicAffinityService"
+            ) as mock_topic_class:
+                mock_topic = AsyncMock()
+                mock_topic.get_biases = AsyncMock(side_effect=Exception("Error"))
+                mock_topic_class.return_value = mock_topic
+
+                payload = await service.enrich(
+                    user_id="u1",
+                    event_type="channel",
+                    channel_id="C123",
+                    sender_slack_id="U123",
+                    message_ts="1234567890.123456",
+                    thread_ts=None,
+                    message_text="Test message",
+                )
+
+                assert payload.few_shot_examples == []
+                assert payload.sender_action_distribution is None
+                assert payload.topic_biases == []
