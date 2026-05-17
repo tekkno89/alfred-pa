@@ -417,3 +417,53 @@ class SuppressedDelivery(Base, UUIDMixin, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<SuppressedDelivery(user={self.user_id}, action={self.original_action})>"
+
+
+class MessageType(Base, UUIDMixin, TimestampMixin):
+    """Per-user message type category.
+
+    Types are user-defined or wizard-suggested.
+    Cap: 15 active (non-archived) types per user.
+    """
+
+    __tablename__ = "message_types"
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    type_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    type_definition: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(String(20), nullable=False)
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    user: Mapped["User"] = relationship("User")
+
+    __table_args__ = (
+        {"comment": "UNIQUE(user_id, type_name) enforced via migration index"},
+    )
+
+    def __repr__(self) -> str:
+        return f"<MessageType(user={self.user_id}, name={self.type_name})>"
+
+
+class ChannelTypeRule(Base, UUIDMixin, TimestampMixin):
+    """Per-(user, channel, type) action mapping (R4b)."""
+
+    __tablename__ = "channel_type_rules"
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    channel_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    message_type_id: Mapped[str] = mapped_column(
+        ForeignKey("message_types.id"), nullable=False
+    )
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+
+    user: Mapped["User"] = relationship("User")
+    message_type: Mapped["MessageType"] = relationship("MessageType")
+
+    __table_args__ = (
+        {
+            "comment": "UNIQUE(user_id, channel_id, message_type_id) enforced via migration index"
+        },
+    )
+
+    def __repr__(self) -> str:
+        return f"<ChannelTypeRule(channel={self.channel_id}, action={self.action})>"
