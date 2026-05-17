@@ -159,3 +159,136 @@ class TestCustomDefinitions:
         assert "Only production fires" in system_msg.content
         assert "Direct asks from my manager" in system_msg.content
         assert result.priority == "p1"
+
+
+class TestVIPFloor:
+    async def test_vip_sender_ignored_upgraded_to_summarize_next(self):
+        """VIP sender's 'ignore' classification is upgraded to 'summarize_next'."""
+        classifier = TriageClassifier(sensitivity="medium")
+        payload = _make_payload(is_vip=True, event_type="dm")
+
+        mock_provider = AsyncMock()
+        mock_provider.generate.return_value = (
+            '{"action": "ignore", "confidence": 0.8, '
+            '"reason": "casual chat", "abstract": "Just saying hi"}'
+        )
+
+        with patch(
+            "app.services.triage_classifier.get_llm_provider",
+            return_value=mock_provider,
+        ):
+            result = await classifier.classify(payload)
+
+        assert result.action == "summarize_next"
+        assert result.priority == "p1"
+        assert "[VIP sender]" in result.reason
+        assert result.confidence >= 0.7
+
+    async def test_vip_sender_channel_ignored_upgraded(self):
+        """VIP sender's 'ignore' in channel is upgraded to 'summarize_next'."""
+        classifier = TriageClassifier(sensitivity="medium")
+        payload = _make_payload(
+            is_vip=True,
+            event_type="channel",
+            channel_id="C12345",
+            channel_name="general",
+        )
+
+        mock_provider = AsyncMock()
+        mock_provider.generate.return_value = (
+            '{"action": "ignore", "confidence": 0.9, '
+            '"reason": "off-topic", "abstract": "Meme share"}'
+        )
+
+        with patch(
+            "app.services.triage_classifier.get_llm_provider",
+            return_value=mock_provider,
+        ):
+            result = await classifier.classify(payload)
+
+        assert result.action == "summarize_next"
+        assert result.priority == "p1"
+
+    async def test_non_vip_sender_ignored_stays_ignored(self):
+        """Non-VIP sender's 'ignore' classification is NOT upgraded."""
+        classifier = TriageClassifier(sensitivity="medium")
+        payload = _make_payload(is_vip=False, event_type="dm")
+
+        mock_provider = AsyncMock()
+        mock_provider.generate.return_value = (
+            '{"action": "ignore", "confidence": 0.8, '
+            '"reason": "casual chat", "abstract": "Just saying hi"}'
+        )
+
+        with patch(
+            "app.services.triage_classifier.get_llm_provider",
+            return_value=mock_provider,
+        ):
+            result = await classifier.classify(payload)
+
+        assert result.action == "ignore"
+        assert result.priority == "p3"
+        assert "[VIP sender]" not in result.reason
+
+    async def test_vip_sender_notify_now_unchanged(self):
+        """VIP sender's non-ignore classification is NOT modified."""
+        classifier = TriageClassifier(sensitivity="medium")
+        payload = _make_payload(is_vip=True, event_type="dm")
+
+        mock_provider = AsyncMock()
+        mock_provider.generate.return_value = (
+            '{"action": "notify_now", "confidence": 0.95, '
+            '"reason": "urgent request", "abstract": "Production issue"}'
+        )
+
+        with patch(
+            "app.services.triage_classifier.get_llm_provider",
+            return_value=mock_provider,
+        ):
+            result = await classifier.classify(payload)
+
+        assert result.action == "notify_now"
+        assert result.priority == "p0"
+        assert "[VIP sender]" not in result.reason
+
+    async def test_vip_sender_summarize_eod_unchanged(self):
+        """VIP sender's summarize_eod classification is NOT upgraded."""
+        classifier = TriageClassifier(sensitivity="medium")
+        payload = _make_payload(is_vip=True, event_type="dm")
+
+        mock_provider = AsyncMock()
+        mock_provider.generate.return_value = (
+            '{"action": "summarize_eod", "confidence": 0.7, '
+            '"reason": "FYI update", "abstract": "Status update"}'
+        )
+
+        with patch(
+            "app.services.triage_classifier.get_llm_provider",
+            return_value=mock_provider,
+        ):
+            result = await classifier.classify(payload)
+
+        assert result.action == "summarize_eod"
+        assert result.priority == "p2"
+        assert "[VIP sender]" not in result.reason
+
+    async def test_vip_sender_summarize_next_unchanged(self):
+        """VIP sender's summarize_next classification is NOT over-upgraded."""
+        classifier = TriageClassifier(sensitivity="medium")
+        payload = _make_payload(is_vip=True, event_type="dm")
+
+        mock_provider = AsyncMock()
+        mock_provider.generate.return_value = (
+            '{"action": "summarize_next", "confidence": 0.8, '
+            '"reason": "question about project", "abstract": "Asking about deadline"}'
+        )
+
+        with patch(
+            "app.services.triage_classifier.get_llm_provider",
+            return_value=mock_provider,
+        ):
+            result = await classifier.classify(payload)
+
+        assert result.action == "summarize_next"
+        assert result.priority == "p1"
+        assert "[VIP sender]" not in result.reason

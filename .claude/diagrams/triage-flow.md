@@ -46,18 +46,22 @@ flowchart TD
     MSG[Incoming Message] --> PATH{Classification<br/>path?}
     PATH -->|DM| VIP{Sender is VIP?}
     PATH -->|Channel| INST{Channel has<br/>triage instructions?}
-    VIP -->|Yes| U1[Return P0<br/>confidence: 1.0]
+    VIP -->|Yes| VIPCTX[Pass VIP status<br/>to LLM context]
     VIP -->|No| CUST{User has custom<br/>priority definitions?}
     INST -->|Yes| GUIDE[Apply instructions<br/>+ user rules]
     INST -->|No| CPRI{Channel priority<br/>= critical?}
     CPRI -->|Yes| U2[Return P0<br/>confidence: 0.9]
     CPRI -->|No| CUST
     GUIDE --> LLM
+    VIPCTX --> CUST
     CUST -->|Yes| LLM[LLM Classification<br/>with custom definitions]
     CUST -->|No| LLM2[LLM Classification<br/>with defaults]
     LLM --> PARSE[Parse JSON response]
     LLM2 --> PARSE
-    PARSE --> RES[priority + confidence<br/>+ reason + abstract]
+    PARSE --> VIPFLOOR{Result = ignore<br/>AND sender is VIP?}
+    VIPFLOOR -->|Yes| UPGRADE[Upgrade to<br/>summarize_next]
+    VIPFLOOR -->|No| RES[priority + confidence<br/>+ reason + abstract]
+    UPGRADE --> RES
     PARSE -->|Error| FALLBACK[Return review<br/>confidence: 0.3]
 
     style LLM fill:#e8f4fd,stroke:#0284c7

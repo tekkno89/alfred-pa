@@ -177,9 +177,10 @@ class TriageClassifier:
 
         VIP status influences classification but doesn't auto-P0.
         Instead, VIP context is passed to LLM for higher priority consideration.
+        VIP senders are floored at summarize_next (never ignored).
         """
-        # VIP status is passed to LLM as context, not auto-P0
-        return await self._llm_classify(payload, path="dm", vip_boost=payload.is_vip)
+        result = await self._llm_classify(payload, path="dm", vip_boost=payload.is_vip)
+        return self._apply_vip_floor(result, payload.is_vip)
 
     async def _classify_channel(
         self, payload: EnrichedTriagePayload
@@ -199,7 +200,30 @@ class TriageClassifier:
                 reasoning_signals=reasoning_signals,
             )
 
-        return await self._llm_classify(payload, path="channel")
+        result = await self._llm_classify(payload, path="channel")
+        return self._apply_vip_floor(result, payload.is_vip)
+
+    def _apply_vip_floor(
+        self, result: ClassificationResult, is_vip: bool
+    ) -> ClassificationResult:
+        """Floor VIP senders at summarize_next (never ignore).
+
+        If a VIP sender's message would be classified as "ignore",
+        upgrade it to "summarize_next" to ensure guaranteed attention.
+
+        Returns a new ClassificationResult (does not mutate input).
+        """
+        if is_vip and result.action == "ignore":
+            return ClassificationResult(
+                action="summarize_next",
+                confidence=max(result.confidence, 0.7),
+                reason=f"[VIP sender] {result.reason}",
+                abstract=result.abstract,
+                review=result.review,
+                keyword_matches=result.keyword_matches,
+                reasoning_signals=result.reasoning_signals,
+            )
+        return result
 
     async def _llm_classify(
         self, payload: EnrichedTriagePayload, path: str, vip_boost: bool = False
