@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import User
 from app.db.models.triage import (
     MonitoredChannel,
-    ChannelSourceExclusion,
+    ChannelSourceRule,
     TriageClassification,
     TriageUserSettings,
 )
@@ -81,7 +81,7 @@ class TestBotFilterFocusModeParity:
                 return_value=mock_settings_repo,
             ),
             patch(
-                "app.services.triage_pipeline.ChannelSourceExclusionRepository",
+                "app.services.triage_pipeline.ChannelSourceRuleRepository",
                 return_value=mock_exclusion_repo,
             ),
             patch("app.services.triage_pipeline.NotificationService"),
@@ -168,7 +168,7 @@ class TestBotFilterFocusModeParity:
                 return_value=mock_settings_repo,
             ),
             patch(
-                "app.services.triage_pipeline.ChannelSourceExclusionRepository",
+                "app.services.triage_pipeline.ChannelSourceRuleRepository",
                 return_value=mock_exclusion_repo,
             ),
             patch("app.services.triage_pipeline.NotificationService"),
@@ -258,7 +258,7 @@ class TestBotFilterFocusModeParity:
                 return_value=mock_settings_repo,
             ),
             patch(
-                "app.services.triage_pipeline.ChannelSourceExclusionRepository",
+                "app.services.triage_pipeline.ChannelSourceRuleRepository",
                 return_value=mock_exclusion_repo,
             ),
             patch("app.services.triage_pipeline.NotificationService"),
@@ -331,7 +331,7 @@ class TestBotFilterFocusModeParity:
                 return_value=mock_settings_repo,
             ),
             patch(
-                "app.services.triage_pipeline.ChannelSourceExclusionRepository",
+                "app.services.triage_pipeline.ChannelSourceRuleRepository",
                 return_value=mock_exclusion_repo,
             ),
             patch("app.services.triage_pipeline.NotificationService"),
@@ -355,15 +355,15 @@ class TestBotFilterFocusModeParity:
         assert created.action == "summarize_next"
 
 
-class TestChannelSourceExclusionBotRules:
-    """Tests for ChannelSourceExclusionRepository bot rule lookup."""
+class TestChannelSourceRuleBotRules:
+    """Tests for ChannelSourceRuleRepository bot rule lookup."""
 
     @pytest.mark.asyncio
     async def test_get_bot_rule_returns_rule_for_bot_entity(
         self, db_session: AsyncSession, test_user: User
     ):
         """Repository should find bot rules by slack_entity_id and entity_type='bot'."""
-        from app.db.repositories.triage import ChannelSourceExclusionRepository
+        from app.db.repositories.triage import ChannelSourceRuleRepository
 
         monitored = MonitoredChannel(
             user_id=test_user.id,
@@ -375,7 +375,7 @@ class TestChannelSourceExclusionBotRules:
         await db_session.commit()
         await db_session.refresh(monitored)
 
-        bot_rule = ChannelSourceExclusion(
+        bot_rule = ChannelSourceRule(
             monitored_channel_id=monitored.id,
             user_id=test_user.id,
             slack_entity_id="B99999",
@@ -386,7 +386,7 @@ class TestChannelSourceExclusionBotRules:
         db_session.add(bot_rule)
         await db_session.commit()
 
-        repo = ChannelSourceExclusionRepository(db_session)
+        repo = ChannelSourceRuleRepository(db_session)
         result = await repo.get_bot_rule(
             user_id=test_user.id,
             channel_id="C12345",
@@ -403,9 +403,9 @@ class TestChannelSourceExclusionBotRules:
         self, db_session: AsyncSession, test_user: User
     ):
         """Repository should return None if no bot rule exists."""
-        from app.db.repositories.triage import ChannelSourceExclusionRepository
+        from app.db.repositories.triage import ChannelSourceRuleRepository
 
-        repo = ChannelSourceExclusionRepository(db_session)
+        repo = ChannelSourceRuleRepository(db_session)
         result = await repo.get_bot_rule(
             user_id=test_user.id,
             channel_id="C12345",

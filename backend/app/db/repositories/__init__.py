@@ -20,7 +20,7 @@ from app.db.repositories.session import SessionRepository
 from app.db.repositories.system_settings import SystemSettingsRepository
 from app.db.repositories.todo import TodoRepository
 from app.db.repositories.triage import (
-    ChannelSourceExclusionRepository,
+    ChannelSourceRuleRepository,
     MonitoredChannelRepository,
     SenderBehaviorModelRepository,
     SlackChannelCacheRepository,
@@ -59,7 +59,7 @@ __all__ = [
     "SystemSettingsRepository",
     "TriageUserSettingsRepository",
     "MonitoredChannelRepository",
-    "ChannelSourceExclusionRepository",
+    "ChannelSourceRuleRepository",
     "TriageClassificationRepository",
     "SenderBehaviorModelRepository",
     "TriageFeedbackRepository",

@@ -23,7 +23,7 @@ After this change:
 - Bot messages ARE enqueued by the router (same as human messages).
 - The pipeline checks for bot_id and short-circuits to 'ignore' before LLM classification.
 - Users can configure explicit bot rules (e.g., notify_now for PagerDuty) via
-  ChannelSourceExclusion with entity_type='bot'.
+  ChannelSourceRule with entity_type='bot'.
 - Focus mode continues to work correctly for all messages.
 
 Expected behavior:
@@ -39,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.triage import TriageClassification
 from app.db.repositories.triage import (
-    ChannelSourceExclusionRepository,
+    ChannelSourceRuleRepository,
     TriageClassificationRepository,
     TriageUserSettingsRepository,
 )
@@ -96,7 +96,7 @@ class TriagePipeline:
 
         # Bot short-circuit: check for explicit bot rules before LLM classification
         if payload.is_bot and bot_id:
-            bot_rule_repo = ChannelSourceExclusionRepository(self.db)
+            bot_rule_repo = ChannelSourceRuleRepository(self.db)
             bot_rule = await bot_rule_repo.get_bot_rule(
                 user_id=user_id, channel_id=channel_id, bot_id=bot_id
             )
@@ -203,7 +203,9 @@ class TriagePipeline:
 
                 if should_alert:
                     from app.db.repositories import UserRepository
-                    from app.services.digest_response_checker import DigestResponseChecker
+                    from app.services.digest_response_checker import (
+                        DigestResponseChecker,
+                    )
 
                     user_repo = UserRepository(self.db)
                     user = await user_repo.get(user_id)

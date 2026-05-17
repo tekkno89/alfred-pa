@@ -797,7 +797,7 @@ export type Sensitivity = 'low' | 'medium' | 'high'
 export type ChannelPriority = 'low' | 'medium' | 'high' | 'critical'
 export type MatchType = 'exact' | 'contains'
 export type EntityType = 'bot' | 'user'
-export type ExclusionAction = 'exclude' | 'include'
+export type RuleAction = 'ignore' | 'notify_now'
 
 export interface TriageSettings {
   is_always_on: boolean
@@ -906,18 +906,18 @@ export interface ChannelMember {
   is_app: boolean
 }
 
-export interface SourceExclusion {
+export interface SourceRule {
   id: string
   slack_entity_id: string
   entity_type: EntityType
-  action: ExclusionAction
+  action: RuleAction
   display_name: string | null
 }
 
-export interface SourceExclusionCreate {
+export interface SourceRuleCreate {
   slack_entity_id: string
   entity_type?: EntityType
-  action?: ExclusionAction
+  action?: RuleAction
   display_name?: string | null
 }
 

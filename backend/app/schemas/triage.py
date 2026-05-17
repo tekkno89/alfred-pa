@@ -147,20 +147,20 @@ class MonitoredChannelList(BaseModel):
     channels: list[MonitoredChannelResponse]
 
 
-# --- Source Exclusions ---
+# --- Source Rules ---
 
 
-class SourceExclusionCreate(BaseModel):
-    """Request to add a source exclusion."""
+class SourceRuleCreate(BaseModel):
+    """Request to add a source rule."""
 
     slack_entity_id: str = Field(..., min_length=1)
     entity_type: str = Field("bot", pattern="^(bot|user)$")
-    action: str = Field("exclude", pattern="^(exclude|include)$")
+    action: str = Field("ignore", pattern="^(ignore|notify_now)$")
     display_name: str | None = None
 
 
-class SourceExclusionResponse(BaseModel):
-    """Response with source exclusion info."""
+class SourceRuleResponse(BaseModel):
+    """Response with source rule info."""
 
     model_config = {"from_attributes": True}
 

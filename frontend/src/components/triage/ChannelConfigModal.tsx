@@ -21,9 +21,9 @@ import {
 import { Badge } from '@/components/ui/badge'
 import {
   useUpdateMonitoredChannel,
-  useSourceExclusions,
-  useAddSourceExclusion,
-  useRemoveSourceExclusion,
+  useSourceRules,
+  useAddSourceRule,
+  useRemoveSourceRule,
   useChannelMembers,
 } from '@/hooks/useTriage'
 import type { MonitoredChannel, ChannelPriority, ChannelMember } from '@/types'
@@ -40,12 +40,12 @@ export function ChannelConfigModal({ channel, open, onOpenChange }: ChannelConfi
   const [hasChanges, setHasChanges] = useState(false)
 
   const updateChannel = useUpdateMonitoredChannel()
-  const { data: exclusions = [] } = useSourceExclusions(channel?.id || '')
+  const { data: rules = [] } = useSourceRules(channel?.id || '')
   const { data: members = [], isLoading: membersLoading } = useChannelMembers(
     channel ? channel.slack_channel_id : null
   )
-  const addExclusion = useAddSourceExclusion()
-  const removeExclusion = useRemoveSourceExclusion()
+  const addRule = useAddSourceRule()
+  const removeRule = useRemoveSourceRule()
 
   // Load channel data when modal opens
   useEffect(() => {
@@ -79,26 +79,26 @@ export function ChannelConfigModal({ channel, open, onOpenChange }: ChannelConfi
     onOpenChange(false)
   }
 
-  const handleAddExclusion = async (member: ChannelMember) => {
+  const handleAddRule = async (member: ChannelMember) => {
     if (!channel) return
 
-    await addExclusion.mutateAsync({
+    await addRule.mutateAsync({
       channelId: channel.id,
       data: {
         slack_entity_id: member.slack_user_id,
         entity_type: member.is_bot ? 'bot' : 'user',
-        action: 'exclude',
+        action: 'ignore',
         display_name: member.display_name,
       },
     })
   }
 
-  const handleRemoveExclusion = async (exclusionId: string) => {
+  const handleRemoveRule = async (ruleId: string) => {
     if (!channel) return
 
-    await removeExclusion.mutateAsync({
+    await removeRule.mutateAsync({
       channelId: channel.id,
-      exclusionId,
+      ruleId,
     })
   }
 
@@ -112,7 +112,7 @@ export function ChannelConfigModal({ channel, open, onOpenChange }: ChannelConfi
             {channel.channel_type === 'private' ? '🔒' : '#'} {channel.channel_name} - Configuration
           </DialogTitle>
           <DialogDescription>
-            Configure priority, triage instructions, and exclusions for this channel
+            Configure priority, triage instructions, and source rules for this channel
           </DialogDescription>
         </DialogHeader>
 
@@ -149,19 +149,19 @@ export function ChannelConfigModal({ channel, open, onOpenChange }: ChannelConfi
             </p>
           </div>
 
-          {/* Exclusions */}
+          {/* Source Rules */}
           <div className="space-y-3">
-            <Label>Exclude from Monitoring</Label>
+            <Label>Source Rules</Label>
 
-            {/* Current exclusions */}
-            {exclusions.length > 0 && (
+            {/* Current rules */}
+            {rules.length > 0 && (
               <div className="flex flex-wrap gap-2">
-                {exclusions.map((ex) => (
-                  <Badge key={ex.id} variant="outline" className="gap-1">
-                    {ex.display_name || ex.slack_entity_id}
+                {rules.map((rule) => (
+                  <Badge key={rule.id} variant="outline" className="gap-1">
+                    {rule.display_name || rule.slack_entity_id}
                     <button
                       className="ml-1 hover:text-destructive"
-                      onClick={() => handleRemoveExclusion(ex.id)}
+                      onClick={() => handleRemoveRule(rule.id)}
                     >
                       <X className="h-3 w-3" />
                     </button>
@@ -170,12 +170,12 @@ export function ChannelConfigModal({ channel, open, onOpenChange }: ChannelConfi
               </div>
             )}
 
-            {/* Add exclusion dropdown */}
+            {/* Add rule dropdown */}
             <div className="space-y-2">
               <Select onValueChange={(value) => {
                 const member = members.find((m) => m.slack_user_id === value)
                 if (member) {
-                  handleAddExclusion(member)
+                  handleAddRule(member)
                 }
               }}>
                 <SelectTrigger>
@@ -200,7 +200,7 @@ export function ChannelConfigModal({ channel, open, onOpenChange }: ChannelConfi
                           <SelectItem
                             key={member.slack_user_id}
                             value={member.slack_user_id}
-                            disabled={exclusions.some((ex) => ex.slack_entity_id === member.slack_user_id)}
+                            disabled={rules.some((rule) => rule.slack_entity_id === member.slack_user_id)}
                           >
                             {member.display_name}
                           </SelectItem>
@@ -218,7 +218,7 @@ export function ChannelConfigModal({ channel, open, onOpenChange }: ChannelConfi
                           <SelectItem
                             key={member.slack_user_id}
                             value={member.slack_user_id}
-                            disabled={exclusions.some((ex) => ex.slack_entity_id === member.slack_user_id)}
+                            disabled={rules.some((rule) => rule.slack_entity_id === member.slack_user_id)}
                           >
                             {member.display_name}
                           </SelectItem>
@@ -228,7 +228,7 @@ export function ChannelConfigModal({ channel, open, onOpenChange }: ChannelConfi
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Select users, bots, or apps to exclude from triage
+                Select users, bots, or apps to ignore during triage
               </p>
             </div>
           </div>

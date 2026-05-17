@@ -123,8 +123,8 @@ class MonitoredChannel(Base, UUIDMixin, TimestampMixin):
 
     # Relationships
     user: Mapped["User"] = relationship("User")
-    source_exclusions: Mapped[list["ChannelSourceExclusion"]] = relationship(
-        "ChannelSourceExclusion",
+    source_rules: Mapped[list["ChannelSourceRule"]] = relationship(
+        "ChannelSourceRule",
         back_populates="channel",
         cascade="all, delete-orphan",
     )
@@ -135,10 +135,10 @@ class MonitoredChannel(Base, UUIDMixin, TimestampMixin):
         )
 
 
-class ChannelSourceExclusion(Base, UUIDMixin, TimestampMixin):
-    """Per-channel bot/user exclusion or inclusion override."""
+class ChannelSourceRule(Base, UUIDMixin, TimestampMixin):
+    """Per-channel bot/user rule for triage actions."""
 
-    __tablename__ = "channel_source_exclusions"
+    __tablename__ = "channel_source_rules"
 
     monitored_channel_id: Mapped[str] = mapped_column(
         ForeignKey("monitored_channels.id", ondelete="CASCADE"), nullable=False
@@ -147,17 +147,17 @@ class ChannelSourceExclusion(Base, UUIDMixin, TimestampMixin):
     slack_entity_id: Mapped[str] = mapped_column(String(50), nullable=False)
     # bot | user
     entity_type: Mapped[str] = mapped_column(String(10), default="bot")
-    # exclude | include
-    action: Mapped[str] = mapped_column(String(10), default="exclude")
+    # ignore | notify_now
+    action: Mapped[str] = mapped_column(String(20), default="ignore")
     display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Relationships
     channel: Mapped["MonitoredChannel"] = relationship(
-        "MonitoredChannel", back_populates="source_exclusions"
+        "MonitoredChannel", back_populates="source_rules"
     )
 
     def __repr__(self) -> str:
-        return f"<ChannelSourceExclusion(entity={self.slack_entity_id}, action={self.action})>"
+        return f"<ChannelSourceRule(entity={self.slack_entity_id}, action={self.action})>"
 
 
 class TriageClassification(Base, UUIDMixin, TimestampMixin):

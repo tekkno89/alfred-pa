@@ -7,7 +7,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.dashboard import UserFeatureAccess
-from app.db.models.triage import MonitoredChannel, ChannelSourceExclusion
+from app.db.models.triage import MonitoredChannel, ChannelSourceRule
 from tests.conftest import auth_headers
 from tests.factories import UserFactory
 
@@ -321,17 +321,17 @@ class TestMonitoredChannels:
         assert response.json()["sensitive"] is True
 
 
-# --- Source Exclusions ---
+# --- Source Rules ---
 
 
-class TestSourceExclusions:
-    async def test_add_exclusion(self, client: AsyncClient, test_user, sample_channel):
+class TestSourceRules:
+    async def test_add_rule(self, client: AsyncClient, test_user, sample_channel):
         response = await client.post(
-            f"/api/triage/channels/{sample_channel.id}/exclusions",
+            f"/api/triage/channels/{sample_channel.id}/rules",
             json={
                 "slack_entity_id": "B12345",
                 "entity_type": "bot",
-                "action": "exclude",
+                "action": "ignore",
                 "display_name": "CI Bot",
             },
             headers=auth_headers(test_user),
@@ -339,46 +339,46 @@ class TestSourceExclusions:
         assert response.status_code == 201
         data = response.json()
         assert data["slack_entity_id"] == "B12345"
-        assert data["action"] == "exclude"
+        assert data["action"] == "ignore"
         assert data["display_name"] == "CI Bot"
 
-    async def test_list_exclusions(
+    async def test_list_rules(
         self, client: AsyncClient, test_user, sample_channel, db_session
     ):
-        excl = ChannelSourceExclusion(
+        rule = ChannelSourceRule(
             monitored_channel_id=sample_channel.id,
             user_id=test_user.id,
             slack_entity_id="B99999",
             entity_type="bot",
-            action="exclude",
+            action="ignore",
         )
-        db_session.add(excl)
+        db_session.add(rule)
         await db_session.commit()
 
         response = await client.get(
-            f"/api/triage/channels/{sample_channel.id}/exclusions",
+            f"/api/triage/channels/{sample_channel.id}/rules",
             headers=auth_headers(test_user),
         )
         assert response.status_code == 200
         data = response.json()
         assert len(data) == 1
 
-    async def test_delete_exclusion(
+    async def test_delete_rule(
         self, client: AsyncClient, test_user, sample_channel, db_session
     ):
-        excl = ChannelSourceExclusion(
+        rule = ChannelSourceRule(
             monitored_channel_id=sample_channel.id,
             user_id=test_user.id,
             slack_entity_id="B77777",
             entity_type="bot",
-            action="exclude",
+            action="ignore",
         )
-        db_session.add(excl)
+        db_session.add(rule)
         await db_session.commit()
-        await db_session.refresh(excl)
+        await db_session.refresh(rule)
 
         response = await client.delete(
-            f"/api/triage/channels/{sample_channel.id}/exclusions/{excl.id}",
+            f"/api/triage/channels/{sample_channel.id}/rules/{rule.id}",
             headers=auth_headers(test_user),
         )
         assert response.status_code == 204

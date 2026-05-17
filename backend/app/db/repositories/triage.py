@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.focus import FocusModeState
 from app.db.models.triage import (
-    ChannelSourceExclusion,
+    ChannelSourceRule,
     MonitoredChannel,
     SenderBehaviorModel,
     SlackChannelCache,
@@ -95,37 +95,37 @@ class MonitoredChannelRepository(BaseRepository[MonitoredChannel]):
         return result.scalar_one_or_none()
 
 
-class ChannelSourceExclusionRepository(BaseRepository[ChannelSourceExclusion]):
-    """Repository for ChannelSourceExclusion CRUD operations."""
+class ChannelSourceRuleRepository(BaseRepository[ChannelSourceRule]):
+    """Repository for ChannelSourceRule CRUD operations."""
 
     def __init__(self, db: AsyncSession):
-        super().__init__(ChannelSourceExclusion, db)
+        super().__init__(ChannelSourceRule, db)
 
     async def get_by_channel(
         self, monitored_channel_id: str, user_id: str
-    ) -> list[ChannelSourceExclusion]:
+    ) -> list[ChannelSourceRule]:
         result = await self.db.execute(
-            select(ChannelSourceExclusion)
-            .where(ChannelSourceExclusion.monitored_channel_id == monitored_channel_id)
-            .where(ChannelSourceExclusion.user_id == user_id)
+            select(ChannelSourceRule)
+            .where(ChannelSourceRule.monitored_channel_id == monitored_channel_id)
+            .where(ChannelSourceRule.user_id == user_id)
         )
         return list(result.scalars().all())
 
-    async def get_includes_for_channel(
+    async def get_notify_now_for_channel(
         self, slack_channel_id: str
-    ) -> list[ChannelSourceExclusion]:
-        """Get all 'include' overrides for a channel across users."""
+    ) -> list[ChannelSourceRule]:
+        """Get all 'notify_now' overrides for a channel across users."""
         result = await self.db.execute(
-            select(ChannelSourceExclusion)
+            select(ChannelSourceRule)
             .join(MonitoredChannel)
             .where(MonitoredChannel.slack_channel_id == slack_channel_id)
-            .where(ChannelSourceExclusion.action == "include")
+            .where(ChannelSourceRule.action == "notify_now")
         )
         return list(result.scalars().all())
 
     async def get_bot_rule(
         self, user_id: str, channel_id: str, bot_id: str
-    ) -> ChannelSourceExclusion | None:
+    ) -> ChannelSourceRule | None:
         """Get bot rule for a specific bot in a channel.
 
         Args:
@@ -134,15 +134,15 @@ class ChannelSourceExclusionRepository(BaseRepository[ChannelSourceExclusion]):
             bot_id: Slack bot ID (e.g., B12345)
 
         Returns:
-            ChannelSourceExclusion if rule exists, None otherwise
+            ChannelSourceRule if rule exists, None otherwise
         """
         result = await self.db.execute(
-            select(ChannelSourceExclusion)
+            select(ChannelSourceRule)
             .join(MonitoredChannel)
-            .where(ChannelSourceExclusion.user_id == user_id)
+            .where(ChannelSourceRule.user_id == user_id)
             .where(MonitoredChannel.slack_channel_id == channel_id)
-            .where(ChannelSourceExclusion.slack_entity_id == bot_id)
-            .where(ChannelSourceExclusion.entity_type == "bot")
+            .where(ChannelSourceRule.slack_entity_id == bot_id)
+            .where(ChannelSourceRule.entity_type == "bot")
         )
         return result.scalar_one_or_none()
 
@@ -425,6 +425,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
         Returns count of items updated.
         """
         from sqlalchemy import update
+
         from app.db.models.focus import FocusModeState
 
         # Find focus_session_ids that are from inactive/completed sessions

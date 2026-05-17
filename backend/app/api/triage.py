@@ -7,12 +7,12 @@ from slack_sdk.errors import SlackApiError
 
 from app.api.deps import CurrentUser, DbSession
 from app.db.models.triage import (
-    ChannelSourceExclusion,
+    ChannelSourceRule,
     MonitoredChannel,
 )
 from app.db.repositories import FeatureAccessRepository
 from app.db.repositories.triage import (
-    ChannelSourceExclusionRepository,
+    ChannelSourceRuleRepository,
     MonitoredChannelRepository,
     TriageClassificationRepository,
     TriageFeedbackRepository,
@@ -39,8 +39,8 @@ from app.schemas.triage import (
     MonitoredChannelUpdate,
     SampleMessagesRequest,
     SlackChannelInfo,
-    SourceExclusionCreate,
-    SourceExclusionResponse,
+    SourceRuleCreate,
+    SourceRuleResponse,
     TriageFeedbackCreate,
     TriageSettingsResponse,
     TriageSettingsUpdate,
@@ -291,19 +291,19 @@ async def remove_monitored_channel(
 # --- Keyword Rules ---
 
 
-# --- Source Exclusions ---
+# --- Source Rules ---
 
 
 @router.get(
-    "/channels/{channel_id}/exclusions",
-    response_model=list[SourceExclusionResponse],
+    "/channels/{channel_id}/rules",
+    response_model=list[SourceRuleResponse],
 )
-async def list_source_exclusions(
+async def list_source_rules(
     channel_id: str,
     current_user: CurrentUser,
     db: DbSession,
-) -> list[SourceExclusionResponse]:
-    """List source exclusions for a monitored channel."""
+) -> list[SourceRuleResponse]:
+    """List source rules for a monitored channel."""
     await _check_triage_access(current_user.id, db, current_user.role)
     ch_repo = MonitoredChannelRepository(db)
     channel = await ch_repo.get(channel_id)
@@ -312,23 +312,23 @@ async def list_source_exclusions(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Channel not found",
         )
-    repo = ChannelSourceExclusionRepository(db)
-    exclusions = await repo.get_by_channel(channel_id, current_user.id)
-    return [SourceExclusionResponse.model_validate(e) for e in exclusions]
+    repo = ChannelSourceRuleRepository(db)
+    rules = await repo.get_by_channel(channel_id, current_user.id)
+    return [SourceRuleResponse.model_validate(r) for r in rules]
 
 
 @router.post(
-    "/channels/{channel_id}/exclusions",
-    response_model=SourceExclusionResponse,
+    "/channels/{channel_id}/rules",
+    response_model=SourceRuleResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def add_source_exclusion(
+async def add_source_rule(
     channel_id: str,
-    data: SourceExclusionCreate,
+    data: SourceRuleCreate,
     current_user: CurrentUser,
     db: DbSession,
-) -> SourceExclusionResponse:
-    """Add a source exclusion to a monitored channel."""
+) -> SourceRuleResponse:
+    """Add a source rule to a monitored channel."""
     await _check_triage_access(current_user.id, db, current_user.role)
     ch_repo = MonitoredChannelRepository(db)
     channel = await ch_repo.get(channel_id)
@@ -337,8 +337,8 @@ async def add_source_exclusion(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Channel not found",
         )
-    repo = ChannelSourceExclusionRepository(db)
-    exclusion = ChannelSourceExclusion(
+    repo = ChannelSourceRuleRepository(db)
+    rule = ChannelSourceRule(
         monitored_channel_id=channel_id,
         user_id=current_user.id,
         slack_entity_id=data.slack_entity_id,
@@ -346,34 +346,34 @@ async def add_source_exclusion(
         action=data.action,
         display_name=data.display_name,
     )
-    exclusion = await repo.create(exclusion)
-    return SourceExclusionResponse.model_validate(exclusion)
+    rule = await repo.create(rule)
+    return SourceRuleResponse.model_validate(rule)
 
 
 @router.delete(
-    "/channels/{channel_id}/exclusions/{exclusion_id}",
+    "/channels/{channel_id}/rules/{rule_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-async def remove_source_exclusion(
+async def remove_source_rule(
     channel_id: str,
-    exclusion_id: str,
+    rule_id: str,
     current_user: CurrentUser,
     db: DbSession,
 ) -> None:
-    """Remove a source exclusion."""
+    """Remove a source rule."""
     await _check_triage_access(current_user.id, db, current_user.role)
-    repo = ChannelSourceExclusionRepository(db)
-    exclusion = await repo.get(exclusion_id)
+    repo = ChannelSourceRuleRepository(db)
+    rule = await repo.get(rule_id)
     if (
-        not exclusion
-        or exclusion.user_id != current_user.id
-        or exclusion.monitored_channel_id != channel_id
+        not rule
+        or rule.user_id != current_user.id
+        or rule.monitored_channel_id != channel_id
     ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Exclusion not found",
+            detail="Rule not found",
         )
-    await repo.delete(exclusion)
+    await repo.delete(rule)
 
 
 # --- Available Slack Channels ---
@@ -812,7 +812,7 @@ async def get_digest_conversations(
 ) -> ConversationSummaryList:
     """Get conversations for a digest summary."""
     await _check_triage_access(current_user.id, db, current_user.role)
-    
+
     class_repo = TriageClassificationRepository(db)
     digest = await class_repo.get(digest_id)
     if not digest or digest.user_id != current_user.id:
@@ -825,15 +825,15 @@ async def get_digest_conversations(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Not a digest summary",
         )
-    
+
     from app.db.repositories.conversation_summary import ConversationSummaryRepository
-    
+
     conv_repo = ConversationSummaryRepository(db)
     conversations = await conv_repo.get_by_digest(
         digest_id, priority=priority, limit=limit, offset=offset
     )
     total = await conv_repo.count_by_digest(digest_id, priority=priority)
-    
+
     return ConversationSummaryList(
         items=[ConversationSummaryResponse.model_validate(c) for c in conversations],
         total=total,
@@ -853,18 +853,18 @@ async def get_conversation(
 ) -> ConversationSummaryResponse:
     """Get a single conversation summary."""
     await _check_triage_access(current_user.id, db, current_user.role)
-    
+
     from app.db.repositories.conversation_summary import ConversationSummaryRepository
-    
+
     repo = ConversationSummaryRepository(db)
     conversation = await repo.get(conversation_id)
-    
+
     if not conversation or conversation.user_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Conversation not found",
         )
-    
+
     return ConversationSummaryResponse.model_validate(conversation)
 
 
@@ -881,28 +881,29 @@ async def get_conversation_messages(
 ) -> ConversationMessageList:
     """Get messages in a conversation."""
     await _check_triage_access(current_user.id, db, current_user.role)
-    
+
     from app.db.repositories.conversation_summary import ConversationSummaryRepository
-    
+
     conv_repo = ConversationSummaryRepository(db)
     conversation = await conv_repo.get(conversation_id)
-    
+
     if not conversation or conversation.user_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Conversation not found",
         )
 
-    from sqlalchemy import select, func
+    from sqlalchemy import func, select
+
     from app.db.models.triage import TriageClassification
-    
+
     count_result = await db.execute(
         select(func.count()).select_from(TriageClassification).where(
             TriageClassification.conversation_summary_id == conversation_id
         )
     )
     total = count_result.scalar() or 0
-    
+
     result = await db.execute(
         select(TriageClassification)
         .where(TriageClassification.conversation_summary_id == conversation_id)
@@ -911,7 +912,7 @@ async def get_conversation_messages(
         .limit(limit)
     )
     messages = list(result.scalars().all())
-    
+
     return ConversationMessageList(
         items=[ClassificationResponse.model_validate(m) for m in messages],
         total=total,

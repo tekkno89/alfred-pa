@@ -31,7 +31,7 @@ graph TD
     A -->|1:N| TC[TriageClassification]
     A -->|1:N| SBM[SenderBehaviorModel]
     MC -->|1:N| CKR[ChannelKeywordRule]
-    MC -->|1:N| CSE[ChannelSourceExclusion]
+    MC -->|1:N| CSR[ChannelSourceRule]
     TC -->|N:1| G
     TC -->|self-ref| TC
     TC -->|1:0..1| TF[TriageFeedback]
@@ -237,13 +237,13 @@ graph TD
 - `match_type` string(20) default "contains" — exact | contains
 - `priority_override` string(20) nullable — p0 | p1 | p2 | p3 | null
 
-### ChannelSourceExclusion
+### ChannelSourceRule
 - `id` UUID PK
 - `monitored_channel_id` FK → MonitoredChannel (CASCADE)
 - `user_id` FK → User
 - `slack_entity_id` string(50)
 - `entity_type` string(10) default "bot" — bot | user
-- `action` string(10) default "exclude" — exclude | include
+- `action` string(20) default "ignore" — ignore | notify_now
 - `display_name` string(255) nullable
 
 ### TriageClassification

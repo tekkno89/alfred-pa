@@ -9,8 +9,8 @@ import type {
   MonitoredChannel,
   MonitoredChannelUpdate,
   ChannelMember,
-  SourceExclusion,
-  SourceExclusionCreate,
+  SourceRule,
+  SourceRuleCreate,
   ClassificationList,
   DigestResponse,
   TriageFeedbackCreate,
@@ -146,34 +146,34 @@ export function useAutoEnrollChannels() {
   })
 }
 
-// --- Source Exclusions ---
+// --- Source Rules ---
 
-export function useSourceExclusions(channelId: string) {
+export function useSourceRules(channelId: string) {
   return useQuery({
-    queryKey: ['triage-exclusions', channelId],
-    queryFn: () => apiGet<SourceExclusion[]>(`/triage/channels/${channelId}/exclusions`),
+    queryKey: ['triage-rules', channelId],
+    queryFn: () => apiGet<SourceRule[]>(`/triage/channels/${channelId}/rules`),
     enabled: !!channelId,
   })
 }
 
-export function useAddSourceExclusion() {
+export function useAddSourceRule() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ channelId, data }: { channelId: string; data: SourceExclusionCreate }) =>
-      apiPost<SourceExclusion, SourceExclusionCreate>(`/triage/channels/${channelId}/exclusions`, data),
+    mutationFn: ({ channelId, data }: { channelId: string; data: SourceRuleCreate }) =>
+      apiPost<SourceRule, SourceRuleCreate>(`/triage/channels/${channelId}/rules`, data),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['triage-exclusions', variables.channelId] })
+      queryClient.invalidateQueries({ queryKey: ['triage-rules', variables.channelId] })
     },
   })
 }
 
-export function useRemoveSourceExclusion() {
+export function useRemoveSourceRule() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ channelId, exclusionId }: { channelId: string; exclusionId: string }) =>
-      apiDelete<void>(`/triage/channels/${channelId}/exclusions/${exclusionId}`),
+    mutationFn: ({ channelId, ruleId }: { channelId: string; ruleId: string }) =>
+      apiDelete<void>(`/triage/channels/${channelId}/rules/${ruleId}`),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['triage-exclusions', variables.channelId] })
+      queryClient.invalidateQueries({ queryKey: ['triage-rules', variables.channelId] })
     },
   })
 }
