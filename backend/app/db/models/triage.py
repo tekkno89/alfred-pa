@@ -483,3 +483,37 @@ class ChannelTypeRule(Base, UUIDMixin, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<ChannelTypeRule(channel={self.channel_id}, action={self.action})>"
+
+
+class AdaptiveWindow(Base, UUIDMixin, TimestampMixin):
+    """Per-user adaptive delivery window for a message type.
+
+    Tracks learned response times using EMA (Exponential Moving Average).
+    Used to determine when to deliver messages for optimal engagement.
+    """
+
+    __tablename__ = "adaptive_windows"
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    message_type_id: Mapped[str] = mapped_column(
+        ForeignKey("message_types.id"), nullable=False
+    )
+    window_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    sample_count: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
+    last_updated: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    user: Mapped["User"] = relationship("User")
+    message_type: Mapped["MessageType"] = relationship("MessageType")
+
+    __table_args__ = (
+        {
+            "comment": "UNIQUE(user_id, message_type_id) enforced via migration index"
+        },
+    )
+
+    def __repr__(self) -> str:
+        return f"<AdaptiveWindow(user={self.user_id}, window={self.window_minutes}m)>"

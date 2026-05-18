@@ -15,8 +15,10 @@ from app.db.models.slack_search import SlackChannelSummary, UserChannelParticipa
 from app.db.models.system_settings import SystemSetting
 from app.db.models.todo import Todo
 from app.db.models.triage import (
+    AdaptiveWindow,
     ChannelSourceRule,
     FeedbackEmbedding,
+    MessageType,
     MonitoredChannel,
     SenderActionDistribution,
     SenderBehaviorModel,
@@ -67,4 +69,6 @@ __all__ = [
     "CodingJob",
     "UserRepo",
     "TopicAffinity",
+    "MessageType",
+    "AdaptiveWindow",
 ]

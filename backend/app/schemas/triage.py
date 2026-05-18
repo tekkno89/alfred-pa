@@ -412,3 +412,27 @@ class FetchMessageByLinkRequest(BaseModel):
     """Request to fetch a specific Slack message by permalink."""
 
     permalink: str = Field(..., min_length=10, max_length=500)
+
+
+class AdaptiveWindowResponse(BaseModel):
+    """Response for a single adaptive window."""
+
+    message_type_name: str
+    window_minutes: int
+    sample_count: int
+    is_learning: bool
+    last_updated: UTCDatetime
+
+
+class AdaptiveWindowList(BaseModel):
+    """Response for list of adaptive windows."""
+
+    windows: list[AdaptiveWindowResponse]
+
+
+class AdaptiveWindowResetResponse(BaseModel):
+    """Response after resetting a window."""
+
+    message_type_name: str
+    window_minutes: int
+    message: str

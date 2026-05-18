@@ -29,6 +29,7 @@ import { useNotificationContext } from '@/components/notifications/NotificationP
 import { ClassifierWizardModal } from '@/components/triage/ClassifierWizardModal'
 import { ChannelConfigModal } from '@/components/triage/ChannelConfigModal'
 import { AwayModeToggle } from '@/components/triage/AwayModeToggle'
+import { AdaptiveWindowsCard } from '@/components/triage/AdaptiveWindowsCard'
 import { useAuthStore } from '@/lib/auth'
 import type { MonitoredChannel, ChannelPriority } from '@/types'
 
@@ -239,6 +240,9 @@ export function TriageSettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Adaptive Delivery Windows */}
+      <AdaptiveWindowsCard />
 
       {/* Priority Definitions */}
       <Card>

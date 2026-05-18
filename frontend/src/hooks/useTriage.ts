@@ -27,6 +27,8 @@ import type {
   AwayModeToggleRequest,
   AwayModeToggleResponse,
   AwayModeConfigureRequest,
+  AdaptiveWindowList,
+  AdaptiveWindowResetResponse,
 } from '@/types'
 
 // --- Settings ---
@@ -393,6 +395,28 @@ export function useConfigureAwayMode() {
       ),
     onSuccess: (data) => {
       queryClient.setQueryData(['triage-settings'], data)
+    },
+  })
+}
+
+// --- Adaptive Windows ---
+
+export function useAdaptiveWindows() {
+  return useQuery({
+    queryKey: ['triage-adaptive-windows'],
+    queryFn: () => apiGet<AdaptiveWindowList>('/triage/adaptive-windows'),
+  })
+}
+
+export function useResetAdaptiveWindow() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (messageTypeName: string) =>
+      apiPost<AdaptiveWindowResetResponse>(
+        `/triage/adaptive-windows/${encodeURIComponent(messageTypeName)}/reset`
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['triage-adaptive-windows'] })
     },
   })
 }

@@ -1109,3 +1109,22 @@ export interface AwayModeToggleResponse {
 export interface AwayModeConfigureRequest {
   notify_now_behavior: 'push_immediately' | 'queue_for_catchup'
 }
+
+// Adaptive Windows
+export interface AdaptiveWindow {
+  message_type_name: string
+  window_minutes: number
+  sample_count: number
+  is_learning: boolean
+  last_updated: string | null
+}
+
+export interface AdaptiveWindowList {
+  windows: AdaptiveWindow[]
+}
+
+export interface AdaptiveWindowResetResponse {
+  message_type_name: string
+  window_minutes: number
+  message: string
+}
