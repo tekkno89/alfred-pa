@@ -154,92 +154,71 @@ class TriagePipeline:
         )
 
         action = result.action
-        alerts_enabled = {
-            "notify_now": settings.p0_alerts_enabled if settings else True,
-            "summarize_next": settings.p1_alerts_enabled if settings else True,
-            "summarize_eod": settings.p2_alerts_enabled if settings else True,
-            "ignore": settings.p3_alerts_enabled if settings else True,
-        }.get(action, True)
 
-        if not alerts_enabled:
-            from datetime import datetime
-            classification.last_alerted_at = datetime.utcnow()
-            classification.queued_for_digest = False
-            logger.info(
-                f"{action} alerts disabled for user {user_id}, "
-                f"marking classification as alerted immediately"
-            )
+        # Queue summarize_next and summarize_eod for digest
+        if action in ("summarize_next", "summarize_eod"):
+            classification.queued_for_digest = True
         else:
-            if action in ("summarize_next", "summarize_eod"):
-                classification.queued_for_digest = True
-            else:
-                classification.queued_for_digest = False
+            classification.queued_for_digest = False
 
         classification = await self.class_repo.create(classification)
         await self.db.commit()
 
         if action == "notify_now":
-            p0_enabled = settings.p0_alerts_enabled if settings else True
+            from app.services.alert_deduplication import AlertDeduplicationService
 
-            if not p0_enabled:
-                logger.info(
-                    f"notify_now alerts disabled for user {user_id}, skipping notification"
+            dedup_service = AlertDeduplicationService(self.db)
+            dedup_window = (
+                settings.alert_dedup_window_minutes if settings else 30
+            )
+
+            should_alert = await dedup_service.should_alert(
+                user_id=user_id,
+                classification_id=classification.id,
+                thread_ts=thread_ts,
+                sender_slack_id=sender_slack_id,
+                dedup_window_minutes=dedup_window,
+            )
+
+            if should_alert:
+                from app.db.repositories import UserRepository
+                from app.services.digest_response_checker import (
+                    DigestResponseChecker,
                 )
-            else:
-                from app.services.alert_deduplication import AlertDeduplicationService
 
-                dedup_service = AlertDeduplicationService(self.db)
-                dedup_window = (
-                    settings.alert_dedup_window_minutes if settings else 30
-                )
+                user_repo = UserRepository(self.db)
+                user = await user_repo.get(user_id)
 
-                should_alert = await dedup_service.should_alert(
-                    user_id=user_id,
-                    classification_id=classification.id,
-                    thread_ts=thread_ts,
-                    sender_slack_id=sender_slack_id,
-                    dedup_window_minutes=dedup_window,
-                )
-
-                if should_alert:
-                    from app.db.repositories import UserRepository
-                    from app.services.digest_response_checker import (
-                        DigestResponseChecker,
-                    )
-
-                    user_repo = UserRepository(self.db)
-                    user = await user_repo.get(user_id)
-
-                    if user and user.slack_user_id:
-                        checker = DigestResponseChecker(self.db)
-                        user_responded = await checker._check_user_message_response(
-                            user_id=user_id,
-                            user_slack_id=user.slack_user_id,
-                            conversation=None,
-                            classification=classification,
-                        )
-
-                        if user_responded:
-                            logger.info(
-                                f"Skipping notify_now for classification {classification.id}: "
-                                f"user already responded"
-                            )
-                            await self.db.commit()
-                            return
-
-                    await self._deliver_urgent(
+                if user and user.slack_user_id:
+                    checker = DigestResponseChecker(self.db)
+                    user_responded = await checker._check_user_message_response(
                         user_id=user_id,
+                        user_slack_id=user.slack_user_id,
+                        conversation=None,
                         classification=classification,
-                        payload=payload,
-                        result=result,
                     )
-                    await dedup_service.mark_alerted(classification.id)
-                    await self.db.commit()
-                else:
-                    logger.info(
-                        f"notify_now alert deduplicated for classification {classification.id} "
-                        f"(thread={thread_ts}, sender={sender_slack_id})"
-                    )
+
+                    if user_responded:
+                        logger.info(
+                            f"Skipping notify_now for classification {classification.id}: "
+                            f"user already responded"
+                        )
+                        await self.db.commit()
+                        return
+
+                await self._deliver_urgent(
+                    user_id=user_id,
+                    classification=classification,
+                    payload=payload,
+                    result=result,
+                )
+                await dedup_service.mark_alerted(classification.id)
+                await self.db.commit()
+            else:
+                logger.info(
+                    f"notify_now alert deduplicated for classification {classification.id} "
+                    f"(thread={thread_ts}, sender={sender_slack_id})"
+                )
 
         if settings and settings.debug_mode:
             logger.debug(
