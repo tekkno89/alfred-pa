@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 from typing import Annotated
+from uuid import UUID
 
 from pydantic import BaseModel, Field, PlainSerializer
 
@@ -32,7 +33,6 @@ class TriageSettingsUpdate(BaseModel):
     p1_definition: str | None = Field(None, max_length=2000)
     p2_definition: str | None = Field(None, max_length=2000)
     p3_definition: str | None = Field(None, max_length=2000)
-    digest_instructions: str | None = Field(None, max_length=2000)
 
     alert_dedup_window_minutes: int | None = Field(None, ge=1, le=120)
 
@@ -62,11 +62,11 @@ class TriageSettingsResponse(BaseModel):
     p1_definition: str | None = None
     p2_definition: str | None = None
     p3_definition: str | None = None
-    digest_instructions: str | None = None
 
     alert_dedup_window_minutes: int = 30
 
     eod_review_time: str = "17:30"
+    active_hours_breakthrough: str = "allow_notify_now"
     notify_now_degrade_minutes: int = 240
     away_mode_enabled: bool = False
     away_mode_notify_now_behavior: str = "push_immediately"
@@ -396,3 +396,184 @@ class AdaptiveWindowResetResponse(BaseModel):
     message_type_name: str
     window_minutes: int
     message: str
+
+
+# --- Active Hours ---
+
+
+class ActiveHoursConfigBase(BaseModel):
+    day_of_week: int = Field(..., ge=0, le=6, description="0=Monday, 6=Sunday")
+    start_time: str = Field(..., pattern=r"^\d{2}:\d{2}$", description="24h format HH:MM")
+    end_time: str = Field(..., pattern=r"^\d{2}:\d{2}$", description="24h format HH:MM")
+    is_enabled: bool = True
+
+
+class ActiveHoursConfigCreate(ActiveHoursConfigBase):
+    pass
+
+
+class ActiveHoursConfigUpdate(BaseModel):
+    start_time: str | None = Field(None, pattern=r"^\d{2}:\d{2}$")
+    end_time: str | None = Field(None, pattern=r"^\d{2}:\d{2}$")
+    is_enabled: bool | None = None
+
+
+class ActiveHoursConfigResponse(ActiveHoursConfigBase):
+    id: UUID
+    user_id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ActiveHoursBatchUpdate(BaseModel):
+    configs: list[ActiveHoursConfigCreate]
+
+
+class ActiveHoursBreakthroughUpdate(BaseModel):
+    active_hours_breakthrough: str = Field(
+        ..., pattern=r"^(allow_notify_now|queue_all)$"
+    )
+
+
+# --- Message Types ---
+
+
+class MessageTypeBase(BaseModel):
+    type_name: str = Field(..., min_length=1, max_length=100)
+    type_definition: str = Field(..., min_length=1, max_length=500)
+
+
+class MessageTypeCreate(MessageTypeBase):
+    pass
+
+
+class MessageTypeUpdate(BaseModel):
+    type_name: str | None = Field(None, min_length=1, max_length=100)
+    type_definition: str | None = Field(None, min_length=1, max_length=500)
+
+
+class MessageTypeResponse(MessageTypeBase):
+    id: UUID
+    user_id: UUID
+    source: str
+    is_archived: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class MessageTypeSuggestion(BaseModel):
+    type_name: str
+    type_definition: str
+    confidence: float = Field(..., ge=0, le=1)
+
+
+# --- Channel Type Rules ---
+
+
+class ChannelTypeRuleBase(BaseModel):
+    message_type_id: UUID
+    action: str = Field(
+        ..., pattern=r"^(notify_now|summarize_next|summarize_eod|ignore)$"
+    )
+
+
+class ChannelTypeRuleCreate(ChannelTypeRuleBase):
+    pass
+
+
+class ChannelTypeRuleUpdate(BaseModel):
+    action: str | None = Field(
+        None, pattern=r"^(notify_now|summarize_next|summarize_eod|ignore)$"
+    )
+
+
+class ChannelTypeRuleResponse(ChannelTypeRuleBase):
+    id: UUID
+    user_id: UUID
+    channel_id: str
+    message_type: MessageTypeResponse | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# --- Wizard ---
+
+
+class WizardRoleRequest(BaseModel):
+    role: str = Field(..., min_length=1, max_length=200)
+    goals: list[str] = Field(default_factory=list)
+
+
+class WizardQuestion(BaseModel):
+    question: str
+    options: list[str]
+    context: str
+
+
+class WizardQuestionResponse(BaseModel):
+    questions: list[WizardQuestion]
+
+
+class WizardDefinitionRequest(BaseModel):
+    role: str
+    goals: list[str]
+    question_responses: dict[str, str]
+    message_types: list[dict]
+    example_messages: list[dict] | None = None
+
+
+class WizardDefinitionResponse(BaseModel):
+    p0_definition: str
+    p1_definition: str
+    p2_definition: str
+    p3_definition: str
+    suggested_message_types: list[MessageTypeSuggestion]
+
+
+class FetchedMessage(BaseModel):
+    slack_link: str
+    text: str
+    sender_name: str
+    channel_name: str
+
+
+class FetchMessagesRequest(BaseModel):
+    slack_links: list[str] = Field(..., min_length=1)
+
+
+class FetchMessagesResponse(BaseModel):
+    messages: list[FetchedMessage]
+
+
+# --- Transparency ---
+
+
+class KeywordData(BaseModel):
+    keyword: str
+    weight: float
+    source_category: str
+
+
+class SenderPatternData(BaseModel):
+    sender_name: str
+    sender_slack_id: str
+    channel_name: str
+    action_distribution: dict[str, float]
+    sample_count: int
+
+
+class CorrectionData(BaseModel):
+    message_text: str
+    corrected_action: str
+    created_at: datetime
+
+
+class TransparencyData(BaseModel):
+    keywords: list[KeywordData]
+    sender_patterns: list[SenderPatternData]
+    recent_corrections: list[CorrectionData]
+    last_updated: datetime | None
