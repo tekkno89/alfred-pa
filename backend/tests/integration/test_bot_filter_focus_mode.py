@@ -145,7 +145,7 @@ class TestBotFilterFocusModeParity:
         mock_class_repo = AsyncMock()
         mock_settings_repo = AsyncMock()
         mock_settings_repo.get_by_user_id.return_value = MagicMock(
-            debug_mode=False, p0_alerts_enabled=False
+            debug_mode=False
         )
         mock_exclusion_repo = AsyncMock()
         mock_exclusion_repo.get_bot_rule.return_value = None
@@ -234,7 +234,7 @@ class TestBotFilterFocusModeParity:
         mock_classifier = AsyncMock()
         mock_settings_repo = AsyncMock()
         mock_settings_repo.get_by_user_id.return_value = MagicMock(
-            debug_mode=False, p0_alerts_enabled=False
+            debug_mode=False
         )
         mock_class_repo = AsyncMock()
         mock_exclusion_repo = AsyncMock()
