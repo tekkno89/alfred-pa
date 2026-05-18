@@ -15,6 +15,7 @@ from app.db.models.slack_search import SlackChannelSummary, UserChannelParticipa
 from app.db.models.system_settings import SystemSetting
 from app.db.models.todo import Todo
 from app.db.models.triage import (
+    ActiveHoursConfig,
     AdaptiveWindow,
     ChannelSourceRule,
     FeedbackEmbedding,
@@ -71,4 +72,5 @@ __all__ = [
     "TopicAffinity",
     "MessageType",
     "AdaptiveWindow",
+    "ActiveHoursConfig",
 ]

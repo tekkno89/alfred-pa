@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from app.db.models.github_app_config import GitHubAppConfig
     from app.db.models.dashboard import UserDashboardPreference, UserFeatureAccess
     from app.db.models.youtube import YouTubePlaylist, YouTubeVideo
+    from app.db.models.triage import ActiveHoursConfig
 
 
 class User(Base, UUIDMixin, TimestampMixin):
@@ -87,6 +88,9 @@ class User(Base, UUIDMixin, TimestampMixin):
     )
     youtube_videos: Mapped[list["YouTubeVideo"]] = relationship(
         "YouTubeVideo", back_populates="user", cascade="all, delete-orphan"
+    )
+    active_hours_configs: Mapped[list["ActiveHoursConfig"]] = relationship(
+        "ActiveHoursConfig", back_populates="user", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

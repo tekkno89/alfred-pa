@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSON, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -58,12 +58,37 @@ class TriageUserSettings(Base, UUIDMixin, TimestampMixin):
     product_mode: Mapped[str] = mapped_column(
         String(20), default="always_on", server_default="always_on"
     )
+    active_hours_breakthrough: Mapped[str] = mapped_column(
+        String(20), default="allow_notify_now", server_default="allow_notify_now"
+    )  # "allow_notify_now" | "queue_all"
 
     # Relationships
     user: Mapped["User"] = relationship("User")
 
     def __repr__(self) -> str:
         return f"<TriageUserSettings(user_id={self.user_id}, sensitivity={self.sensitivity})>"
+
+
+class ActiveHoursConfig(Base, UUIDMixin, TimestampMixin):
+    """Per-day active hours configuration for triage delivery."""
+
+    __tablename__ = "active_hours_config"
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    day_of_week: Mapped[int] = mapped_column(Integer, nullable=False)  # 0=Monday, 6=Sunday
+    start_time: Mapped[str] = mapped_column(String(5), nullable=False)  # "09:00" 24h format
+    end_time: Mapped[str] = mapped_column(String(5), nullable=False)  # "18:00" 24h format
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+
+    # Relationships
+    user: Mapped["User"] = relationship("User", back_populates="active_hours_configs")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "day_of_week", name="uq_active_hours_user_day"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ActiveHoursConfig user={self.user_id} day={self.day_of_week} {self.start_time}-{self.end_time}>"
 
 
 class MonitoredChannel(Base, UUIDMixin, TimestampMixin):
