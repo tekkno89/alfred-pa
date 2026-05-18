@@ -466,7 +466,7 @@ async def send_digest(
     """
     Send a digest for a specific priority level.
 
-    Called by scheduled jobs from DigestScheduler.
+    Called by DigestDeliveryOrchestrator via check_delivery_triggers.
     Uses conversation-aware grouping and response detection.
 
     Args:

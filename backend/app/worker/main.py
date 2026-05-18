@@ -78,20 +78,6 @@ def get_redis_settings() -> RedisSettings:
     return RedisSettings(host=host, port=int(port))
 
 
-async def schedule_digest_jobs(ctx: dict) -> dict:
-    """
-    Cron job: Schedule digest jobs for all users based on their preferences.
-    Runs every 5 minutes to check for interval-based and time-based digests.
-    """
-    from app.db.session import async_session_maker
-    from app.services.digest_scheduler import DigestScheduler
-
-    async with async_session_maker() as db:
-        scheduler = DigestScheduler(db)
-        await scheduler.schedule_digest_jobs()
-        return {"status": "complete"}
-
-
 class WorkerSettings:
     """ARQ worker settings."""
 
@@ -124,10 +110,6 @@ class WorkerSettings:
         ),
         cron(
             check_due_todo_reminders,
-            minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},  # Every 5 minutes
-        ),
-        cron(
-            schedule_digest_jobs,
             minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},  # Every 5 minutes
         ),
         cron(

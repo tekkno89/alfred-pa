@@ -1,4 +1,17 @@
-"""Digest scheduling service for configurable alert cadence."""
+"""Digest scheduling service for configurable alert cadence.
+
+DEPRECATED: This service is deprecated in favor of DigestDeliveryOrchestrator.
+The old priority-based timing controls have been removed.
+Use DigestDeliveryOrchestrator for smart delivery with pluggable triggers.
+"""
+
+import warnings
+
+warnings.warn(
+    "DigestScheduler is deprecated. Use DigestDeliveryOrchestrator instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import logging
 from datetime import datetime, timedelta
