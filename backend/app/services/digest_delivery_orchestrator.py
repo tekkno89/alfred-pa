@@ -22,6 +22,7 @@ from app.db.repositories.triage import (
     TriageClassificationRepository,
     TriageUserSettingsRepository,
 )
+from app.services.active_hours_service import ActiveHoursService
 from app.services.focus import FocusModeService
 from app.services.google_calendar import GoogleCalendarService
 
@@ -237,12 +238,31 @@ class DigestDeliveryOrchestrator:
         self.class_repo = TriageClassificationRepository(db)
         self.settings_repo = TriageUserSettingsRepository(db)
         self.focus_service = FocusModeService(db)
+        self.active_hours_service = ActiveHoursService(db)
 
         self.triggers = triggers or [
             CalendarEndTrigger(),
             IdleTrigger(),
             StaleQueueTrigger(),
         ]
+
+    async def should_deliver_digest(self, user_id: str) -> bool:
+        """Check if digest should be delivered now."""
+        is_active = await self.active_hours_service.is_within_active_hours(user_id)
+        if not is_active:
+            return False
+
+        for trigger in self.triggers:
+            try:
+                result = await trigger.check(user_id, self.db)
+                if result:
+                    return True
+            except Exception:
+                logger.exception(
+                    f"Error checking trigger '{trigger.name}' for user {user_id}"
+                )
+
+        return False
 
     async def check_triggers(self, user_id: str) -> DeliveryTrigger | None:
         """Check all triggers for a user.
