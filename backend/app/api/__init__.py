@@ -18,6 +18,7 @@ from app.api.youtube import router as youtube_router
 from app.api.triage import router as triage_router
 from app.api.triage_adaptive_windows import router as triage_adaptive_windows_router
 from app.api.triage_away_mode import router as triage_away_mode_router
+from app.api.triage_message_types import router as triage_message_types_router
 from app.api.triage_transparency import router as triage_transparency_router
 from app.api.coding_jobs import router as coding_jobs_router
 from app.api.user_repositories import router as user_repos_router
@@ -50,6 +51,7 @@ router.include_router(youtube_router, prefix="/youtube", tags=["youtube"])
 router.include_router(triage_router, prefix="/triage", tags=["triage"])
 router.include_router(triage_adaptive_windows_router, prefix="/triage/adaptive-windows", tags=["triage-adaptive-windows"])
 router.include_router(triage_away_mode_router, prefix="/triage/away-mode", tags=["triage-away-mode"])
+router.include_router(triage_message_types_router, prefix="/triage", tags=["triage-message-types"])
 router.include_router(triage_transparency_router, prefix="/triage", tags=["triage-transparency"])
 router.include_router(coding_jobs_router, prefix="/coding-jobs", tags=["coding"])
 router.include_router(user_repos_router, prefix="/user-repos", tags=["repositories"])
