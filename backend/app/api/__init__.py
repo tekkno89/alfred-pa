@@ -22,6 +22,7 @@ from app.api.triage_message_types import router as triage_message_types_router
 from app.api.triage_transparency import router as triage_transparency_router
 from app.api.coding_jobs import router as coding_jobs_router
 from app.api.user_repositories import router as user_repos_router
+from app.api.triage_wizard import router as triage_wizard_router
 
 router = APIRouter()
 
@@ -54,4 +55,5 @@ router.include_router(triage_away_mode_router, prefix="/triage/away-mode", tags=
 router.include_router(triage_message_types_router, prefix="/triage", tags=["triage-message-types"])
 router.include_router(triage_transparency_router, prefix="/triage", tags=["triage-transparency"])
 router.include_router(coding_jobs_router, prefix="/coding-jobs", tags=["coding"])
-router.include_router(user_repos_router, prefix="/user-repos", tags=["repositories"])
+router.include_router(user_repos_router, prefix="/user-repositories", tags=["repositories"])
+router.include_router(triage_wizard_router, tags=["triage-wizard"])
