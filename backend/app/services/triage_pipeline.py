@@ -43,6 +43,7 @@ from app.db.repositories.triage import (
     TriageClassificationRepository,
     TriageUserSettingsRepository,
 )
+from app.services.active_hours_service import ActiveHoursService
 from app.services.notifications import NotificationService
 from app.services.slack import SlackService
 from app.services.triage_classifier import ClassificationResult, TriageClassifier
@@ -62,6 +63,7 @@ class TriagePipeline:
         self.class_repo = TriageClassificationRepository(db)
         self.settings_repo = TriageUserSettingsRepository(db)
         self.notification_service = NotificationService(db)
+        self.active_hours_service = ActiveHoursService(db)
 
     async def process(
         self,
@@ -212,7 +214,8 @@ class TriagePipeline:
                     payload=payload,
                     result=result,
                 )
-                await dedup_service.mark_alerted(classification.id)
+                if not classification.queued_for_digest:
+                    await dedup_service.mark_alerted(classification.id)
                 await self.db.commit()
             else:
                 logger.info(
@@ -252,6 +255,19 @@ class TriagePipeline:
         result,
     ) -> None:
         """Send P0 notification via Slack DM and SSE."""
+        # Check active hours
+        should_deliver = await self.active_hours_service.should_deliver_now(
+            user_id=user_id,
+            action="notify_now",
+        )
+
+        if not should_deliver:
+            logger.info(
+                f"Outside active hours for user {user_id}, queuing notify_now message"
+            )
+            classification.queued_for_digest = True
+            return
+
         # Slack DM
         try:
             from app.db.repositories import UserRepository
