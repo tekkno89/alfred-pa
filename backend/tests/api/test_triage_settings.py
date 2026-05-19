@@ -461,6 +461,46 @@ class TestSourceRules:
         assert response.status_code == 204
 
 
+# --- Active Hours ---
+
+
+class TestActiveHoursAPI:
+    async def test_get_active_hours_empty(self, client: AsyncClient, test_user):
+        """Get active hours returns empty list when none configured."""
+        response = await client.get(
+            "/api/triage/active-hours",
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 200
+        assert response.json() == []
+
+    async def test_update_active_hours(self, client: AsyncClient, test_user):
+        """Update active hours replaces all configs."""
+        response = await client.put(
+            "/api/triage/active-hours",
+            json={
+                "configs": [
+                    {"day_of_week": 0, "start_time": "09:00", "end_time": "18:00", "is_enabled": True},
+                    {"day_of_week": 1, "start_time": "09:00", "end_time": "18:00", "is_enabled": True},
+                ]
+            },
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+
+    async def test_update_breakthrough(self, client: AsyncClient, test_user):
+        """Update breakthrough setting."""
+        response = await client.put(
+            "/api/triage/active-hours/breakthrough",
+            json={"active_hours_breakthrough": "queue_all"},
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 200
+        assert response.json()["active_hours_breakthrough"] == "queue_all"
+
+
 # --- Feature Access Gate ---
 
 
@@ -484,6 +524,29 @@ class TestFeatureAccessGate:
     async def test_analytics_blocked(self, client: AsyncClient, user_no_access):
         response = await client.get(
             "/api/triage/analytics/session-stats",
+            headers=auth_headers(user_no_access),
+        )
+        assert response.status_code == 403
+
+    async def test_active_hours_get_blocked(self, client: AsyncClient, user_no_access):
+        response = await client.get(
+            "/api/triage/active-hours",
+            headers=auth_headers(user_no_access),
+        )
+        assert response.status_code == 403
+
+    async def test_active_hours_put_blocked(self, client: AsyncClient, user_no_access):
+        response = await client.put(
+            "/api/triage/active-hours",
+            json={"configs": []},
+            headers=auth_headers(user_no_access),
+        )
+        assert response.status_code == 403
+
+    async def test_active_hours_breakthrough_blocked(self, client: AsyncClient, user_no_access):
+        response = await client.put(
+            "/api/triage/active-hours/breakthrough",
+            json={"active_hours_breakthrough": "queue_all"},
             headers=auth_headers(user_no_access),
         )
         assert response.status_code == 403

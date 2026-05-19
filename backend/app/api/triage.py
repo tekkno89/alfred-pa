@@ -19,6 +19,9 @@ from app.db.repositories.triage import (
     TriageUserSettingsRepository,
 )
 from app.schemas.triage import (
+    ActiveHoursBatchUpdate,
+    ActiveHoursBreakthroughUpdate,
+    ActiveHoursConfigResponse,
     CalibrateGenerateRequest,
     CalibrationMessage,
     ChannelMemberInfo,
@@ -45,6 +48,7 @@ from app.schemas.triage import (
     TriageSettingsResponse,
     TriageSettingsUpdate,
 )
+from app.services.active_hours_service import ActiveHoursService
 from app.services.triage_cache import TriageCacheService
 
 logger = logging.getLogger(__name__)
@@ -90,6 +94,45 @@ async def update_triage_settings(
     updates = data.model_dump(exclude_unset=True)
     if updates:
         settings = await repo.update(settings, **updates)
+    return TriageSettingsResponse.model_validate(settings)
+
+
+@router.get("/active-hours", response_model=list[ActiveHoursConfigResponse])
+async def get_active_hours(
+    current_user: CurrentUser,
+    db: DbSession,
+) -> list[ActiveHoursConfigResponse]:
+    """Get user's active hours configuration."""
+    await _check_triage_access(current_user.id, db, current_user.role)
+    service = ActiveHoursService(db)
+    configs = await service.get_user_configs(current_user.id)
+    return [ActiveHoursConfigResponse.model_validate(c) for c in configs]
+
+
+@router.put("/active-hours", response_model=list[ActiveHoursConfigResponse])
+async def update_active_hours(
+    update: ActiveHoursBatchUpdate,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> list[ActiveHoursConfigResponse]:
+    """Update user's active hours configuration (replaces all)."""
+    await _check_triage_access(current_user.id, db, current_user.role)
+    service = ActiveHoursService(db)
+    configs = [c.model_dump() for c in update.configs]
+    result = await service.set_configs(current_user.id, configs)
+    return [ActiveHoursConfigResponse.model_validate(c) for c in result]
+
+
+@router.put("/active-hours/breakthrough", response_model=TriageSettingsResponse)
+async def update_breakthrough(
+    update: ActiveHoursBreakthroughUpdate,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> TriageSettingsResponse:
+    """Update breakthrough behavior for outside active hours."""
+    await _check_triage_access(current_user.id, db, current_user.role)
+    service = ActiveHoursService(db)
+    settings = await service.set_breakthrough(current_user.id, update.active_hours_breakthrough)
     return TriageSettingsResponse.model_validate(settings)
 
 
