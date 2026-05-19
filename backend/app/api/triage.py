@@ -4,11 +4,15 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Query, status
 from slack_sdk.errors import SlackApiError
+from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
 from app.db.models.triage import (
     ChannelSourceRule,
     MonitoredChannel,
+    SenderActionDistribution,
+    TopicAffinity,
+    TriageFeedback,
 )
 from app.db.repositories import FeatureAccessRepository
 from app.db.repositories.triage import (
@@ -30,10 +34,12 @@ from app.schemas.triage import (
     ConversationMessageList,
     ConversationSummaryList,
     ConversationSummaryResponse,
+    CorrectionData,
     DigestResponse,
     FetchMessageByLinkRequest,
     GenerateDefinitionsRequest,
     GenerateDefinitionsResponse,
+    KeywordData,
     MarkAllReviewedRequest,
     MarkReviewedRequest,
     MonitoredChannelCreate,
@@ -41,9 +47,11 @@ from app.schemas.triage import (
     MonitoredChannelResponse,
     MonitoredChannelUpdate,
     SampleMessagesRequest,
+    SenderPatternData,
     SlackChannelInfo,
     SourceRuleCreate,
     SourceRuleResponse,
+    TransparencyData,
     TriageFeedbackCreate,
     TriageSettingsResponse,
     TriageSettingsUpdate,
@@ -936,7 +944,7 @@ async def get_conversation_messages(
             detail="Conversation not found",
         )
 
-    from sqlalchemy import func, select
+    from sqlalchemy import func
 
     from app.db.models.triage import TriageClassification
 
@@ -1274,3 +1282,85 @@ async def generate_definitions_from_calibration(
         ratings=[r.model_dump() for r in valid_ratings],
     )
     return GenerateDefinitionsResponse(**result)
+
+
+# --- Transparency ---
+
+
+@router.get("/transparency", response_model=TransparencyData)
+async def get_transparency_data(
+    current_user: CurrentUser,
+    db: DbSession,
+) -> TransparencyData:
+    """Get learned data for transparency display."""
+    await _check_triage_access(current_user.id, db, current_user.role)
+
+    from datetime import UTC, datetime
+
+    from sqlalchemy.orm import joinedload
+
+    keywords_result = await db.execute(
+        select(TopicAffinity)
+        .where(TopicAffinity.user_id == current_user.id)
+        .order_by(TopicAffinity.weight.desc())
+        .limit(20)
+    )
+    keywords = [
+        KeywordData(
+            keyword=k.keyword,
+            weight=k.weight,
+            source_category=k.source_category,
+        )
+        for k in keywords_result.scalars().all()
+    ]
+
+    sender_result = await db.execute(
+        select(SenderActionDistribution)
+        .where(SenderActionDistribution.user_id == current_user.id)
+        .order_by(SenderActionDistribution.sample_count.desc())
+        .limit(10)
+    )
+    sender_patterns = [
+        SenderPatternData(
+            sender_name=s.sender_slack_id,
+            sender_slack_id=s.sender_slack_id,
+            channel_name=s.channel_id,
+            action_distribution=s.action_distribution,
+            sample_count=s.sample_count,
+        )
+        for s in sender_result.scalars().all()
+    ]
+
+    corrections_result = await db.execute(
+        select(TriageFeedback)
+        .options(joinedload(TriageFeedback.classification))
+        .where(TriageFeedback.user_id == current_user.id)
+        .where(TriageFeedback.was_correct.is_(False))
+        .order_by(TriageFeedback.created_at.desc())
+        .limit(10)
+    )
+    recent_corrections = []
+    for f in corrections_result.scalars().all():
+        msg_text = f.classification.abstract if f.classification else None
+        if msg_text:
+            msg_text = msg_text[:50] + "..." if len(msg_text) > 50 else msg_text
+        else:
+            msg_text = "(no message text)"
+        recent_corrections.append(
+            CorrectionData(
+                message_text=msg_text,
+                corrected_action=f.correct_action or "",
+                created_at=f.created_at,
+            )
+        )
+
+    last_updated = None
+    if keywords:
+        last_updated = datetime.now(UTC)
+
+    return TransparencyData(
+        keywords=keywords,
+        sender_patterns=sender_patterns,
+        recent_corrections=recent_corrections,
+        last_updated=last_updated,
+    )

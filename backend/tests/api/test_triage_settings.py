@@ -550,3 +550,55 @@ class TestFeatureAccessGate:
             headers=auth_headers(user_no_access),
         )
         assert response.status_code == 403
+
+    async def test_transparency_blocked(self, client: AsyncClient, user_no_access):
+        response = await client.get(
+            "/api/triage/transparency",
+            headers=auth_headers(user_no_access),
+        )
+        assert response.status_code == 403
+
+
+# --- Transparency ---
+
+
+class TestTransparencyAPI:
+    async def test_get_transparency_empty(self, client: AsyncClient, test_user):
+        """Get transparency data returns empty lists when no data."""
+        response = await client.get(
+            "/api/triage/transparency",
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["keywords"] == []
+        assert data["sender_patterns"] == []
+        assert data["recent_corrections"] == []
+        assert data["last_updated"] is None
+
+    async def test_get_transparency_with_data(
+        self, client: AsyncClient, test_user, db_session
+    ):
+        """Get transparency data returns learned data."""
+        from app.db.models.triage import TopicAffinity
+
+        affinity = TopicAffinity(
+            user_id=test_user.id,
+            keyword="deploy",
+            weight=0.8,
+            source_category="public",
+        )
+        db_session.add(affinity)
+        await db_session.commit()
+
+        response = await client.get(
+            "/api/triage/transparency",
+            headers=auth_headers(test_user),
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["keywords"]) == 1
+        assert data["keywords"][0]["keyword"] == "deploy"
+        assert data["keywords"][0]["weight"] == 0.8
+        assert data["keywords"][0]["source_category"] == "public"
+        assert data["last_updated"] is not None
