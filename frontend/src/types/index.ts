@@ -817,6 +817,7 @@ export interface TriageSettings {
   away_mode_enabled: boolean
   away_mode_notify_now_behavior: 'push_immediately' | 'queue_for_catchup'
   product_mode: 'always_on' | 'focus_only' | 'disabled'
+  active_hours_breakthrough: 'allow_notify_now' | 'queue_all'
 }
 
 export interface TriageSettingsUpdate {
@@ -848,6 +849,7 @@ export interface MonitoredChannel {
   is_hidden: boolean
   summary_behavior: 'default' | 'initial_only'
   triage_instructions: string | null
+  sensitive: boolean
   created_at: string | null
 }
 
@@ -865,6 +867,7 @@ export interface MonitoredChannelUpdate {
   is_hidden?: boolean
   summary_behavior?: 'default' | 'initial_only'
   triage_instructions?: string | null
+  sensitive?: boolean
 }
 
 export interface MonitoredChannelList {
@@ -1123,6 +1126,16 @@ export interface MessageType {
   created_at: string
 }
 
+export interface MessageTypeCreate {
+  type_name: string
+  type_definition: string
+}
+
+export interface MessageTypeUpdate {
+  type_name?: string
+  type_definition?: string
+}
+
 export interface MessageTypeSuggestion {
   type_name: string
   type_definition: string
@@ -1140,11 +1153,47 @@ export interface ChannelTypeRule {
   created_at: string
 }
 
+export interface ChannelTypeRuleCreate {
+  message_type_id: string
+  action: 'notify_now' | 'summarize_next' | 'summarize_eod' | 'ignore'
+}
+
 // Triage v3.3 - Wizard
+export interface WizardRoleRequest {
+  role: string
+  goals: string[]
+}
+
 export interface WizardQuestion {
   question: string
   options: string[]
   context: string
+}
+
+export interface WizardQuestionResponse {
+  questions: WizardQuestion[]
+}
+
+export interface MessageTypeSuggestion {
+  type_name: string
+  type_definition: string
+  confidence: number
+}
+
+export interface WizardDefinitionRequest {
+  role: string
+  goals: string[]
+  question_responses: Record<string, string>
+  message_types: Array<{ type_name: string; type_definition: string }>
+  example_messages?: Array<{ text: string; priority: string }> | null
+}
+
+export interface WizardDefinitionResponse {
+  p0_definition: string
+  p1_definition: string
+  p2_definition: string
+  p3_definition: string
+  suggested_message_types: MessageTypeSuggestion[]
 }
 
 export interface FetchedMessage {
@@ -1152,6 +1201,14 @@ export interface FetchedMessage {
   text: string
   sender_name: string
   channel_name: string
+}
+
+export interface FetchMessagesRequest {
+  slack_links: string[]
+}
+
+export interface FetchMessagesResponse {
+  messages: FetchedMessage[]
 }
 
 // Triage v3.3 - Transparency
@@ -1184,9 +1241,9 @@ export interface TransparencyData {
 
 // Triage v3.3 - Priority/Action mapping
 export const PRIORITY_ACTION_MAP = {
-  P0: { action: 'notify_now', label: 'P0 - Immediate' },
-  P1: { action: 'summarize_next', label: 'P1 - Soon' },
-  P2: { action: 'summarize_eod', label: 'P2 - Later' },
+  P0: { action: 'notify_now', label: 'P0 - Immediate (notify_now)' },
+  P1: { action: 'summarize_next', label: 'P1 - Soon (summarize_next)' },
+  P2: { action: 'summarize_eod', label: 'P2 - Later (summarize_eod)' },
   P3: { action: 'ignore', label: 'P3 - Ignore' },
 } as const
 
@@ -1196,3 +1253,10 @@ export const ACTION_PRIORITY_MAP = {
   summarize_eod: 'P2',
   ignore: 'P3',
 } as const
+
+export const PRIORITY_LABELS: Record<string, string> = {
+  p0: 'P0 - Immediate (notify_now)',
+  p1: 'P1 - Soon (summarize_next)',
+  p2: 'P2 - Later (summarize_eod)',
+  p3: 'P3 - Ignore',
+}

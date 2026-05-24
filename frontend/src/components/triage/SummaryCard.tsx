@@ -130,7 +130,7 @@ export function SummaryCard({ summary, onMarkReviewed }: SummaryCardProps) {
                   {p1Conversations.length > 0 && (
                     <div className="space-y-2">
                       <h4 className="text-sm font-medium text-orange-600 dark:text-orange-400">
-                        P1 — Important ({p1Conversations.length})
+                        P1 - Soon (summarize_next) ({p1Conversations.length})
                       </h4>
                       {p1Conversations.map((conv) => (
                         <ConversationSummaryCard key={conv.id} conversation={conv} />
@@ -141,7 +141,7 @@ export function SummaryCard({ summary, onMarkReviewed }: SummaryCardProps) {
                   {p2Conversations.length > 0 && (
                     <div className="space-y-2">
                       <h4 className="text-sm font-medium text-yellow-600 dark:text-yellow-400">
-                        P2 — Notable ({p2Conversations.length})
+                        P2 - Later (summarize_eod) ({p2Conversations.length})
                       </h4>
                       {p2Conversations.map((conv) => (
                         <ConversationSummaryCard key={conv.id} conversation={conv} />

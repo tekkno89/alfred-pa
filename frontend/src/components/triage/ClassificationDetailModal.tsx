@@ -35,22 +35,22 @@ const PRIORITY_CONFIG: Record<string, { icon: typeof AlertTriangle; className: s
   p0: {
     icon: AlertTriangle,
     className: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200',
-    label: 'P0 — Urgent',
+    label: 'P0 - Immediate (notify_now)',
   },
   p1: {
     icon: AlertCircle,
     className: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200',
-    label: 'P1 — Important',
+    label: 'P1 - Soon (summarize_next)',
   },
   p2: {
     icon: Bookmark,
     className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200',
-    label: 'P2 — Notable',
+    label: 'P2 - Later (summarize_eod)',
   },
   p3: {
     icon: VolumeX,
     className: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
-    label: 'P3 — Low',
+    label: 'P3 - Ignore',
   },
   digest_summary: {
     icon: Layers,
@@ -300,10 +300,10 @@ export function ClassificationDetailModal({
                       <SelectValue placeholder="Correct priority..." />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="p0">P0 — Urgent</SelectItem>
-                      <SelectItem value="p1">P1 — Important</SelectItem>
-                      <SelectItem value="p2">P2 — Notable</SelectItem>
-                      <SelectItem value="p3">P3 — Low</SelectItem>
+                      <SelectItem value="p0">P0 - Immediate (notify_now)</SelectItem>
+                      <SelectItem value="p1">P1 - Soon (summarize_next)</SelectItem>
+                      <SelectItem value="p2">P2 - Later (summarize_eod)</SelectItem>
+                      <SelectItem value="p3">P3 - Ignore</SelectItem>
                       <SelectItem value="review">Needs Review</SelectItem>
                     </SelectContent>
                   </Select>

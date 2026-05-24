@@ -16,10 +16,10 @@ import { useSubmitFeedback } from '@/hooks/useTriage'
 import type { TriageClassification } from '@/types'
 
 const PRIORITY_OPTIONS = [
-  { value: 'p0', label: 'P0 — Urgent', description: 'Immediate attention required', icon: AlertTriangle },
-  { value: 'p1', label: 'P1 — Important', description: 'Time-sensitive but can wait', icon: AlertCircle },
-  { value: 'p2', label: 'P2 — Notable', description: 'Noteworthy but can wait', icon: Bookmark },
-  { value: 'p3', label: 'P3 — Low', description: 'Low priority', icon: VolumeX },
+  { value: 'p0', label: 'P0 - Immediate (notify_now)', description: 'Needs immediate attention', icon: AlertTriangle },
+  { value: 'p1', label: 'P1 - Soon (summarize_next)', description: 'Time-sensitive but can wait', icon: AlertCircle },
+  { value: 'p2', label: 'P2 - Later (summarize_eod)', description: 'Noteworthy but can wait', icon: Bookmark },
+  { value: 'p3', label: 'P3 - Ignore', description: 'Low priority', icon: VolumeX },
   { value: 'review', label: 'Review', description: 'Needs manual review', icon: Eye },
 ]
 

@@ -29,6 +29,12 @@ import type {
   AwayModeConfigureRequest,
   AdaptiveWindowList,
   AdaptiveWindowResetResponse,
+  WizardRoleRequest,
+  WizardQuestionResponse,
+  WizardDefinitionRequest,
+  WizardDefinitionResponse,
+  FetchMessagesRequest,
+  FetchMessagesResponse,
 } from '@/types'
 
 // --- Settings ---
@@ -418,5 +424,37 @@ export function useResetAdaptiveWindow() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['triage-adaptive-windows'] })
     },
+  })
+}
+
+// --- New Wizard API ---
+
+export function useGenerateWizardQuestions() {
+  return useMutation({
+    mutationFn: (data: WizardRoleRequest) =>
+      apiPost<WizardQuestionResponse, WizardRoleRequest>(
+        '/triage/wizard/generate-questions',
+        data
+      ),
+  })
+}
+
+export function useGenerateWizardDefinitions() {
+  return useMutation({
+    mutationFn: (data: WizardDefinitionRequest) =>
+      apiPost<WizardDefinitionResponse, WizardDefinitionRequest>(
+        '/triage/wizard/generate-definitions',
+        data
+      ),
+  })
+}
+
+export function useFetchWizardMessages() {
+  return useMutation({
+    mutationFn: (data: FetchMessagesRequest) =>
+      apiPost<FetchMessagesResponse, FetchMessagesRequest>(
+        '/triage/wizard/fetch-messages',
+        data
+      ),
   })
 }
