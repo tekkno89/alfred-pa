@@ -24,6 +24,7 @@ import {
   useRefreshSlackChannels,
   useAutoEnrollChannels,
 } from '@/hooks/useTriage'
+import { useCreateMessageType } from '@/hooks/useMessageTypes'
 import { useNotificationContext } from '@/components/notifications/NotificationProvider'
 import { ClassifierWizardModal } from '@/components/triage/ClassifierWizardModal'
 import { ChannelConfigModal } from '@/components/triage/ChannelConfigModal'
@@ -67,6 +68,9 @@ export function TriageSettingsPage() {
 
   // Auto-enroll
   const autoEnroll = useAutoEnrollChannels()
+
+  // Message types
+  const createMessageType = useCreateMessageType()
 
   // Priority definition local state
   const [p0Def, setP0Def] = useState<string | null>(null)
@@ -532,12 +536,14 @@ export function TriageSettingsPage() {
     <ClassifierWizardModal
       open={wizardOpen}
       onOpenChange={setWizardOpen}
-      onApply={(defs) => {
+      onApply={(defs, messageTypes) => {
         setP0Def(defs.p0_definition)
         setP1Def(defs.p1_definition)
         setP2Def(defs.p2_definition)
         setP3Def(defs.p3_definition)
         setWizardOpen(false)
+        
+        // Save priority definitions
         updateSettings.mutate(
           {
             p0_definition: defs.p0_definition || null,
@@ -554,6 +560,14 @@ export function TriageSettingsPage() {
             },
           }
         )
+        
+        // Save message types
+        messageTypes.forEach((type) => {
+          createMessageType.mutate({
+            type_name: type.type_name,
+            type_definition: type.type_definition,
+          })
+        })
       }}
     />
     </div>
