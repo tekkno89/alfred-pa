@@ -6,9 +6,17 @@ Users can view and delete learned data:
 - Per-type delivery windows
 """
 
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, HTTPException, status
+from sqlalchemy import select, desc
 
 from app.api.deps import CurrentUser, DbSession
+from app.db.models.triage import (
+    SenderActionDistribution,
+    TriageClassification,
+    TriageFeedback,
+)
 from app.db.repositories import FeatureAccessRepository
 from app.services.topic_affinity_service import TopicAffinityService
 
@@ -23,6 +31,79 @@ async def _check_triage_access(user_id: str, db, role: str) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Triage feature not enabled",
         )
+
+
+@router.get("")
+async def get_transparency_data(
+    current_user: CurrentUser,
+    db: DbSession,
+) -> dict:
+    """Get all transparency data for the current user."""
+    await _check_triage_access(current_user.id, db, current_user.role)
+
+    topic_service = TopicAffinityService(db)
+    biases = await topic_service.get_biases(current_user.id)
+
+    keywords = [
+        {
+            "keyword": b.keyword,
+            "weight": b.weight,
+            "source_category": b.source_category,
+        }
+        for b in biases
+    ]
+
+    sender_result = await db.execute(
+        select(SenderActionDistribution)
+        .where(SenderActionDistribution.user_id == current_user.id)
+        .order_by(desc(SenderActionDistribution.sample_count))
+        .limit(20)
+    )
+    sender_distributions = sender_result.scalars().all()
+
+    sender_patterns = [
+        {
+            "sender_name": dist.sender_slack_id,
+            "sender_slack_id": dist.sender_slack_id,
+            "channel_name": dist.channel_id,
+            "action_distribution": dist.action_distribution,
+            "sample_count": dist.sample_count,
+        }
+        for dist in sender_distributions
+    ]
+
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    corrections_result = await db.execute(
+        select(TriageFeedback, TriageClassification)
+        .join(TriageClassification, TriageFeedback.classification_id == TriageClassification.id)
+        .where(TriageFeedback.user_id == current_user.id)
+        .where(TriageFeedback.was_correct == False)
+        .where(TriageFeedback.created_at >= thirty_days_ago)
+        .order_by(desc(TriageFeedback.created_at))
+        .limit(10)
+    )
+    corrections_data = corrections_result.all()
+
+    recent_corrections = [
+        {
+            "message_text": classification.abstract or classification.slack_permalink or "Message",
+            "corrected_action": feedback.correct_action or feedback.correct_priority or "unknown",
+            "created_at": feedback.created_at.isoformat(),
+        }
+        for feedback, classification in corrections_data
+    ]
+
+    last_keyword_update = max(
+        (b.last_updated for b in biases),
+        default=None
+    )
+
+    return {
+        "keywords": keywords,
+        "sender_patterns": sender_patterns,
+        "recent_corrections": recent_corrections,
+        "last_updated": last_keyword_update.isoformat() if last_keyword_update else None,
+    }
 
 
 @router.get("/keywords")
