@@ -144,7 +144,7 @@ export function ActiveHoursCard() {
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="grid grid-cols-7 gap-2">
+        <div className="grid grid-cols-7 gap-2 auto-rows-auto">
           {DAYS.map((day) => {
             const config = configs.find((c) => c.day_of_week === day.value)
             if (!config) return null
@@ -152,7 +152,7 @@ export function ActiveHoursCard() {
             return (
               <div
                 key={day.value}
-                className={`p-3 rounded-lg border ${
+                className={`p-3 rounded-lg border min-h-fit ${
                   config.is_enabled ? 'bg-background' : 'bg-muted/50'
                 }`}
               >
