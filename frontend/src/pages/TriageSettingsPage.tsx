@@ -536,13 +536,12 @@ export function TriageSettingsPage() {
     <ClassifierWizardModal
       open={wizardOpen}
       onOpenChange={setWizardOpen}
-      onApply={(defs, messageTypes) => {
+      onApply={async (defs, messageTypes) => {
         setP0Def(defs.p0_definition)
         setP1Def(defs.p1_definition)
         setP2Def(defs.p2_definition)
         setP3Def(defs.p3_definition)
-        setWizardOpen(false)
-        
+
         // Save priority definitions
         updateSettings.mutate(
           {
@@ -560,14 +559,24 @@ export function TriageSettingsPage() {
             },
           }
         )
-        
-        // Save message types
-        messageTypes.forEach((type) => {
-          createMessageType.mutate({
-            type_name: type.type_name,
-            type_definition: type.type_definition,
-          })
-        })
+
+        // Save message types with proper error handling
+        if (messageTypes.length > 0) {
+          try {
+            await Promise.all(
+              messageTypes.map((type) =>
+                createMessageType.mutateAsync({
+                  type_name: type.type_name,
+                  type_definition: type.type_definition,
+                })
+              )
+            )
+          } catch (error) {
+            console.error('Failed to save message types:', error)
+          }
+        }
+
+        setWizardOpen(false)
       }}
     />
     </div>
