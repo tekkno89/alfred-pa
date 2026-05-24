@@ -14,11 +14,67 @@ from app.schemas.triage import (
     MessageTypeSuggestion,
     WizardDefinitionRequest,
     WizardDefinitionResponse,
+    WizardGoalsRequest,
+    WizardGoalsResponse,
+    WizardGoal,
     WizardQuestionResponse,
     WizardRoleRequest,
 )
 
 router = APIRouter(prefix="/triage/wizard", tags=["triage-wizard"])
+
+
+@router.post("/generate-goals", response_model=WizardGoalsResponse)
+async def generate_goals(
+    data: WizardGoalsRequest,
+    current_user: CurrentUser = None,
+) -> WizardGoalsResponse:
+    """Generate goal options based on user role."""
+    llm = get_llm_provider()
+
+    prompt = f"""Given a user with the role "{data.role}", suggest 5-6 goals they might have for triaging Slack messages.
+
+Each goal should be:
+1. Specific to their role and context
+2. Actionable (something the triage system can help with)
+3. Concise (1-2 sentences max)
+
+Return JSON only:
+{{
+  "goals": [
+    {{"id": "incidents", "label": "Stay on top of production incidents and alerts"}},
+    {{"id": "noise", "label": "Reduce noise from automated messages and bots"}},
+    ...
+  ]
+}}"""
+
+    response = await llm.generate(
+        [LLMMessage(role="user", content=prompt)],
+        temperature=0.7,
+        max_tokens=1024,
+    )
+    content = response.strip()
+
+    if content.startswith("```"):
+        content = re.sub(r"^```(?:json)?\n?", "", content)
+        content = re.sub(r"\n?```$", "", content)
+
+    try:
+        result = json.loads(content)
+        return WizardGoalsResponse(
+            goals=[WizardGoal(**g) for g in result.get("goals", [])]
+        )
+    except (json.JSONDecodeError, TypeError):
+        # Fallback goals
+        return WizardGoalsResponse(
+            goals=[
+                WizardGoal(id="incidents", label="Stay on top of production incidents"),
+                WizardGoal(id="noise", label="Reduce noise from automated messages"),
+                WizardGoal(id="directs", label="Never miss messages from my team"),
+                WizardGoal(id="deadlines", label="Track time-sensitive requests"),
+                WizardGoal(id="fyi", label="Keep up with announcements"),
+            ]
+        )
 
 
 @router.post("/generate-questions", response_model=WizardQuestionResponse)

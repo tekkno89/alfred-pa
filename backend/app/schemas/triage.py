@@ -549,6 +549,22 @@ class FetchMessagesResponse(BaseModel):
     messages: list[FetchedMessage]
 
 
+class WizardGoalsRequest(BaseModel):
+    """Request to generate goal options based on role."""
+    role: str = Field(..., min_length=3, max_length=500)
+
+
+class WizardGoal(BaseModel):
+    """A suggested goal for triage setup."""
+    id: str = Field(..., description="Short identifier for the goal")
+    label: str = Field(..., description="Human-readable goal description")
+
+
+class WizardGoalsResponse(BaseModel):
+    """Response with generated goal options."""
+    goals: list[WizardGoal]
+
+
 # --- Transparency ---
 
 
