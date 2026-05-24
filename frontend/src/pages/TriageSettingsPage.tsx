@@ -78,6 +78,9 @@ export function TriageSettingsPage() {
   const [p2Def, setP2Def] = useState<string | null>(null)
   const [p3Def, setP3Def] = useState<string | null>(null)
 
+  // Wizard error state
+  const [wizardError, setWizardError] = useState<string | null>(null)
+
   const hasRulesChanges =
     customRules !== null && customRules !== (settings?.custom_classification_rules ?? '')
   const hasDefChanges =
@@ -224,7 +227,10 @@ export function TriageSettingsPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setWizardOpen(true)}
+              onClick={() => {
+                setWizardError(null)
+                setWizardOpen(true)
+              }}
             >
               <Sparkles className="h-3.5 w-3.5 mr-1.5" />
               Generate with AI
@@ -536,31 +542,37 @@ export function TriageSettingsPage() {
     <ClassifierWizardModal
       open={wizardOpen}
       onOpenChange={setWizardOpen}
+      error={wizardError}
       onApply={async (defs, messageTypes) => {
+        setWizardError(null)
         setP0Def(defs.p0_definition)
         setP1Def(defs.p1_definition)
         setP2Def(defs.p2_definition)
         setP3Def(defs.p3_definition)
 
-        // Save priority definitions
-        updateSettings.mutate(
-          {
-            p0_definition: defs.p0_definition || null,
-            p1_definition: defs.p1_definition || null,
-            p2_definition: defs.p2_definition || null,
-            p3_definition: defs.p3_definition || null,
-          },
-          {
-            onSuccess: () => {
-              setP0Def(null)
-              setP1Def(null)
-              setP2Def(null)
-              setP3Def(null)
-            },
-          }
-        )
+        let hasError = false
 
-        // Save message types with proper error handling
+        // Save priority definitions
+        try {
+          await updateSettings.mutateAsync(
+            {
+              p0_definition: defs.p0_definition || null,
+              p1_definition: defs.p1_definition || null,
+              p2_definition: defs.p2_definition || null,
+              p3_definition: defs.p3_definition || null,
+            }
+          )
+          setP0Def(null)
+          setP1Def(null)
+          setP2Def(null)
+          setP3Def(null)
+        } catch (error) {
+          console.error('Failed to save priority definitions:', error)
+          setWizardError('Failed to save priority definitions. Please try again.')
+          hasError = true
+        }
+
+        // Save message types
         if (messageTypes.length > 0) {
           try {
             await Promise.all(
@@ -573,10 +585,12 @@ export function TriageSettingsPage() {
             )
           } catch (error) {
             console.error('Failed to save message types:', error)
+            setWizardError('Failed to save some message types. Please try again.')
+            hasError = true
           }
         }
 
-        setWizardOpen(false)
+        return !hasError
       }}
     />
     </div>

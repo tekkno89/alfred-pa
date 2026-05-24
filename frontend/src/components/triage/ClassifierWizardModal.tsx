@@ -44,7 +44,8 @@ interface ClassifierWizardModalProps {
       p3_definition: string
     },
     messageTypes: MessageTypeSuggestion[]
-  ) => void
+  ) => Promise<boolean>
+  error?: string | null
 }
 
 const PRIORITY_OPTIONS = ['p0', 'p1', 'p2', 'p3'] as const
@@ -53,6 +54,7 @@ export function ClassifierWizardModal({
   open,
   onOpenChange,
   onApply,
+  error,
 }: ClassifierWizardModalProps) {
   const [step, setStep] = useState(1)
 
@@ -252,12 +254,12 @@ export function ClassifierWizardModal({
     onOpenChange(false)
   }
 
-  const handleApply = () => {
+  const handleApply = async () => {
     if (!editedResult) return
 
     const selectedTypes = messageTypes.filter((_, idx) => selectedMessageTypes.has(idx))
 
-    onApply(
+    const success = await onApply(
       {
         p0_definition: editedResult.p0_definition,
         p1_definition: editedResult.p1_definition,
@@ -266,7 +268,9 @@ export function ClassifierWizardModal({
       },
       selectedTypes
     )
-    handleClose()
+    if (success) {
+      handleClose()
+    }
   }
 
   const renderStepIndicator = () => (
@@ -292,6 +296,12 @@ export function ClassifierWizardModal({
             Answer a few questions to generate personalized priority definitions.
           </DialogDescription>
         </DialogHeader>
+
+        {error && (
+          <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-md text-sm">
+            {error}
+          </div>
+        )}
 
         {step === 1 && (
           <div className="space-y-4">
