@@ -137,8 +137,8 @@ class TestGenerateQuestions:
 
     async def test_generate_questions(self, client: AsyncClient, test_user):
         """Generate questions based on role and goals."""
-        mock_response = AsyncMock()
-        mock_response.content = json.dumps({
+        mock_llm = AsyncMock()
+        mock_llm.generate.return_value = json.dumps({
             "questions": [
                 {
                     "question": "When a production incident is reported, how should you be notified?",
@@ -154,8 +154,6 @@ class TestGenerateQuestions:
         })
 
         with patch("app.api.triage_wizard.get_llm_provider") as mock_get_llm:
-            mock_llm = AsyncMock()
-            mock_llm.ainvoke.return_value = mock_response
             mock_get_llm.return_value = mock_llm
 
             response = await client.post(
@@ -173,12 +171,10 @@ class TestGenerateQuestions:
         self, client: AsyncClient, test_user
     ):
         """Test that invalid JSON from LLM returns empty questions list."""
-        mock_response = AsyncMock()
-        mock_response.content = "not valid json {{{"
+        mock_llm = AsyncMock()
+        mock_llm.generate.return_value = "not valid json {{{"
 
         with patch("app.api.triage_wizard.get_llm_provider") as mock_get_llm:
-            mock_llm = AsyncMock()
-            mock_llm.ainvoke.return_value = mock_response
             mock_get_llm.return_value = mock_llm
 
             response = await client.post(
@@ -194,14 +190,12 @@ class TestGenerateQuestions:
         self, client: AsyncClient, test_user
     ):
         """Test that markdown code blocks are stripped from LLM response."""
-        mock_response = AsyncMock()
-        mock_response.content = """```json
+        mock_llm = AsyncMock()
+        mock_llm.generate.return_value = """```json
 {"questions": [{"question": "Test?", "options": ["A", "B"], "context": "test"}]}
 ```"""
 
         with patch("app.api.triage_wizard.get_llm_provider") as mock_get_llm:
-            mock_llm = AsyncMock()
-            mock_llm.ainvoke.return_value = mock_response
             mock_get_llm.return_value = mock_llm
 
             response = await client.post(
@@ -220,8 +214,8 @@ class TestGenerateDefinitions:
 
     async def test_generate_definitions(self, client: AsyncClient, test_user):
         """Generate priority definitions from user responses."""
-        mock_response = AsyncMock()
-        mock_response.content = json.dumps({
+        mock_llm = AsyncMock()
+        mock_llm.generate.return_value = json.dumps({
             "p0_definition": "Production incidents and critical bugs",
             "p1_definition": "Code reviews and time-sensitive requests",
             "p2_definition": "FYI messages and updates",
@@ -233,8 +227,6 @@ class TestGenerateDefinitions:
         })
 
         with patch("app.api.triage_wizard.get_llm_provider") as mock_get_llm:
-            mock_llm = AsyncMock()
-            mock_llm.ainvoke.return_value = mock_response
             mock_get_llm.return_value = mock_llm
 
             response = await client.post(
@@ -263,12 +255,10 @@ class TestGenerateDefinitions:
         self, client: AsyncClient, test_user
     ):
         """Test that invalid JSON returns default definitions."""
-        mock_response = AsyncMock()
-        mock_response.content = "not valid json {{{"
+        mock_llm = AsyncMock()
+        mock_llm.generate.return_value = "not valid json {{{"
 
         with patch("app.api.triage_wizard.get_llm_provider") as mock_get_llm:
-            mock_llm = AsyncMock()
-            mock_llm.ainvoke.return_value = mock_response
             mock_get_llm.return_value = mock_llm
 
             response = await client.post(
@@ -291,8 +281,8 @@ class TestGenerateDefinitions:
         self, client: AsyncClient, test_user
     ):
         """Test that example messages are included in the prompt."""
-        mock_response = AsyncMock()
-        mock_response.content = json.dumps({
+        mock_llm = AsyncMock()
+        mock_llm.generate.return_value = json.dumps({
             "p0_definition": "Critical",
             "p1_definition": "Important",
             "p2_definition": "Later",
@@ -301,8 +291,6 @@ class TestGenerateDefinitions:
         })
 
         with patch("app.api.triage_wizard.get_llm_provider") as mock_get_llm:
-            mock_llm = AsyncMock()
-            mock_llm.ainvoke.return_value = mock_response
             mock_get_llm.return_value = mock_llm
 
             response = await client.post(
