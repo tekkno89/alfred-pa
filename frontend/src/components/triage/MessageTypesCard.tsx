@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Plus, Pencil, Archive, MoreHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -43,7 +43,7 @@ function MessageTypeDialog({ open, onOpenChange, messageType }: MessageTypeDialo
 
   const isEditing = !!messageType
 
-  useState(() => {
+  useEffect(() => {
     if (messageType) {
       setTypeName(messageType.type_name)
       setDefinition(messageType.type_definition)
@@ -51,7 +51,7 @@ function MessageTypeDialog({ open, onOpenChange, messageType }: MessageTypeDialo
       setTypeName('')
       setDefinition('')
     }
-  })
+  }, [messageType])
 
   const handleOpenChange = (open: boolean) => {
     if (!open) {

@@ -53,21 +53,25 @@ export function ActiveHoursCard() {
 
   const [configs, setConfigs] = useState<ActiveHoursConfig[]>([])
   const [hasChanges, setHasChanges] = useState(false)
+  const [initialConfigs, setInitialConfigs] = useState<ActiveHoursConfig[] | null>(null)
 
   useEffect(() => {
     if (existingConfigs && existingConfigs.length > 0) {
       setConfigs(existingConfigs)
+      setInitialConfigs(existingConfigs)
     } else if (existingConfigs) {
-      setConfigs(getDefaultConfig())
+      const defaults = getDefaultConfig()
+      setConfigs(defaults)
+      setInitialConfigs(defaults)
     }
   }, [existingConfigs])
 
   useEffect(() => {
-    if (existingConfigs && existingConfigs.length > 0) {
-      const changed = JSON.stringify(configs) !== JSON.stringify(existingConfigs)
+    if (initialConfigs && configs) {
+      const changed = JSON.stringify(configs) !== JSON.stringify(initialConfigs)
       setHasChanges(changed)
     }
-  }, [configs, existingConfigs])
+  }, [configs, initialConfigs])
 
   const handleTimeChange = (dayOfWeek: number, field: 'start_time' | 'end_time', value: string) => {
     setConfigs((prev) =>
@@ -96,14 +100,21 @@ export function ActiveHoursCard() {
   }
 
   const handleSave = () => {
-    updateActiveHours.mutate({
-      configs: configs.map((c) => ({
-        day_of_week: c.day_of_week,
-        start_time: c.start_time,
-        end_time: c.end_time,
-        is_enabled: c.is_enabled,
-      })),
-    })
+    updateActiveHours.mutate(
+      {
+        configs: configs.map((c) => ({
+          day_of_week: c.day_of_week,
+          start_time: c.start_time,
+          end_time: c.end_time,
+          is_enabled: c.is_enabled,
+        })),
+      },
+      {
+        onSuccess: () => {
+          setInitialConfigs(configs)
+        },
+      }
+    )
   }
 
   const breakthrough = settings?.active_hours_breakthrough ?? 'allow_notify_now'
