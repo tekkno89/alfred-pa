@@ -1090,3 +1090,109 @@ export interface AdaptiveWindowResetResponse {
   window_minutes: number
   message: string
 }
+
+// Triage v3.3 - Active Hours
+export interface ActiveHoursConfig {
+  id: string
+  user_id: string
+  day_of_week: number // 0=Monday, 6=Sunday
+  start_time: string // "09:00"
+  end_time: string // "18:00"
+  is_enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface ActiveHoursBatchUpdate {
+  configs: Array<{
+    day_of_week: number
+    start_time: string
+    end_time: string
+    is_enabled: boolean
+  }>
+}
+
+// Triage v3.3 - Message Types
+export interface MessageType {
+  id: string
+  user_id: string
+  type_name: string
+  type_definition: string
+  source: 'wizard' | 'user' | 'alfred_suggested'
+  is_archived: boolean
+  created_at: string
+}
+
+export interface MessageTypeSuggestion {
+  type_name: string
+  type_definition: string
+  confidence: number
+}
+
+// Triage v3.3 - Channel Type Rules
+export interface ChannelTypeRule {
+  id: string
+  user_id: string
+  channel_id: string
+  message_type_id: string
+  message_type?: MessageType
+  action: 'notify_now' | 'summarize_next' | 'summarize_eod' | 'ignore'
+  created_at: string
+}
+
+// Triage v3.3 - Wizard
+export interface WizardQuestion {
+  question: string
+  options: string[]
+  context: string
+}
+
+export interface FetchedMessage {
+  slack_link: string
+  text: string
+  sender_name: string
+  channel_name: string
+}
+
+// Triage v3.3 - Transparency
+export interface KeywordData {
+  keyword: string
+  weight: number
+  source_category: 'public' | 'sensitive' | 'dm'
+}
+
+export interface SenderPatternData {
+  sender_name: string
+  sender_slack_id: string
+  channel_name: string
+  action_distribution: Record<string, number>
+  sample_count: number
+}
+
+export interface CorrectionData {
+  message_text: string
+  corrected_action: string
+  created_at: string
+}
+
+export interface TransparencyData {
+  keywords: KeywordData[]
+  sender_patterns: SenderPatternData[]
+  recent_corrections: CorrectionData[]
+  last_updated: string | null
+}
+
+// Triage v3.3 - Priority/Action mapping
+export const PRIORITY_ACTION_MAP = {
+  P0: { action: 'notify_now', label: 'P0 - Immediate' },
+  P1: { action: 'summarize_next', label: 'P1 - Soon' },
+  P2: { action: 'summarize_eod', label: 'P2 - Later' },
+  P3: { action: 'ignore', label: 'P3 - Ignore' },
+} as const
+
+export const ACTION_PRIORITY_MAP = {
+  notify_now: 'P0',
+  summarize_next: 'P1',
+  summarize_eod: 'P2',
+  ignore: 'P3',
+} as const
