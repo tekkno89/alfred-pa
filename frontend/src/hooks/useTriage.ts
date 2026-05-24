@@ -35,6 +35,8 @@ import type {
   WizardDefinitionResponse,
   FetchMessagesRequest,
   FetchMessagesResponse,
+  WizardGoalsRequest,
+  WizardGoalsResponse,
 } from '@/types'
 
 // --- Settings ---
@@ -456,5 +458,19 @@ export function useFetchWizardMessages() {
         '/triage/wizard/fetch-messages',
         data
       ),
+  })
+}
+
+export function useGenerateWizardGoals() {
+  return useMutation<WizardGoalsResponse, Error, WizardGoalsRequest>({
+    mutationFn: async (data) => {
+      const res = await fetch('/api/triage/wizard/generate-goals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      if (!res.ok) throw new Error('Failed to generate goals')
+      return res.json()
+    },
   })
 }

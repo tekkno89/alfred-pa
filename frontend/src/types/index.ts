@@ -1211,6 +1211,19 @@ export interface FetchMessagesResponse {
   messages: FetchedMessage[]
 }
 
+export interface WizardGoal {
+  id: string
+  label: string
+}
+
+export interface WizardGoalsRequest {
+  role: string
+}
+
+export interface WizardGoalsResponse {
+  goals: WizardGoal[]
+}
+
 // Triage v3.3 - Transparency
 export interface KeywordData {
   keyword: string
