@@ -32,6 +32,106 @@ async def test_user(db_session: AsyncSession):
     return user
 
 
+class TestGenerateGoals:
+    """Tests for generate_goals endpoint."""
+
+    async def test_generate_goals(self, client: AsyncClient, test_user):
+        """Generate goals based on role."""
+        mock_llm = AsyncMock()
+        mock_llm.generate.return_value = json.dumps({
+            "goals": [
+                {"id": "incidents", "label": "Stay on top of production incidents"},
+                {"id": "noise", "label": "Reduce noise from automated messages"},
+                {"id": "reviews", "label": "Never miss code review requests"},
+            ]
+        })
+
+        with patch("app.api.triage_wizard.get_llm_provider") as mock_get_llm:
+            mock_get_llm.return_value = mock_llm
+
+            response = await client.post(
+                "/api/triage/wizard/generate-goals",
+                json={"role": "Software Engineer"},
+                headers=auth_headers(test_user),
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "goals" in data
+        assert len(data["goals"]) == 3
+        assert data["goals"][0]["id"] == "incidents"
+        assert data["goals"][0]["label"] == "Stay on top of production incidents"
+
+    async def test_generate_goals_handles_invalid_json(
+        self, client: AsyncClient, test_user
+    ):
+        """Test that invalid JSON from LLM returns fallback goals."""
+        mock_llm = AsyncMock()
+        mock_llm.generate.return_value = "not valid json {{{"
+
+        with patch("app.api.triage_wizard.get_llm_provider") as mock_get_llm:
+            mock_get_llm.return_value = mock_llm
+
+            response = await client.post(
+                "/api/triage/wizard/generate-goals",
+                json={"role": "Software Engineer"},
+                headers=auth_headers(test_user),
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "goals" in data
+        assert len(data["goals"]) == 5
+        assert data["goals"][0]["id"] == "incidents"
+
+    async def test_generate_goals_strips_markdown(
+        self, client: AsyncClient, test_user
+    ):
+        """Test that markdown code blocks are stripped from LLM response."""
+        mock_llm = AsyncMock()
+        mock_llm.generate.return_value = """```json
+{"goals": [{"id": "test", "label": "Test goal"}]}
+```"""
+
+        with patch("app.api.triage_wizard.get_llm_provider") as mock_get_llm:
+            mock_get_llm.return_value = mock_llm
+
+            response = await client.post(
+                "/api/triage/wizard/generate-goals",
+                json={"role": "Software Engineer"},
+                headers=auth_headers(test_user),
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["goals"]) == 1
+        assert data["goals"][0]["id"] == "test"
+
+    async def test_generate_goals_role_too_short(
+        self, client: AsyncClient, test_user
+    ):
+        """Test that role must be at least 3 characters."""
+        response = await client.post(
+            "/api/triage/wizard/generate-goals",
+            json={"role": "ab"},
+            headers=auth_headers(test_user),
+        )
+
+        assert response.status_code == 422
+
+    async def test_generate_goals_role_too_long(
+        self, client: AsyncClient, test_user
+    ):
+        """Test that role must be at most 500 characters."""
+        response = await client.post(
+            "/api/triage/wizard/generate-goals",
+            json={"role": "a" * 501},
+            headers=auth_headers(test_user),
+        )
+
+        assert response.status_code == 422
+
+
 class TestGenerateQuestions:
     """Tests for generate_questions endpoint."""
 
@@ -365,6 +465,14 @@ class TestFetchMessages:
 
 class TestAuthentication:
     """Tests for authentication requirements."""
+
+    async def test_generate_goals_requires_auth(self, client: AsyncClient):
+        """Test that generate_goals requires authentication."""
+        response = await client.post(
+            "/api/triage/wizard/generate-goals",
+            json={"role": "Software Engineer"},
+        )
+        assert response.status_code == 401
 
     async def test_generate_questions_requires_auth(self, client: AsyncClient):
         """Test that generate_questions requires authentication."""
