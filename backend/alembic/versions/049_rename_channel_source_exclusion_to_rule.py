@@ -44,7 +44,7 @@ def upgrade() -> None:
     
     if index_exists:
         op.drop_index('ix_channel_source_exclusions_channel_id', table_name='channel_source_rules')
-    op.create_index('ix_channel_source_rules_channel_id', 'channel_source_rules', ['channel_id'])
+    op.create_index('ix_channel_source_rules_channel_id', 'channel_source_rules', ['monitored_channel_id'])
     
     # Rename foreign key constraints (find actual names since they may vary)
     fk_monitored = conn.execute(
@@ -100,7 +100,7 @@ def downgrade() -> None:
     
     # Rename index back
     op.drop_index('ix_channel_source_rules_channel_id', table_name='channel_source_rules')
-    op.create_index('ix_channel_source_exclusions_channel_id', 'channel_source_rules', ['channel_id'])
+    op.create_index('ix_channel_source_exclusions_channel_id', 'channel_source_rules', ['monitored_channel_id'])
     
     # Rename unique constraint back
     op.drop_constraint('uq_channel_source_rule_entity', 'channel_source_rules', type_='unique')
