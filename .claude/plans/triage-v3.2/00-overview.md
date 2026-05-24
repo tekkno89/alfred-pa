@@ -12,12 +12,13 @@
 
 ## Phase Summary
 
-| Phase | Plan File | Duration | Deploys With |
-|-------|-----------|----------|--------------|
-| Phase 1: Foundation | `phase-1-foundation.md` | 3-4 weeks | Action labels, tiered cache, engagement checks, review flag |
-| Phase 2: Trust-building | `phase-2-trust.md` | 3 weeks | Closed-loop learning, EOD review, telemetry, transparency UI |
-| Phase 3: Patterns | `phase-3-patterns.md` | 2 weeks | Structured rules, bot handling, escalation detection |
-| Phase 4: Timing | `phase-4-timing.md` | 2 weeks | Smart delivery, adaptive windows, away mode |
+| Phase | Plan File | Duration | Status |
+|-------|-----------|----------|--------|
+| Phase 1: Foundation | `phase-1-foundation.md` | 3-4 weeks | ✅ Complete |
+| Phase 2: Trust-building | `phase-2-trust.md` | 3 weeks | ✅ Complete |
+| Phase 3: Patterns | `phase-3-patterns.md` | 2 weeks | ✅ Complete |
+| Phase 4: Timing | `phase-4-timing.md` | 2 weeks | ✅ Complete |
+| Phase 5: Cleanup | `phase-5-remove-priority-timing.md` | 1 week | ✅ Complete |
 
 ---
 
@@ -28,6 +29,7 @@ graph TD
     P1[Phase 1: Foundation] --> P2[Phase 2: Trust]
     P2 --> P3[Phase 3: Patterns]
     P3 --> P4[Phase 4: Timing]
+    P4 --> P5[Phase 5: Cleanup]
     
     R-Cache[R-Cache tiered storage] --> R3b[R3b Few-shot retrieval]
     R3b --> R3c[R3c Sender distributions]
@@ -269,6 +271,10 @@ ALTER TABLE triage_user_settings ADD COLUMN product_mode VARCHAR(20) DEFAULT 'al
 ### Phase 4 Migrations
 
 13. `050_add_triage_user_settings_new_fields.py`
+
+### Phase 5 Migrations
+
+14. `052_remove_priority_timing_fields.py` - Drops 15 old priority-based timing columns
 
 ---
 

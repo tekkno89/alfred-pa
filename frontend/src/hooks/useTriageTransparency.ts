@@ -1,10 +1,18 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiDelete } from '@/lib/api'
+import type { TransparencyData } from '@/types'
 
 export interface LearnedKeyword {
   keyword: string
   weight: number
   source_category: 'public' | 'sensitive' | 'dm'
+}
+
+export function useTransparency() {
+  return useQuery({
+    queryKey: ['triage', 'transparency'],
+    queryFn: () => apiGet<TransparencyData>('/triage/transparency'),
+  })
 }
 
 export function useLearnedKeywords() {

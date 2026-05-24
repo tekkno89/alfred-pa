@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { ArrowLeft, Hash, Lock, RefreshCw, Sparkles, Settings } from 'lucide-react'
+import { ArrowLeft, Hash, Lock, RefreshCw, Sparkles, Settings, Clock } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import {
   useTriageSettings,
@@ -28,6 +29,11 @@ import { ClassifierWizardModal } from '@/components/triage/ClassifierWizardModal
 import { ChannelConfigModal } from '@/components/triage/ChannelConfigModal'
 import { AwayModeToggle } from '@/components/triage/AwayModeToggle'
 import { AdaptiveWindowsCard } from '@/components/triage/AdaptiveWindowsCard'
+import { ActiveHoursCard } from '@/components/triage/ActiveHoursCard'
+import { MessageTypesCard } from '@/components/triage/MessageTypesCard'
+import { LearnedKeywordsCard } from '@/components/triage/LearnedKeywordsCard'
+import { SenderPatternsCard } from '@/components/triage/SenderPatternsCard'
+import { RecentCorrectionsCard } from '@/components/triage/RecentCorrectionsCard'
 import type { MonitoredChannel, ChannelPriority } from '@/types'
 
 const DEFAULT_P0 = 'Needs immediate attention RIGHT NOW. Production incidents, emergencies, someone explicitly saying something is urgent/critical.'
@@ -67,7 +73,6 @@ export function TriageSettingsPage() {
   const [p1Def, setP1Def] = useState<string | null>(null)
   const [p2Def, setP2Def] = useState<string | null>(null)
   const [p3Def, setP3Def] = useState<string | null>(null)
-  const [digestInstr, setDigestInstr] = useState<string | null>(null)
 
   const hasRulesChanges =
     customRules !== null && customRules !== (settings?.custom_classification_rules ?? '')
@@ -76,8 +81,6 @@ export function TriageSettingsPage() {
     (p1Def !== null && p1Def !== (settings?.p1_definition ?? '')) ||
     (p2Def !== null && p2Def !== (settings?.p2_definition ?? '')) ||
     (p3Def !== null && p3Def !== (settings?.p3_definition ?? ''))
-  const hasDigestChanges =
-    digestInstr !== null && digestInstr !== (settings?.digest_instructions ?? '')
 
   const channels = channelData?.channels ?? []
   const visibleChannels = useMemo(() => {
@@ -172,11 +175,34 @@ export function TriageSettingsPage() {
             />
           </div>
 
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="flex items-center gap-2">
+                <Clock className="h-4 w-4" />
+                EOD Review Time
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                Time for end-of-day digest summary
+              </p>
+            </div>
+            <Input
+              type="time"
+              className="w-32"
+              value={settings?.eod_review_time ?? '17:00'}
+              onChange={(e) =>
+                updateSettings.mutate({ eod_review_time: e.target.value })
+              }
+            />
+          </div>
+
           <div className="border-t pt-4">
             <AwayModeToggle />
           </div>
         </CardContent>
       </Card>
+
+      {/* Active Hours */}
+      <ActiveHoursCard />
 
       {/* Adaptive Delivery Windows */}
       <AdaptiveWindowsCard />
@@ -203,7 +229,7 @@ export function TriageSettingsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <Label className="text-sm font-medium">P0 — Urgent (immediate notification)</Label>
+            <Label className="text-sm font-medium">P0 - Immediate (notify_now)</Label>
             <Textarea
               rows={2}
               className="mt-1"
@@ -213,7 +239,7 @@ export function TriageSettingsPage() {
             />
           </div>
           <div>
-            <Label className="text-sm font-medium">P1 — Important (digest at break)</Label>
+            <Label className="text-sm font-medium">P1 - Soon (summarize_next)</Label>
             <Textarea
               rows={2}
               className="mt-1"
@@ -223,7 +249,7 @@ export function TriageSettingsPage() {
             />
           </div>
           <div>
-            <Label className="text-sm font-medium">P2 — Notable (session digest)</Label>
+            <Label className="text-sm font-medium">P2 - Later (summarize_eod)</Label>
             <Textarea
               rows={2}
               className="mt-1"
@@ -233,7 +259,7 @@ export function TriageSettingsPage() {
             />
           </div>
           <div>
-            <Label className="text-sm font-medium">P3 — Low priority</Label>
+            <Label className="text-sm font-medium">P3 - Ignore</Label>
             <Textarea
               rows={2}
               className="mt-1"
@@ -306,37 +332,8 @@ export function TriageSettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Digest Instructions */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Digest Instructions</CardTitle>
-          <CardDescription>
-            Tell the AI what to focus on when summarizing messages in your digest
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Textarea
-            rows={3}
-            placeholder="e.g. Focus on action items and questions directed at me. Skip social messages."
-            value={digestInstr ?? settings?.digest_instructions ?? ''}
-            onChange={(e) => setDigestInstr(e.target.value)}
-          />
-          {hasDigestChanges && (
-            <Button
-              size="sm"
-              disabled={updateSettings.isPending}
-              onClick={() => {
-                updateSettings.mutate(
-                  { digest_instructions: digestInstr || null },
-                  { onSuccess: () => setDigestInstr(null) }
-                )
-              }}
-            >
-              {updateSettings.isPending ? 'Saving...' : 'Save Instructions'}
-            </Button>
-          )}
-        </CardContent>
-      </Card>
+      {/* Message Types */}
+      <MessageTypesCard />
 
       {/* Monitored Channels */}
       <Card>
@@ -508,6 +505,17 @@ export function TriageSettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Transparency Section */}
+      <div className="space-y-6">
+        <h2 className="text-lg font-semibold">Transparency</h2>
+        <p className="text-sm text-muted-foreground">
+          View the data Alfred has learned from your feedback. This influences how messages are classified.
+        </p>
+        <LearnedKeywordsCard />
+        <SenderPatternsCard />
+        <RecentCorrectionsCard />
+      </div>
 
       {/* Channel Configuration Modal */}
       <ChannelConfigModal

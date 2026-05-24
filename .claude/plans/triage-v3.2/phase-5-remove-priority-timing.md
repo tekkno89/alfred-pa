@@ -1,6 +1,6 @@
 # Remove Old Priority-Based Timing Controls
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Status: ✅ COMPLETE** (2026-05-17)
 
 **Goal:** Remove the old priority-based timing controls (`p0/p1/p2/p3_alerts_enabled`, `p1/p2_digest_*` fields) and replace them with the new action-based smart delivery system.
 
@@ -567,16 +567,16 @@ Expected: No uncommitted changes.
 
 ## Acceptance Criteria
 
-- [ ] All 15 old priority timing fields removed from model
-- [ ] All 15 fields removed from schemas
-- [ ] Migration 052 drops the columns
-- [ ] TriagePipeline no longer uses `p0/p1/p2/p3_alerts_enabled`
-- [ ] DigestScheduler deprecated
-- [ ] Frontend Alert Cadence UI removed
-- [ ] Frontend types updated
-- [ ] Tests updated
-- [ ] Frontend builds successfully
-- [ ] Backend tests pass
+- [x] All 15 old priority timing fields removed from model
+- [x] All 15 fields removed from schemas
+- [x] Migration 052 drops the columns
+- [x] TriagePipeline no longer uses `p0/p1/p2/p3_alerts_enabled`
+- [x] DigestScheduler deprecated
+- [x] Frontend Alert Cadence UI removed (504 lines)
+- [x] Frontend types updated
+- [x] Tests updated
+- [x] Frontend builds successfully
+- [x] Backend tests pass (42 tests)
 
 ---
 

@@ -3,6 +3,7 @@ import { X, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectContent,
@@ -26,6 +27,7 @@ import {
   useRemoveSourceRule,
   useChannelMembers,
 } from '@/hooks/useTriage'
+import { ChannelTypeRulesSection } from '@/components/triage/ChannelTypeRulesSection'
 import type { MonitoredChannel, ChannelPriority, ChannelMember } from '@/types'
 
 interface ChannelConfigModalProps {
@@ -37,6 +39,7 @@ interface ChannelConfigModalProps {
 export function ChannelConfigModal({ channel, open, onOpenChange }: ChannelConfigModalProps) {
   const [priority, setPriority] = useState<ChannelPriority>('medium')
   const [triageInstructions, setTriageInstructions] = useState('')
+  const [sensitive, setSensitive] = useState(false)
   const [hasChanges, setHasChanges] = useState(false)
 
   const updateChannel = useUpdateMonitoredChannel()
@@ -52,6 +55,7 @@ export function ChannelConfigModal({ channel, open, onOpenChange }: ChannelConfi
     if (channel) {
       setPriority(channel.priority)
       setTriageInstructions(channel.triage_instructions || '')
+      setSensitive(channel.sensitive ?? false)
       setHasChanges(false)
     }
   }, [channel])
@@ -61,9 +65,10 @@ export function ChannelConfigModal({ channel, open, onOpenChange }: ChannelConfi
     if (channel) {
       const priorityChanged = priority !== channel.priority
       const instructionsChanged = triageInstructions !== (channel.triage_instructions || '')
-      setHasChanges(priorityChanged || instructionsChanged)
+      const sensitiveChanged = sensitive !== (channel.sensitive ?? false)
+      setHasChanges(priorityChanged || instructionsChanged || sensitiveChanged)
     }
-  }, [priority, triageInstructions, channel])
+  }, [priority, triageInstructions, sensitive, channel])
 
   const handleSave = async () => {
     if (!channel) return
@@ -73,6 +78,7 @@ export function ChannelConfigModal({ channel, open, onOpenChange }: ChannelConfi
       data: {
         priority,
         triage_instructions: triageInstructions || null,
+        sensitive,
       },
     })
     setHasChanges(false)
@@ -131,6 +137,21 @@ export function ChannelConfigModal({ channel, open, onOpenChange }: ChannelConfi
                 <SelectItem value="critical">Critical</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Sensitive Channel */}
+          <div className="flex items-center justify-between">
+            <div>
+              <Label htmlFor="sensitive">Sensitive Channel</Label>
+              <p className="text-xs text-muted-foreground mt-1">
+                Messages from sensitive channels are handled with extra privacy considerations.
+              </p>
+            </div>
+            <Switch
+              id="sensitive"
+              checked={sensitive}
+              onCheckedChange={setSensitive}
+            />
           </div>
 
           {/* Triage Instructions */}
@@ -232,6 +253,9 @@ export function ChannelConfigModal({ channel, open, onOpenChange }: ChannelConfi
               </p>
             </div>
           </div>
+
+          {/* Message Type Rules */}
+          <ChannelTypeRulesSection channelId={channel.slack_channel_id} />
         </div>
 
         <DialogFooter>
