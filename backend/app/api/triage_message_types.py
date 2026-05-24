@@ -132,7 +132,7 @@ async def get_message_type_suggestions(
     import json
     import logging
 
-    from app.core.llm import get_llm_provider
+    from app.core.llm import LLMMessage, get_llm_provider
 
     logger = logging.getLogger(__name__)
 
@@ -148,10 +148,14 @@ Return JSON array:
 
 Only return the JSON array, no other text."""
 
-    response = await llm.ainvoke(prompt)
+    response = await llm.generate(
+        [LLMMessage(role="user", content=prompt)],
+        temperature=0.7,
+        max_tokens=2048,
+    )
 
     try:
-        suggestions = json.loads(response.content)
+        suggestions = json.loads(response.strip())
         return [MessageTypeSuggestion(**s) for s in suggestions]
     except (json.JSONDecodeError, TypeError) as e:
         logger.warning(f"Failed to parse LLM suggestions: {e}")

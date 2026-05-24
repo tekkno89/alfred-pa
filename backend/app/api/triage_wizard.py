@@ -6,7 +6,7 @@ import re
 from fastapi import APIRouter
 
 from app.api.deps import CurrentUser, DbSession
-from app.core.llm import get_llm_provider
+from app.core.llm import LLMMessage, get_llm_provider
 from app.schemas.triage import (
     FetchedMessage,
     FetchMessagesRequest,
@@ -54,8 +54,12 @@ Return JSON only:
   ]
 }}"""
 
-    response = await llm.ainvoke(prompt)
-    content = response.content.strip()
+    response = await llm.generate(
+        [LLMMessage(role="user", content=prompt)],
+        temperature=0.7,
+        max_tokens=2048,
+    )
+    content = response.strip()
 
     if content.startswith("```"):
         content = re.sub(r"^```(?:json)?\n?", "", content)
@@ -116,8 +120,12 @@ Return JSON only:
   ]
 }}"""
 
-    response = await llm.ainvoke(prompt)
-    content = response.content.strip()
+    response = await llm.generate(
+        [LLMMessage(role="user", content=prompt)],
+        temperature=0.7,
+        max_tokens=2048,
+    )
+    content = response.strip()
 
     if content.startswith("```"):
         content = re.sub(r"^```(?:json)?\n?", "", content)
