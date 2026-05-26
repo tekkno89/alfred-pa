@@ -805,21 +805,29 @@ async def deliver_eod_digests(ctx: dict) -> dict:
         try:
             user_id = settings.user_id
             if not settings.eod_review_time:
+                logger.debug(f"Skipping user {user_id}: no EOD review time configured")
                 continue
 
-            user_tz = await get_user_timezone(db, user_id)
-            now_local = get_current_time_in_tz(user_tz)
-            current_time = now_local.strftime("%H:%M")
+            # Create a fresh session for each user's timezone lookup
+            async with get_db_session() as db:
+                user_tz = await get_user_timezone(db, user_id)
+                now_local = get_current_time_in_tz(user_tz)
+                current_time = now_local.strftime("%H:%M")
 
-            if current_time == settings.eod_review_time:
-                async with get_db_session() as db:
+                logger.debug(
+                    f"EOD check for user {user_id}: "
+                    f"current_time={current_time}, eod_review_time={settings.eod_review_time}, tz={user_tz}"
+                )
+
+                if current_time == settings.eod_review_time:
                     orchestrator = DigestDeliveryOrchestrator(db)
                     result = await orchestrator.deliver_eod_digest(user_id)
+                    logger.info(f"EOD digest result for user {user_id}: {result}")
                     if result.get("status") == "enqueued":
                         delivered_count += 1
 
         except Exception as e:
-            logger.error(f"Error delivering EOD digest for user {settings.user_id}: {e}")
+            logger.error(f"Error delivering EOD digest for user {settings.user_id}: {e}", exc_info=True)
 
     logger.info(f"EOD digest check complete: {delivered_count} delivered")
     return {
