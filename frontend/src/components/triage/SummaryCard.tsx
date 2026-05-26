@@ -35,7 +35,7 @@ export function SummaryCard({ summary, onMarkReviewed }: SummaryCardProps) {
   const [expanded, setExpanded] = useState(false)
   const isReviewed = !!summary.reviewed_at
 
-  const digestType = summary.digest_type || 'focus'
+  const digestType = summary.digest_type || 'scheduled'
   const typeInfo = DIGEST_TYPE_LABELS[digestType] ?? DIGEST_TYPE_LABELS.focus
   const TypeIcon = typeInfo.icon
 
