@@ -4,25 +4,21 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { useTriageSettings, useTriageSessionStats, useClassifications } from '@/hooks/useTriage'
 
 const PRIORITY_STYLES: Record<string, { bg: string; text: string }> = {
-  p0: {
+  notify_now: {
     bg: 'bg-red-100 dark:bg-red-900/40',
     text: 'text-red-800 dark:text-red-200',
   },
-  p1: {
+  summarize_next: {
     bg: 'bg-orange-100 dark:bg-orange-900/40',
     text: 'text-orange-800 dark:text-orange-200',
   },
-  p2: {
+  summarize_eod: {
     bg: 'bg-blue-100 dark:bg-blue-900/40',
     text: 'text-blue-800 dark:text-blue-200',
   },
-  p3: {
+  ignore: {
     bg: 'bg-gray-100 dark:bg-gray-800',
     text: 'text-gray-500 dark:text-gray-400',
-  },
-  digest_summary: {
-    bg: 'bg-blue-100 dark:bg-blue-900/40',
-    text: 'text-blue-800 dark:text-blue-200',
   },
   review: {
     bg: 'bg-yellow-100 dark:bg-yellow-900/40',
@@ -111,13 +107,14 @@ export function TriageCard() {
               <>
                 <div className="space-y-1.5">
                   {recent.items.map((item) => {
-                    const style = PRIORITY_STYLES[item.priority_level] ?? PRIORITY_STYLES.p2
+                    const style = PRIORITY_STYLES[item.action] ?? PRIORITY_STYLES.summarize_eod
+                    const label = item.action === 'summarize_eod' ? 'digest' : item.action
                     return (
                       <div key={item.id} className="flex items-start gap-2">
                         <span
                           className={`shrink-0 mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium ${style.bg} ${style.text}`}
                         >
-                          {item.priority_level === 'digest_summary' ? 'digest' : item.priority_level}
+                          {label}
                         </span>
                         <span className="text-sm truncate flex-1">
                           {item.abstract || 'Message'}

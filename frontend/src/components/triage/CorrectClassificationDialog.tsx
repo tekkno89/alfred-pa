@@ -16,10 +16,10 @@ import { useSubmitFeedback } from '@/hooks/useTriage'
 import type { TriageClassification } from '@/types'
 
 const PRIORITY_OPTIONS = [
-  { value: 'p0', label: 'P0 - Immediate (notify_now)', description: 'Needs immediate attention', icon: AlertTriangle },
-  { value: 'p1', label: 'P1 - Soon (summarize_next)', description: 'Time-sensitive but can wait', icon: AlertCircle },
-  { value: 'p2', label: 'P2 - Later (summarize_eod)', description: 'Noteworthy but can wait', icon: Bookmark },
-  { value: 'p3', label: 'P3 - Ignore', description: 'Low priority', icon: VolumeX },
+  { value: 'notify_now', label: 'P0 - Immediate', description: 'Needs immediate attention', icon: AlertTriangle },
+  { value: 'summarize_next', label: 'P1 - Soon', description: 'Time-sensitive but can wait', icon: AlertCircle },
+  { value: 'summarize_eod', label: 'P2 - Later', description: 'Noteworthy but can wait', icon: Bookmark },
+  { value: 'ignore', label: 'P3 - Ignore', description: 'Low priority', icon: VolumeX },
   { value: 'review', label: 'Review', description: 'Needs manual review', icon: Eye },
 ]
 
@@ -34,7 +34,7 @@ export function CorrectClassificationDialog({
   open,
   onOpenChange,
 }: CorrectClassificationDialogProps) {
-  const [priority, setPriority] = useState<string>(classification?.priority_level || 'p2')
+  const [priority, setPriority] = useState<string>(classification?.action || 'summarize_eod')
   const [feedbackText, setFeedbackText] = useState('')
   const submitFeedback = useSubmitFeedback()
 
@@ -45,7 +45,7 @@ export function CorrectClassificationDialog({
       {
         classification_id: classification.id,
         was_correct: false,
-        correct_priority: priority as 'p0' | 'p1' | 'p2' | 'p3' | 'review',
+        correct_priority: priority as 'notify_now' | 'summarize_next' | 'summarize_eod' | 'ignore' | 'review',
         feedback_text: feedbackText || null,
       },
       {
@@ -57,7 +57,7 @@ export function CorrectClassificationDialog({
     )
   }
 
-  const currentPriority = classification?.priority_level
+  const currentPriority = classification?.action
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

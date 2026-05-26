@@ -63,9 +63,9 @@ export function SummaryCard({ summary, onMarkReviewed }: SummaryCardProps) {
   const hasConversations = conversations.length > 0
   const legacyMessages = legacyChildren ?? []
 
-  const p1Conversations = conversations.filter((c) => c.priority_level === 'p1')
-  const p2Conversations = conversations.filter((c) => c.priority_level === 'p2')
-  const p3Conversations = conversations.filter((c) => c.priority_level === 'p3')
+  const p1Conversations = conversations.filter((c) => c.action === 'summarize_next')
+  const p2Conversations = conversations.filter((c) => c.action === 'summarize_eod')
+  const p3Conversations = conversations.filter((c) => c.action === 'ignore')
 
   const isLoading = loadingConversations || loadingLegacy
 

@@ -30,7 +30,7 @@ import type { TriageClassification } from '@/types'
 
 const FILTER_OPTIONS: { value: TriageFilter; label: string }[] = [
   { value: 'needs_attention', label: 'Needs Attention' },
-  { value: 'p0', label: 'P0 Alerts' },
+  { value: 'notify_now', label: 'P0 Alerts' },
   { value: 'focus', label: 'Focus Sessions' },
   { value: 'scheduled', label: 'Scheduled Digests' },
   { value: 'review', label: 'Review' },
@@ -142,7 +142,7 @@ export function TriagePage() {
   }
 
   const handleMarkAllReviewed = () => {
-    if (filter === 'p0' || filter === 'reviewed') return
+    if (filter === 'notify_now' || filter === 'reviewed') return
     markAllReviewed.mutate({ filter })
   }
 
@@ -155,10 +155,10 @@ export function TriagePage() {
   const hasMore = offset + limit < totalItems
 
   const items = classifications?.items ?? []
-  const p0Items = items.filter((item) => item.priority_level === 'p0')
-  const summaries = items.filter((item) => item.priority_level === 'digest_summary')
+  const p0Items = items.filter((item) => item.action === 'notify_now')
+  const summaries = items.filter((item) => item.action === 'summarize_eod')
 
-  const canMarkAllReviewed = filter !== 'p0' && filter !== 'reviewed'
+  const canMarkAllReviewed = filter !== 'notify_now' && filter !== 'reviewed'
   const hasUnreviewed =
     filter !== 'reviewed' && (p0Items.some((i) => !i.reviewed_at) || summaries.some((i) => !i.reviewed_at))
 
@@ -194,10 +194,10 @@ export function TriagePage() {
             <div className="flex gap-4 text-sm">
               <button
                 className={`flex items-center gap-1.5 hover:underline ${
-                  filter === 'p0' ? 'underline' : ''
+                  filter === 'notify_now' ? 'underline' : ''
                 }`}
                 onClick={() => {
-                  setFilter(filter === 'p0' ? 'needs_attention' : 'p0')
+                  setFilter(filter === 'notify_now' ? 'needs_attention' : 'notify_now')
                   setOffset(0)
                 }}
               >

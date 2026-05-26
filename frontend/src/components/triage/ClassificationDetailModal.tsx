@@ -8,7 +8,6 @@ import {
   CheckCircle,
   CircleDashed,
   VolumeX,
-  Layers,
   AlertCircle,
   Bookmark,
 } from 'lucide-react'
@@ -32,30 +31,25 @@ import { useSubmitFeedback, useMarkReviewed, useDigestChildren } from '@/hooks/u
 import type { TriageClassification, PriorityLevel } from '@/types'
 
 const PRIORITY_CONFIG: Record<string, { icon: typeof AlertTriangle; className: string; label: string }> = {
-  p0: {
+  notify_now: {
     icon: AlertTriangle,
     className: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200',
-    label: 'P0 - Immediate (notify_now)',
+    label: 'P0 - Immediate',
   },
-  p1: {
+  summarize_next: {
     icon: AlertCircle,
     className: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200',
-    label: 'P1 - Soon (summarize_next)',
+    label: 'P1 - Soon',
   },
-  p2: {
+  summarize_eod: {
     icon: Bookmark,
     className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200',
-    label: 'P2 - Later (summarize_eod)',
+    label: 'P2 - Later',
   },
-  p3: {
+  ignore: {
     icon: VolumeX,
     className: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
     label: 'P3 - Ignore',
-  },
-  digest_summary: {
-    icon: Layers,
-    className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200',
-    label: 'Session Digest',
   },
   review: {
     icon: Eye,
@@ -80,7 +74,7 @@ export function ClassificationDetailModal({
   const [feedbackText, setFeedbackText] = useState('')
   const submitFeedback = useSubmitFeedback()
   const markReviewed = useMarkReviewed()
-  const isDigestSummary = classification?.priority_level === 'digest_summary'
+  const isDigestSummary = classification?.action === 'summarize_eod'
   const { data: digestChildren } = useDigestChildren(
     isDigestSummary ? classification?.id ?? null : null
   )
@@ -94,7 +88,7 @@ export function ClassificationDetailModal({
 
   if (!classification) return null
 
-  const badge = PRIORITY_CONFIG[classification.priority_level] ?? PRIORITY_CONFIG.p2
+  const badge = PRIORITY_CONFIG[classification.action] ?? PRIORITY_CONFIG.summarize_eod
   const Icon = badge.icon
   const isReviewed = !!classification.reviewed_at
 
@@ -300,10 +294,10 @@ export function ClassificationDetailModal({
                       <SelectValue placeholder="Correct priority..." />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="p0">P0 - Immediate (notify_now)</SelectItem>
-                      <SelectItem value="p1">P1 - Soon (summarize_next)</SelectItem>
-                      <SelectItem value="p2">P2 - Later (summarize_eod)</SelectItem>
-                      <SelectItem value="p3">P3 - Ignore</SelectItem>
+                      <SelectItem value="notify_now">P0 - Immediate</SelectItem>
+                      <SelectItem value="summarize_next">P1 - Soon</SelectItem>
+                      <SelectItem value="summarize_eod">P2 - Later</SelectItem>
+                      <SelectItem value="ignore">P3 - Ignore</SelectItem>
                       <SelectItem value="review">Needs Review</SelectItem>
                     </SelectContent>
                   </Select>

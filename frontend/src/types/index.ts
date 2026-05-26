@@ -792,7 +792,8 @@ export interface YouTubeDashboard {
 }
 
 // Triage
-export type PriorityLevel = 'p0' | 'p1' | 'p2' | 'p3' | 'review' | 'digest_summary'
+export type PriorityLevel = 'notify_now' | 'summarize_next' | 'summarize_eod' | 'ignore' | 'review'
+export type TriageAction = 'notify_now' | 'summarize_eod' | 'summarize_next' | 'ignore'
 export type Sensitivity = 'low' | 'medium' | 'high'
 export type ChannelPriority = 'low' | 'medium' | 'high' | 'critical'
 export type MatchType = 'exact' | 'contains'
@@ -905,7 +906,9 @@ export interface TriageClassification {
   message_ts: string
   thread_ts: string | null
   slack_permalink: string | null
-  priority_level: PriorityLevel
+  action: TriageAction
+  review: boolean
+  is_consolidated: boolean
   confidence: number
   classification_reason: string | null
   abstract: string | null
@@ -986,7 +989,7 @@ export interface ConversationSummary {
   abstract: string
   participants: ConversationParticipant[]
   message_count: number
-  priority_level: PriorityLevel
+  action: TriageAction
   first_message_ts: string
   slack_permalink: string | null
   first_message_at: string | null

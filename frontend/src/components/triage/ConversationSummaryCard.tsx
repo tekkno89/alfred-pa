@@ -100,7 +100,7 @@ export function ConversationSummaryCard({ conversation }: ConversationSummaryCar
     expanded ? conversation.id : null
   )
 
-  const priorityConfig = PRIORITY_ICONS[conversation.priority_level] ?? PRIORITY_ICONS.p3
+  const priorityConfig = PRIORITY_ICONS[conversation.action] ?? PRIORITY_ICONS.p3
   const PriorityIcon = priorityConfig.icon
   const TypeIcon = TYPE_ICONS[conversation.conversation_type] ?? MessageSquare
 
@@ -144,7 +144,7 @@ export function ConversationSummaryCard({ conversation }: ConversationSummaryCar
           >
             <Badge variant="secondary" className={priorityConfig.bgClassName}>
               <PriorityIcon className="h-3 w-3 mr-1" />
-              {conversation.priority_level.toUpperCase()}
+              {conversation.action.toUpperCase()}
             </Badge>
 
             <div className="flex-1 min-w-0 space-y-1">

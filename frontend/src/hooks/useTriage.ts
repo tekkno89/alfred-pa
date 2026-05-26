@@ -236,7 +236,7 @@ export function useRefreshSlackChannels() {
 
 // --- Classifications ---
 
-export type TriageFilter = 'needs_attention' | 'p0' | 'focus' | 'scheduled' | 'review' | 'reviewed'
+export type TriageFilter = 'needs_attention' | 'notify_now' | 'focus' | 'scheduled' | 'review' | 'reviewed'
 
 export function useClassifications(params?: {
   filter?: TriageFilter
