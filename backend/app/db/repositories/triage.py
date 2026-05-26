@@ -489,6 +489,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
             select(TriageClassification)
             .where(TriageClassification.user_id == user_id)
             .where(TriageClassification.action == "summarize_eod")
+            .where(TriageClassification.is_consolidated == True)
         )
         if digest_type:
             query = query.where(TriageClassification.digest_type == digest_type)
@@ -523,6 +524,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
             .select_from(TriageClassification)
             .where(TriageClassification.user_id == user_id)
             .where(TriageClassification.action == "summarize_eod")
+            .where(TriageClassification.is_consolidated == True)
         )
         if digest_type:
             query = query.where(TriageClassification.digest_type == digest_type)
@@ -553,6 +555,7 @@ class TriageClassificationRepository(BaseRepository[TriageClassification]):
             select(TriageClassification.id)
             .where(TriageClassification.user_id == user_id)
             .where(TriageClassification.action == "summarize_eod")
+            .where(TriageClassification.is_consolidated == True)
             .where(TriageClassification.reviewed_at.is_(None))
         )
         if digest_type:
