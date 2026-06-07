@@ -37,7 +37,7 @@ Replace the current deterministic triage pipeline with an agent-driven architect
 - `TriageClassification` model → Add `group_id`, `deliver_by`, `last_related_activity_at`, `settled_threshold` fields
 - `TriageUserSettings` model → Add P1 timing configuration fields
 - Triage setup wizard → Add timing configuration step
-- `TriageEventRouter` → Simplified to just queue raw messages
+- `TriageEventRouter` → Simplified to just queue message references
 
 ---
 
@@ -46,8 +46,8 @@ Replace the current deterministic triage pipeline with an agent-driven architect
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ STAGE 1: Receive & Queue                                    │
-│ Slack event → ack → persist raw message to queue            │
-│ (No processing, just persist and acknowledge)               │
+│ Slack event → ack → enqueue message reference               │
+│ (No content stored, just IDs for later Slack API fetch)     │
 └────────────────────────┬────────────────────────────────────┘
                          ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -94,26 +94,27 @@ Replace the current deterministic triage pipeline with an agent-driven architect
 
 **What stays:** The existing `/events` endpoint in `slack.py` handles signature verification, event deduplication (Redis), and initial filtering (drops bot messages that would cause loops, drops messages without user/channel/text).
 
-**What changes:** Instead of routing to `TriageEventRouter` inline, the handler persists the raw message payload and enqueues a lightweight ARQ job for Stage 2.
+**What changes:** Instead of routing to `TriageEventRouter` inline, the handler enqueues a lightweight ARQ job for Stage 2 with only the message reference — no message content is stored.
 
-**Raw message payload stored:**
+**ARQ job arguments (message reference only):**
 ```python
 {
-    "event_id": str,         # Slack event ID
-    "event_type": str,       # "message" or "app_mention"
     "channel_id": str,
     "channel_type": str,     # "channel", "group", "im", "mpim"
-    "user_id": str,          # Slack user ID of sender
-    "text": str,
-    "ts": str,               # message_ts
+    "sender_slack_id": str,  # Slack user ID of sender
+    "message_ts": str,       # Message timestamp (serves as unique ID in Slack)
     "thread_ts": str | None,
+    "event_type": str,       # "message" or "app_mention"
     "bot_id": str | None,
     "subtype": str | None,
-    "raw_event": dict,       # Full event payload for tools to access later
 }
 ```
 
-**Storage:** Persisted to a new `triage_raw_messages` table. This gives us durability (survive crashes) and auditability (can replay).
+**No message content is stored.** When the triage agent needs the actual message text, it fetches it from Slack using `conversations.history(channel=channel_id, oldest=message_ts, inclusive=true, limit=1)`. This avoids storing user message content in the database, addressing data privacy concerns.
+
+**Trade-off:** If the message is deleted from Slack before the agent processes it, it will be lost. This is acceptable — deleted messages don't need triage. Slack's event delivery guarantees the reference arrives; the content is fetched on demand.
+
+**Rate limit note:** `conversations.history` is Tier 3 (50+ requests per minute). At current message volumes this is well within limits.
 
 ---
 
@@ -125,8 +126,7 @@ A deterministic worker job that runs per raw message. No LLM calls.
 ```python
 # O(1) Redis SET lookup - existing TriageCacheService pattern
 if not await triage_cache.is_monitored_channel(channel_id):
-    mark_raw_message(msg_id, status="out_of_scope")
-    return
+    return  # No users monitor this channel, skip
 ```
 
 ### Step 2: Find Applicable Users
@@ -194,15 +194,12 @@ A LangGraph ReAct agent that receives a `(message, user_id)` pair and has tools 
 ### Agent Input
 ```python
 {
-    "message": {
-        "text": str,
-        "sender_slack_id": str,
-        "sender_name": str,
+    "message_ref": {
         "channel_id": str,
-        "channel_name": str,
         "message_ts": str,
         "thread_ts": str | None,
-        "slack_permalink": str,
+        "sender_slack_id": str,
+        "event_type": str,
     },
     "user_id": str,
     "user_config": {
@@ -216,20 +213,24 @@ A LangGraph ReAct agent that receives a `(message, user_id)` pair and has tools 
 }
 ```
 
+Note: The agent receives only a message reference, not the text. Its first action is always to call `fetch_message` to retrieve the actual content from Slack, followed by `get_queued_messages` to check for related context.
+
 ### Agent System Prompt
 
 The agent's system prompt instructs it to:
-1. Analyze the full message meaning, not just keywords
-2. Gather context if needed (thread, channel history, queued messages)
-3. Check user's channel-specific rules
-4. Classify based on what action the user needs to take
-5. Take exactly one terminal action
+1. **Always start** by calling `fetch_message` to get the message text
+2. **Always call** `get_queued_messages` next to see what's already classified for this user in this channel
+3. Analyze the full message meaning, not just keywords
+4. Gather additional context if needed (thread, channel history, channel rules)
+5. Check if message is related to any queued messages — if so, call `link_messages`
+6. Classify based on what action the user needs to take
+7. Take exactly one terminal action
 
 Key classification guidance:
 - **P0 (notify_now):** Requires IMMEDIATE action. Active emergencies, explicit urgent requests. NOT status updates, NOT resolved issues, NOT FYI messages.
 - **P1 (summarize_next):** Needs attention within hours. Direct asks, time-sensitive questions, requests with a deadline.
 - **P2 (summarize_eod):** Notable information for EOD review. Updates, FYIs, discussions, informational content, resolved issues.
-- **P3 (ignore):** Does not require attention. Social chatter, automated notifications, irrelevant broadcasts.
+- **P3 (ignore):** Defined entirely by the user's own P3 configuration. No hardcoded default. If the user hasn't defined P3 criteria, the agent should not classify anything as P3 — use P2 instead.
 
 Semantic analysis guidance:
 - Analyze the FULL message context and meaning, not just keywords
@@ -243,10 +244,11 @@ Semantic analysis guidance:
 
 | Tool | Purpose | Limit per message |
 |------|---------|-------------------|
+| `fetch_message` | Fetch message text from Slack API (agent's first call) | 1 |
+| `get_queued_messages` | See what's already queued for this user in this channel (agent's second call) | 1 |
 | `fetch_thread` | Get thread messages for context | 2 |
 | `fetch_channel_history` | Get recent non-threaded messages in channel | 2 |
 | `get_user_channel_rules` | Get user's rules/guidance for this channel (cached) | 1 |
-| `get_queued_messages` | See what's already queued for this user in this channel | 1 |
 | `alert_now` | Send immediate P0 notification via Slack DM + SSE | 1 |
 | `queue_for_digest` | Queue message with priority and delivery parameters | 1 |
 | `link_messages` | Link this message to an existing queued message, upgrade priority/TTL | 1 |
@@ -262,6 +264,9 @@ Semantic analysis guidance:
 - `link_messages(new_id, existing_id, new_priority)` → Sets same `group_id` on both messages, upgrades group's `deliver_by` and `settled_threshold` to match higher priority. Must be followed by `queue_for_digest`.
 
 ### Tool Details
+
+**`fetch_message(channel_id, message_ts)`**
+Fetches a single message's text from Slack. Uses `conversations.history(channel=channel_id, oldest=message_ts, inclusive=true, limit=1)`. Returns `{user, text, ts, thread_ts, permalink}`. This is always the agent's first tool call — it needs the message content before it can classify.
 
 **`fetch_thread(thread_ts, channel_id, limit=10)`**
 Returns the last N messages from a thread. Uses Slack API `conversations.replies`. Returns list of `{user, text, ts}`.
@@ -399,7 +404,12 @@ A LangGraph agent that receives a batch of ready message groups and composes a d
    - Same channel, related topic (non-threaded) → identify as conversation
    - Use `fetch_channel_history` to understand conversation flow between messages
 
-3. **Summarize each conversation** — Generate concise summaries per conversation group. Include key participants, topic, and any action items.
+3. **Summarize selectively** — NOT all messages received are related. The subagent must:
+   - Identify which messages are part of the same conversation
+   - Messages from the same channel are NOT automatically related — analyze the content
+   - Summarize each conversation group independently
+   - Do NOT combine unrelated messages into a single summary
+   - Include key participants, topic, and any action items per group
 
 4. **Format digest** — Order by priority (P1 first, then P2). Include:
    - Conversation summaries with Slack permalinks
@@ -418,29 +428,9 @@ A LangGraph agent that receives a batch of ready message groups and composes a d
 
 ## Data Model Changes
 
-### New Table: `triage_raw_messages`
-```sql
-CREATE TABLE triage_raw_messages (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    event_id VARCHAR(100) UNIQUE NOT NULL,
-    event_type VARCHAR(20) NOT NULL,
-    channel_id VARCHAR(50) NOT NULL,
-    channel_type VARCHAR(20),
-    sender_slack_id VARCHAR(50) NOT NULL,
-    text TEXT,
-    message_ts VARCHAR(50) NOT NULL,
-    thread_ts VARCHAR(50),
-    bot_id VARCHAR(50),
-    subtype VARCHAR(50),
-    raw_event JSONB NOT NULL,
-    status VARCHAR(20) DEFAULT 'pending',  -- pending, processing, filtered, completed
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    processed_at TIMESTAMPTZ
-);
+### No New Tables
 
-CREATE INDEX idx_raw_msgs_status ON triage_raw_messages(status) WHERE status = 'pending';
-CREATE INDEX idx_raw_msgs_channel ON triage_raw_messages(channel_id, message_ts);
-```
+Message content is not stored. Message references are passed as ARQ job arguments and message text is fetched from Slack API on demand. The existing `TriageClassification` table stores only the AI-generated `abstract` (summary), not raw message content.
 
 ### Modified: `triage_classifications`
 
@@ -492,13 +482,12 @@ New step in the triage setup wizard after channel selection:
 This is a significant architectural change. It should be implemented incrementally:
 
 ### Phase A: Infrastructure
-- Create `triage_raw_messages` table
 - Add new columns to `triage_classifications` and `triage_user_settings`
 - Set up Redis cache structures for pre-filter
 - Build cache invalidation on settings update endpoints
 
 ### Phase B: Receive & Pre-filter (Stages 1-2)
-- Modify Slack event handler to queue raw messages
+- Modify Slack event handler to enqueue message references (no content stored)
 - Build pre-filter worker
 - Verify: messages get correctly fanned out to per-user queues
 - Run in parallel with existing pipeline (dual-write) for validation
