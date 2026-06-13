@@ -62,6 +62,10 @@ class TriageUserSettings(Base, UUIDMixin, TimestampMixin):
         String(20), default="allow_notify_now", server_default="allow_notify_now"
     )  # "allow_notify_now" | "queue_all"
 
+    # --- Agent-driven triage: P1 delivery timing ---
+    p1_max_wait_minutes: Mapped[int] = mapped_column(Integer, default=60, server_default="60")
+    p1_settled_threshold_minutes: Mapped[int] = mapped_column(Integer, default=30, server_default="30")
+
     # Relationships
     user: Mapped["User"] = relationship("User")
 
@@ -208,6 +212,14 @@ class TriageClassification(Base, UUIDMixin, TimestampMixin):
     # Processing outcome for digest grouping
     # Values: summarized, filtered_nonsubstantive, absorbed_in_thread, absorbed_in_cluster, skipped_thin_update
     processed_reason: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+    # --- Agent-driven triage: delivery timing & grouping ---
+    group_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    deliver_by: Mapped[datetime | None] = mapped_column(nullable=True)
+    last_related_activity_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    settled_threshold: Mapped[int | None] = mapped_column(Integer, nullable=True)  # minutes
+    needs_review: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     # Relationships
     user: Mapped["User"] = relationship("User")
