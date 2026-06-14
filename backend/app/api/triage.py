@@ -311,6 +311,12 @@ async def update_monitored_channel(
     updates = data.model_dump(exclude_unset=True)
     if updates:
         channel = await repo.update(channel, **updates)
+
+    # Invalidate caches for this channel
+    cache = TriageCacheService()
+    await cache.invalidate_channel_users(channel.slack_channel_id)
+    await cache.invalidate_channel_rules(current_user.id, channel.slack_channel_id)
+
     return MonitoredChannelResponse.model_validate(channel)
 
 
@@ -332,10 +338,15 @@ async def remove_monitored_channel(
     slack_channel_id = channel.slack_channel_id
     await repo.delete(channel)
 
+    # Invalidate caches for this channel
+    cache = TriageCacheService()
+    await cache.invalidate_channel_users(slack_channel_id)
+    await cache.invalidate_channel_rules(current_user.id, slack_channel_id)
+    await cache.invalidate_ignore_rules(current_user.id, slack_channel_id)
+
     # Check if any other user monitors this channel
     remaining = await repo.get_users_for_channel(slack_channel_id)
     if not remaining:
-        cache = TriageCacheService()
         await cache.remove_channel(slack_channel_id)
 
 
@@ -398,6 +409,11 @@ async def add_source_rule(
         display_name=data.display_name,
     )
     rule = await repo.create(rule)
+
+    # Invalidate ignore rules cache for this channel
+    cache = TriageCacheService()
+    await cache.invalidate_ignore_rules(current_user.id, channel.slack_channel_id)
+
     return SourceRuleResponse.model_validate(rule)
 
 
@@ -424,7 +440,16 @@ async def remove_source_rule(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Rule not found",
         )
+    # Fetch the channel to get the Slack channel ID for cache invalidation
+    ch_repo = MonitoredChannelRepository(db)
+    channel = await ch_repo.get(channel_id)
+
     await repo.delete(rule)
+
+    # Invalidate ignore rules cache for this channel
+    if channel:
+        cache = TriageCacheService()
+        await cache.invalidate_ignore_rules(current_user.id, channel.slack_channel_id)
 
 
 # --- Available Slack Channels ---
