@@ -386,12 +386,24 @@ async def handle_message_event(
         # Channel message with no @mentions — nothing for focus mode to act on.
         # But still route to triage for monitored channels.
         try:
-            from app.services.triage_router import TriageEventRouter
+            from app.worker.scheduler import get_redis_pool
 
-            triage_router = TriageEventRouter(db)
-            await triage_router.route_event(event, authorizations)
+            pool = await get_redis_pool()
+            await pool.enqueue_job(
+                "prefilter_triage_message",
+                channel_id=channel_id,
+                channel_type=event.get("channel_type", "channel"),
+                sender_slack_id=sender_slack_id,
+                message_ts=event.get("ts", ""),
+                thread_ts=event.get("thread_ts"),
+                event_type=event.get("type", "message"),
+                bot_id=event.get("bot_id"),
+                subtype=event.get("subtype"),
+                authorizations=authorizations,
+                message_text=event.get("text", ""),  # Transition: passed to old pipeline
+            )
         except Exception:
-            logger.exception("Triage routing failed for channel message")
+            logger.exception("Failed to enqueue pre-filter job for channel message")
 
         sender_name = await _cached_slack_user_name(slack_service, sender_slack_id)
         channel_name = await _cached_slack_channel_name(slack_service, channel_id)
@@ -566,12 +578,24 @@ async def handle_message_event(
 
         # Route to triage (DMs and @mentions)
         try:
-            from app.services.triage_router import TriageEventRouter
+            from app.worker.scheduler import get_redis_pool
 
-            triage_router = TriageEventRouter(db)
-            await triage_router.route_event(event, authorizations)
+            pool = await get_redis_pool()
+            await pool.enqueue_job(
+                "prefilter_triage_message",
+                channel_id=channel_id,
+                channel_type=event.get("channel_type", "im" if channel_id.startswith("D") else "channel"),
+                sender_slack_id=sender_slack_id,
+                message_ts=event.get("ts", ""),
+                thread_ts=event.get("thread_ts"),
+                event_type=event.get("type", "message"),
+                bot_id=event.get("bot_id"),
+                subtype=event.get("subtype"),
+                authorizations=authorizations,
+                message_text=event.get("text", ""),  # Transition: passed to old pipeline
+            )
         except Exception:
-            logger.exception("Triage routing failed for DM/@mention")
+            logger.exception("Failed to enqueue pre-filter job for DM/@mention")
 
         # Not a bot DM — nothing more to do for user-token events
         if not has_bot_authorization:
