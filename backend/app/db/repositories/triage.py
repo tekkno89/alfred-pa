@@ -146,6 +146,22 @@ class ChannelSourceRuleRepository(BaseRepository[ChannelSourceRule]):
         )
         return result.scalar_one_or_none()
 
+    async def get_ignore_rules(
+        self, user_id: str, channel_id: str
+    ) -> list[ChannelSourceRule]:
+        """Get all ignore rules for a user+channel (by Slack channel ID)."""
+        result = await self.db.execute(
+            select(ChannelSourceRule)
+            .join(
+                MonitoredChannel,
+                ChannelSourceRule.monitored_channel_id == MonitoredChannel.id,
+            )
+            .where(MonitoredChannel.user_id == user_id)
+            .where(MonitoredChannel.slack_channel_id == channel_id)
+            .where(ChannelSourceRule.action == "ignore")
+        )
+        return list(result.scalars().all())
+
 
 class TriageClassificationRepository(BaseRepository[TriageClassification]):
     """Repository for TriageClassification CRUD operations."""
