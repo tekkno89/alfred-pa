@@ -172,6 +172,74 @@ async def process_triage_job(
         return {"status": "processed", "user_id": user_id}
 
 
+async def prefilter_triage_message(
+    ctx: dict,
+    channel_id: str,
+    channel_type: str,
+    sender_slack_id: str,
+    message_ts: str,
+    thread_ts: str | None = None,
+    event_type: str = "message",
+    bot_id: str | None = None,
+    subtype: str | None = None,
+    authorizations: list[dict] | None = None,
+    message_text: str = "",  # Passed during transition for old pipeline compatibility
+) -> dict:
+    """
+    Pre-filter a Slack message and fan out to per-user triage jobs.
+
+    Stage 2 of the agent-driven triage pipeline.
+    No message content is stored — only references are passed through.
+    """
+    from app.services.triage_prefilter import TriagePrefilter
+
+    async with get_db_session() as db:
+        prefilter = TriagePrefilter(db)
+        applicable_users = await prefilter.get_applicable_users(
+            channel_id=channel_id,
+            channel_type=channel_type,
+            sender_slack_id=sender_slack_id,
+            authorizations=authorizations,
+        )
+
+    if not applicable_users:
+        return {
+            "status": "no_applicable_users",
+            "channel_id": channel_id,
+            "message_ts": message_ts,
+        }
+
+    # Fan out: enqueue one triage job per applicable user
+    # During transition, we enqueue the existing process_triage_job
+    from app.worker.scheduler import get_redis_pool
+
+    pool = await get_redis_pool()
+    for user_id in applicable_users:
+        await pool.enqueue_job(
+            "process_triage_job",
+            user_id=user_id,
+            event_type=event_type,
+            channel_id=channel_id,
+            sender_slack_id=sender_slack_id,
+            message_ts=message_ts,
+            thread_ts=thread_ts,
+            message_text=message_text,  # Passed through for old pipeline; removed in Plan 2
+            bot_id=bot_id,
+        )
+
+    logger.info(
+        f"Pre-filter: message {message_ts} in {channel_id} "
+        f"queued for {len(applicable_users)} users"
+    )
+
+    return {
+        "status": "queued",
+        "channel_id": channel_id,
+        "message_ts": message_ts,
+        "user_count": len(applicable_users),
+    }
+
+
 async def cleanup_expired_classifications(ctx: dict) -> dict:
     """
     Cron job: delete triage classifications older than the user's retention period.
