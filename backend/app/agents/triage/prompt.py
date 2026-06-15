@@ -148,12 +148,13 @@ Ask yourself: "What does the user need to DO about this message?"
 ## Terminal Actions
 
 After classification, you MUST call exactly one of these action tools:
-- `classify_and_notify` — for P0/P1 messages that need notification
-- `classify_and_queue` — for P2 messages to batch for digest
-- `classify_and_skip` — for P3 messages (if configured) or messages to ignore
-- `mark_needs_review` — when you genuinely cannot determine the priority
+- `alert_now` — for P0 messages that need immediate notification via Slack DM
+- `queue_for_digest` — for P1, P2, or P3 messages to be delivered later
 
-Do NOT output a text response. Your only output is the tool call for the action.
+If the message is related to an already-queued message, call `link_messages` first
+to group them, then call `queue_for_digest`.
+
+Do NOT output a text response. Your only output is the tool call(s) for the action.
 """
 
 
