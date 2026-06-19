@@ -66,6 +66,9 @@ class TriageUserSettings(Base, UUIDMixin, TimestampMixin):
     p1_max_wait_minutes: Mapped[int] = mapped_column(Integer, default=60, server_default="60")
     p1_settled_threshold_minutes: Mapped[int] = mapped_column(Integer, default=30, server_default="30")
 
+    # --- Feature flag for agent-driven triage ---
+    use_agent_triage: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
     # Relationships
     user: Mapped["User"] = relationship("User")
 

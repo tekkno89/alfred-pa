@@ -210,22 +210,41 @@ async def prefilter_triage_message(
         }
 
     # Fan out: enqueue one triage job per applicable user
-    # During transition, we enqueue the existing process_triage_job
+    # Route to agent or legacy pipeline based on per-user feature flag
     from app.worker.scheduler import get_redis_pool
 
     pool = await get_redis_pool()
-    for user_id in applicable_users:
-        await pool.enqueue_job(
-            "process_triage_job",
-            user_id=user_id,
-            event_type=event_type,
-            channel_id=channel_id,
-            sender_slack_id=sender_slack_id,
-            message_ts=message_ts,
-            thread_ts=thread_ts,
-            message_text=message_text,  # Passed through for old pipeline; removed in Plan 2
-            bot_id=bot_id,
-        )
+
+    async with get_db_session() as settings_db:
+        settings_repo = TriageUserSettingsRepository(settings_db)
+
+        for user_id in applicable_users:
+            settings = await settings_repo.get_by_user_id(user_id)
+            use_agent = settings.use_agent_triage if settings else False
+
+            if use_agent:
+                await pool.enqueue_job(
+                    "run_triage_agent",
+                    user_id=user_id,
+                    event_type=event_type,
+                    channel_id=channel_id,
+                    sender_slack_id=sender_slack_id,
+                    message_ts=message_ts,
+                    thread_ts=thread_ts,
+                    bot_id=bot_id,
+                )
+            else:
+                await pool.enqueue_job(
+                    "process_triage_job",
+                    user_id=user_id,
+                    event_type=event_type,
+                    channel_id=channel_id,
+                    sender_slack_id=sender_slack_id,
+                    message_ts=message_ts,
+                    thread_ts=thread_ts,
+                    message_text=message_text,
+                    bot_id=bot_id,
+                )
 
     logger.info(
         f"Pre-filter: message {message_ts} in {channel_id} "
@@ -238,6 +257,88 @@ async def prefilter_triage_message(
         "message_ts": message_ts,
         "user_count": len(applicable_users),
     }
+
+
+async def run_triage_agent(
+    ctx: dict,
+    user_id: str,
+    event_type: str,
+    channel_id: str,
+    sender_slack_id: str,
+    message_ts: str,
+    thread_ts: str | None = None,
+    bot_id: str | None = None,
+) -> dict:
+    """Run the triage agent to classify a message.
+
+    This replaces process_triage_job for users with use_agent_triage=True.
+    """
+    from app.agents.triage.agent import TriageAgent
+
+    async with get_db_session() as db:
+        settings_repo = TriageUserSettingsRepository(db)
+        settings = await settings_repo.get_by_user_id(user_id)
+
+        agent = TriageAgent(db)
+        result = await agent.classify(
+            user_id=user_id,
+            channel_id=channel_id,
+            message_ts=message_ts,
+            sender_slack_id=sender_slack_id,
+            event_type=event_type,
+            thread_ts=thread_ts,
+            bot_id=bot_id,
+            sensitivity=settings.sensitivity if settings else "medium",
+            custom_rules=settings.custom_classification_rules if settings else None,
+            p0_definition=settings.p0_definition if settings else None,
+            p1_definition=settings.p1_definition if settings else None,
+            p2_definition=settings.p2_definition if settings else None,
+            p3_definition=settings.p3_definition if settings else None,
+            p1_max_wait_minutes=settings.p1_max_wait_minutes if settings else 60,
+            p1_settled_threshold_minutes=settings.p1_settled_threshold_minutes if settings else 30,
+            eod_review_time=settings.eod_review_time if settings else "17:30",
+        )
+
+        if result.get("error") and not result.get("action_taken"):
+            retry_count = ctx.get("job_try", 1)
+            if retry_count >= 3:
+                from app.db.models.triage import TriageClassification
+                from app.db.repositories.triage import TriageClassificationRepository
+
+                repo = TriageClassificationRepository(db)
+                classification = TriageClassification(
+                    user_id=user_id,
+                    sender_slack_id=sender_slack_id,
+                    channel_id=channel_id,
+                    message_ts=message_ts,
+                    thread_ts=thread_ts,
+                    action="summarize_eod",
+                    confidence=0.0,
+                    classification_reason=f"Agent failed after {retry_count} retries: {result['error']}",
+                    abstract="Message pending review (agent classification failed)",
+                    classification_path=event_type,
+                    queued_for_digest=True,
+                    needs_review=True,
+                    retry_count=retry_count,
+                )
+                await repo.create(classification)
+                await db.commit()
+                logger.error(f"Triage agent failed after {retry_count} retries for user {user_id}: {result['error']}")
+                return {"status": "fallback", "error": result["error"]}
+            else:
+                raise Exception(f"Triage agent failed (attempt {retry_count}): {result['error']}")
+
+        await db.commit()
+        logger.info(
+            f"Triage agent classified message {message_ts} for user {user_id}: "
+            f"action={result.get('action_taken')}, tools={result.get('tool_call_count')}"
+        )
+        return {
+            "status": "classified",
+            "action_taken": result.get("action_taken"),
+            "classification_id": result.get("classification_id"),
+            "tool_iterations": result.get("tool_iterations"),
+        }
 
 
 async def cleanup_expired_classifications(ctx: dict) -> dict:
