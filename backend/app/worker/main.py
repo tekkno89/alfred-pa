@@ -7,6 +7,7 @@ from arq.connections import RedisSettings
 
 from app.core.config import get_settings
 from app.worker.tasks import (
+    check_delivery_readiness,
     check_delivery_triggers,
     check_due_todo_reminders,
     check_escalations,
@@ -19,6 +20,7 @@ from app.worker.tasks import (
     prefilter_triage_message,
     process_triage_job,
     refresh_slack_channel_cache,
+    run_digest_agent,
     run_triage_agent,
     send_digest,
     send_todo_reminder,
@@ -101,8 +103,10 @@ class WorkerSettings:
         cleanup_slack_message_cache,
         check_escalations,
         check_delivery_triggers,
+        check_delivery_readiness,
         deliver_eod_digests,
         degrade_stale_notify_now,
+        run_digest_agent,
     ]
 
     # Cron jobs (optional - for periodic cleanup as backup)
@@ -149,6 +153,10 @@ class WorkerSettings:
         cron(
             check_delivery_triggers,
             minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},  # Every 5 minutes
+        ),
+        cron(
+            check_delivery_readiness,
+            minute={0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45, 48, 51, 54, 57},  # Every 3 minutes
         ),
         cron(
             deliver_eod_digests,

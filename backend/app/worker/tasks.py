@@ -954,6 +954,143 @@ async def check_delivery_triggers(ctx: dict) -> dict:
     }
 
 
+async def check_delivery_readiness(ctx: dict) -> dict:
+    """Check if any message groups are ready for delivery (agent-driven triage only).
+
+    Runs every 3 minutes. For users with use_agent_triage=True:
+    - Checks P1 groups for settle/TTL readiness
+    - Checks EOD time for P2 digest delivery
+    - Dispatches digest subagent for ready batches
+    """
+    from app.services.delivery_checker import DeliveryChecker
+    from app.worker.scheduler import get_redis_pool
+
+    async with get_db_session() as db:
+        checker = DeliveryChecker(db)
+        settings_repo = TriageUserSettingsRepository(db)
+        pool = await get_redis_pool()
+
+        # Check P1 groups
+        users_with_p1 = await checker.get_users_with_queued_p1()
+        p1_dispatched = 0
+
+        for user_id in users_with_p1:
+            settings = await settings_repo.get_by_user_id(user_id)
+            if not settings or not settings.use_agent_triage:
+                continue
+
+            ready_groups = await checker.get_ready_p1_groups(user_id)
+            if ready_groups:
+                await pool.enqueue_job(
+                    "run_digest_agent",
+                    user_id=user_id,
+                    digest_type="p1",
+                    group_data=ready_groups,
+                    p3_count=0,
+                )
+                p1_dispatched += 1
+
+        # Check EOD digests
+        eod_dispatched = 0
+        all_settings = await settings_repo.get_all_always_on()
+
+        for settings in all_settings:
+            if not settings.use_agent_triage:
+                continue
+            if not settings.eod_review_time:
+                continue
+
+            try:
+                from app.services.timezone import get_current_time_in_tz, get_user_timezone
+
+                user_tz = await get_user_timezone(db, str(settings.user_id))
+                current_time = get_current_time_in_tz(user_tz)
+                current_hhmm = current_time.strftime("%H:%M")
+
+                if checker.is_eod_time(settings.eod_review_time, current_hhmm):
+                    p2_messages = await checker.get_queued_p2_messages(str(settings.user_id))
+                    p3_count = await checker.count_p3_messages(str(settings.user_id))
+
+                    if p2_messages or p3_count > 0:
+                        p2_groups = []
+                        for msg in p2_messages:
+                            p2_groups.append({
+                                "group_id": msg.group_id or str(msg.id),
+                                "message_ids": [str(msg.id)],
+                            })
+
+                        await pool.enqueue_job(
+                            "run_digest_agent",
+                            user_id=str(settings.user_id),
+                            digest_type="eod",
+                            group_data=p2_groups,
+                            p3_count=p3_count,
+                        )
+                        eod_dispatched += 1
+            except Exception:
+                logger.exception(f"Error checking EOD for user {settings.user_id}")
+
+    logger.info(f"Delivery readiness check: p1={p1_dispatched}, eod={eod_dispatched}")
+    return {"p1_dispatched": p1_dispatched, "eod_dispatched": eod_dispatched}
+
+
+async def run_digest_agent(
+    ctx: dict,
+    user_id: str,
+    digest_type: str,
+    group_data: list[dict],
+    p3_count: int = 0,
+) -> dict:
+    """Run the digest subagent to compose and deliver a digest."""
+    from app.agents.digest.agent import DigestAgent
+    from app.db.repositories.triage import TriageClassificationRepository
+
+    async with get_db_session() as db:
+        repo = TriageClassificationRepository(db)
+
+        # Hydrate groups with message data from DB
+        groups = []
+        for group in group_data:
+            messages = []
+            for msg_id in group["message_ids"]:
+                item = await repo.get(msg_id)
+                if item:
+                    messages.append({
+                        "id": str(item.id),
+                        "sender_name": item.sender_name or "",
+                        "channel_name": item.channel_name or "",
+                        "abstract": item.abstract or "",
+                        "action": item.action,
+                        "message_ts": item.message_ts,
+                        "thread_ts": item.thread_ts,
+                        "slack_permalink": item.slack_permalink or "",
+                    })
+            if messages:
+                groups.append({
+                    "group_id": group["group_id"],
+                    "messages": messages,
+                })
+
+        if not groups:
+            return {"status": "no_messages"}
+
+        agent = DigestAgent(db)
+        result = await agent.compose_and_deliver(
+            user_id=user_id,
+            digest_type=digest_type,
+            groups=groups,
+            p3_count=p3_count,
+        )
+
+        await db.commit()
+
+        logger.info(
+            f"Digest agent completed for user {user_id}: "
+            f"type={digest_type}, sent={result.get('digest_sent')}"
+        )
+        return result
+
+
 async def deliver_eod_digests(ctx: dict) -> dict:
     """
     Cron job: Deliver EOD digests at configured times.
