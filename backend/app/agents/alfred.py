@@ -30,7 +30,12 @@ class AlfredAgent:
         todo_context: dict | None = None,
     ):
         self.db = db
-        self.llm_provider = llm_provider or get_llm_provider()
+        from app.core.config import get_settings
+
+        _settings = get_settings()
+        self.llm_provider = llm_provider or get_llm_provider(
+            location=_settings.agent_vertex_location or _settings.vertex_location,
+        )
         self.tool_registry = tool_registry or get_tool_registry()
         self.timezone = timezone
         self.todo_context = todo_context

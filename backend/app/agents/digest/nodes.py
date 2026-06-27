@@ -92,7 +92,7 @@ async def llm_node(state: DigestAgentState, config: RunnableConfig) -> dict[str,
     settings = get_settings()
     provider = get_llm_provider(
         settings.triage_classification_model,
-        location=settings.triage_vertex_location or None,
+        location=settings.digest_vertex_location or settings.triage_vertex_location or settings.vertex_location,
     )
 
     tool_defs = tool_registry.get_definitions()

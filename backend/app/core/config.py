@@ -116,11 +116,13 @@ class Settings(BaseSettings):
     google_calendar_oauth_redirect_uri: str = ""
     google_calendar_webhook_url: str = ""  # Public URL for push notifications
 
+    # Per-agent Vertex AI location overrides (empty = use vertex_location default)
+    agent_vertex_location: str = ""   # Alfred chat agent
+    triage_vertex_location: str = ""  # Triage agent, wizard, delivery
+    digest_vertex_location: str = ""  # Digest subagent
+
     # Triage
     triage_classification_model: str = "gemini-2.5-flash"
-    triage_vertex_location: str = (
-        ""  # override VERTEX_LOCATION for triage (e.g. "us-central1")
-    )
 
     # Sandbox orchestrator (for docker_sandbox runtime)
     sandbox_url: str = "http://alfred-sandbox:8080"
