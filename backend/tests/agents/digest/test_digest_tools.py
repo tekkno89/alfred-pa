@@ -46,12 +46,9 @@ class TestDigestFetchThreadToolExecute:
                 {"user": "U2", "text": "Reply", "ts": "111.001"},
             ],
         }
-        mock_service = MagicMock()
-        mock_service.client = mock_client
-
         with patch(
-            "app.agents.digest.tools.fetch_thread.get_slack_service",
-            return_value=mock_service,
+            "app.services.slack_channel_client.SlackChannelClient.for_user",
+            return_value=mock_client,
         ):
             result = await tool.execute(
                 context=context, channel_id="C001", thread_ts="111.000"
@@ -66,12 +63,9 @@ class TestDigestFetchThreadToolExecute:
     async def test_error_handling(self, tool, context):
         mock_client = AsyncMock()
         mock_client.conversations_replies.side_effect = Exception("Thread error")
-        mock_service = MagicMock()
-        mock_service.client = mock_client
-
         with patch(
-            "app.agents.digest.tools.fetch_thread.get_slack_service",
-            return_value=mock_service,
+            "app.services.slack_channel_client.SlackChannelClient.for_user",
+            return_value=mock_client,
         ):
             result = await tool.execute(
                 context=context, channel_id="C001", thread_ts="111.000"
@@ -138,12 +132,9 @@ class TestDigestFetchChannelHistoryToolExecute:
                 },
             ],
         }
-        mock_service = MagicMock()
-        mock_service.client = mock_client
-
         with patch(
-            "app.agents.digest.tools.fetch_channel_history.get_slack_service",
-            return_value=mock_service,
+            "app.services.slack_channel_client.SlackChannelClient.for_user",
+            return_value=mock_client,
         ):
             result = await tool.execute(context=context, channel_id="C001")
 
@@ -156,12 +147,9 @@ class TestDigestFetchChannelHistoryToolExecute:
     async def test_error_handling(self, tool, context):
         mock_client = AsyncMock()
         mock_client.conversations_history.side_effect = Exception("Channel error")
-        mock_service = MagicMock()
-        mock_service.client = mock_client
-
         with patch(
-            "app.agents.digest.tools.fetch_channel_history.get_slack_service",
-            return_value=mock_service,
+            "app.services.slack_channel_client.SlackChannelClient.for_user",
+            return_value=mock_client,
         ):
             result = await tool.execute(context=context, channel_id="C001")
 

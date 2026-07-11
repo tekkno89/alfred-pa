@@ -4,7 +4,6 @@ import json
 import logging
 from typing import Any
 
-from app.services.slack import get_slack_service
 from app.tools.base import BaseTool, ToolContext
 
 logger = logging.getLogger(__name__)
@@ -42,8 +41,10 @@ class DigestFetchThreadTool(BaseTool):
         limit: int = kwargs.get("limit", 10)
 
         try:
-            slack = get_slack_service()
-            resp = await slack.client.conversations_replies(
+            from app.services.slack_channel_client import SlackChannelClient
+
+            client = await SlackChannelClient.for_user(context["db"], context["user_id"])
+            resp = await client.conversations_replies(
                 channel=channel_id,
                 ts=thread_ts,
                 limit=limit,

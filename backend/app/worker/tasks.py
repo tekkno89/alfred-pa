@@ -299,9 +299,16 @@ async def run_triage_agent(
             eod_review_time=settings.eod_review_time if settings else "17:30",
         )
 
-        if result.get("error") and not result.get("action_taken"):
+        # Check for failure: explicit error OR no action taken
+        agent_failed = result.get("error") and not result.get("action_taken")
+        no_action = not result.get("action_taken") and not result.get("error")
+
+        if agent_failed or no_action:
             retry_count = ctx.get("job_try", 1)
-            if retry_count >= 3:
+            failure_reason = result.get("error") or "Agent completed without taking an action"
+
+            if retry_count >= 3 or no_action:
+                # After 3 retries or if agent simply didn't act, create fallback
                 from app.db.models.triage import TriageClassification
                 from app.db.repositories.triage import TriageClassificationRepository
 
@@ -314,8 +321,8 @@ async def run_triage_agent(
                     thread_ts=thread_ts,
                     action="summarize_eod",
                     confidence=0.0,
-                    classification_reason=f"Agent failed after {retry_count} retries: {result['error']}",
-                    abstract="Message pending review (agent classification failed)",
+                    classification_reason=f"Agent fallback: {failure_reason}",
+                    abstract="Message pending review (agent classification incomplete)",
                     classification_path=event_type,
                     queued_for_digest=True,
                     needs_review=True,
@@ -323,10 +330,12 @@ async def run_triage_agent(
                 )
                 await repo.create(classification)
                 await db.commit()
-                logger.error(f"Triage agent failed after {retry_count} retries for user {user_id}: {result['error']}")
-                return {"status": "fallback", "error": result["error"]}
+                logger.warning(
+                    f"Triage agent fallback for user {user_id}, message {message_ts}: {failure_reason}"
+                )
+                return {"status": "fallback", "reason": failure_reason}
             else:
-                raise Exception(f"Triage agent failed (attempt {retry_count}): {result['error']}")
+                raise Exception(f"Triage agent failed (attempt {retry_count}): {failure_reason}")
 
         await db.commit()
         logger.info(
